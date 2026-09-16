@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "decisions": {
+    "read": "allow",
+    "draft": "allow",
+    "modify": "ask",
+    "send": "ask",
+    "destructive": "deny",
+    "unknown": "ask"
+  },
+  "send_validation": {
+    "require_subject": false,
+    "min_body_chars": 15,
+    "max_recipients": 8,
+    "recipient_allowlist": [],
+    "recipient_blocklist": ["(?i)noreply@", "(?i)no-reply@"],
+    "internal_domains": []
+  },
+  "loop_guard": {
+    "max_identical_calls_per_turn": 2,
+    "max_calls_per_turn": 25,
+    "max_same_tool_per_turn": 12,
+    "max_consecutive_failures": 3,
+    "max_calls_per_session": 400
+  },
+  "objective": {
+    "require_closing_report_when_tools_used": true
+  }
+}

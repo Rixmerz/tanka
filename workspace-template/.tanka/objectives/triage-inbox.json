@@ -1,0 +1,17 @@
+{
+  "id": "triage-inbox",
+  "title": "Triage del inbox",
+  "goal": "Clasificar los correos no leídos recientes en URGENTE/ACCIÓN/INFO/IGNORAR y presentar una tabla; preparar borradores para los URGENTE sin enviar nada",
+  "done_when": [
+    "Todos los no leídos del lote tienen categoría y confianza",
+    "Cada URGENTE tiene un borrador guardado (Gmail o .tanka/drafts/)",
+    "Se ha presentado la tabla resumen y el conteo por categoría"
+  ],
+  "allowed_tool_classes": ["read", "draft", "modify"],
+  "allowed_tools": [],
+  "may_send": false,
+  "recipient_allowlist": [],
+  "max_tool_calls": 30,
+  "status": "active",
+  "notes": "Plantilla. `tanka run --objective triage-inbox` la copia a .tanka/state/objective.json"
+}
