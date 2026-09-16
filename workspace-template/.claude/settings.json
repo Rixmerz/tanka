@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "haiku",
+  "enabledPlugins": {},
+  "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Bash",
+      "PowerShell",
+      "NotebookEdit",
+      "WebFetch",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/.env)",
+      "Read(**/.env.*)"
+    ],
+    "allow": [
+      "Read(./.tanka/**)",
+      "Write(./.tanka/state/**)",
+      "Write(./.tanka/drafts/**)",
+      "Write(./.tanka/persona.json)"
+    ]
+  },
+  "claudeMdExcludes": [
+    "**/.claude/CLAUDE.md"
+  ],
+  "env": {
+    "MAX_MCP_OUTPUT_TOKENS": "12000"
+  }
+}

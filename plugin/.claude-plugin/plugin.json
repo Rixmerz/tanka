@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "tanka",
+  "displayName": "Tanka — asistente Haiku con guardrails",
+  "version": "0.1.0",
+  "description": "Harness que convierte Claude Haiku en un asistente personal seguro: entorno limpio, política por clase de tool MCP, confirmación antes de enviar, anti-loop, objetivos con criterios de cierre y persona configurable.",
+  "author": {
+    "name": "Rixmerz",
+    "url": "https://github.com/Rixmerz/tanka"
+  },
+  "repository": "https://github.com/Rixmerz/tanka",
+  "license": "MIT",
+  "keywords": [
+    "haiku",
+    "assistant",
+    "guardrails",
+    "mcp",
+    "email",
+    "secretary"
+  ]
+}
