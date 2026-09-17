@@ -1,115 +1,119 @@
-# Tanka — de Haiku a un asistente delegable y seguro
+# Tanka — turning Haiku into an assistant you can delegate to
 
-Tanka es un **harness para Claude Code** (plugin + workspace limpio + launcher) que convierte Claude Haiku en un asistente personal capaz de redactar y enviar correos, contestar mensajes, clasificar bandejas y usar servidores MCP **sin** los fallos típicos del modelo pequeño: loops, acciones sin confirmar, resultados inventados, reglas olvidadas y degradación por exceso de tools.
+Tanka is a **Claude Code harness** (plugin + clean workspace + launcher) that lets Claude Haiku act as a personal assistant: drafting and sending email, replying to messages, triaging inboxes and driving MCP servers, **without** the failure modes a small model is prone to — loops, unconfirmed actions, invented results, forgotten rules and degradation from too many tools.
 
-No modifica el modelo: controla el entorno. Las reglas importantes viven en hooks que deniegan o piden confirmación, no en el prompt.
+It does not change the model. It changes the environment the model runs in. The rules that matter are enforced by hooks that deny or ask for confirmation, not by the prompt — the prompt is exactly what Haiku loses as context grows.
 
-- Investigación (documentación oficial, issues, foros): [`docs/research/`](docs/research/)
-- Arquitectura y mapa limitación → mitigación: [`docs/architecture.md`](docs/architecture.md)
+- Research behind it (official docs, GitHub issues, forums): [`docs/research/`](docs/research/) *(in Spanish)*
+- Architecture and the limitation → mitigation map: [`docs/architecture.md`](docs/architecture.md) *(in Spanish)*
 
-## Qué incluye
+## What's in the box
 
-| Pieza | Ruta | Función |
-|---|---|---|
-| Plugin `tanka` | `plugin/` | Hooks (política, validación de envíos, anti-loop, objetivo, cierre verificado), skills (`setup`, `plan`, `draft`, `triage`, `status`), agente `tanka-verifier`, output style con el rol fijo. |
-| Plantilla de workspace | `workspace-template/` | Directorio limpio con `.tanka/` (persona, política, MCP, objetivos) y `.claude/settings.json` restrictivo. |
-| Launcher | `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`. Arranca Claude Code aislado: sin settings de usuario, sin MCP ajenos, sin otros plugins. |
-| Tests | `tests/` | 38 tests de hooks con entradas simuladas + servidor MCP falso para pruebas end-to-end. |
+| Piece | Purpose |
+|---|---|
+| `plugin/` | Hooks (per-class MCP tool policy, outgoing-message validation, loop guard, objectives, verified closure), skills (`setup`, `plan`, `draft`, `triage`, `status`), the `tanka-verifier` agent, and an output style that pins the assistant role. |
+| `workspace-template/` | A clean directory with `.tanka/` (persona, policy, MCP allowlist, objectives) and a restrictive `.claude/settings.json`. |
+| `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins. |
+| `tests/` | 38 hook tests driven by simulated hook input, plus a fake MCP server for end-to-end runs. |
 
-## Requisitos
+## Requirements
 
-- Claude Code ≥ 2.1 (`claude --version`), con sesión iniciada.
-- `python3` (los hooks no usan dependencias externas).
-- Linux/macOS/WSL. Bash para el launcher.
+- Claude Code 2.1 or newer (`claude --version`), signed in.
+- `python3` — the hooks use only the standard library.
+- Linux, macOS or WSL. Bash for the launcher.
 
-## Instalación rápida
+## Quick start
 
 ```bash
 git clone https://github.com/Rixmerz/tanka
 export PATH="$PWD/tanka/bin:$PATH"
 
-tanka init ~/tanka-workspace        # crea el directorio limpio
-tanka start ~/tanka-workspace       # sesión interactiva con Haiku aislado
+tanka init ~/tanka-workspace        # create the clean workspace
+tanka start ~/tanka-workspace       # interactive session, Haiku, isolated
 ```
 
-Dentro de la sesión:
+Inside the session:
 
 ```
-/tanka:setup Kira                   # nombre, personalidad, idioma, firma…
-/tanka:status                       # qué hay habilitado y qué está permitido
-/tanka:plan encárgate de …          # objetivo con criterios de hecho antes de actuar
-/tanka:draft responde a Ana …       # borrador → verificación → confirmación → envío
-/tanka:triage revisa mi bandeja     # clasificación con rúbrica y confianza
+/tanka:setup Kira                   # name, personality, language, signature…
+/tanka:status                       # what is enabled and what is allowed
+/tanka:plan take care of …          # objective with done-criteria before acting
+/tanka:draft reply to Ana …         # draft → verify → confirm → send
+/tanka:triage go through my inbox   # rubric-based classification with confidence
 ```
 
-La primera vez que arranques en el workspace, acepta el diálogo de confianza del directorio: sin él, Claude Code ignora las reglas `permissions.allow` del proyecto.
+The first time you start in the workspace, accept Claude Code's directory trust dialog. Without it, the project's `permissions.allow` rules are ignored.
 
-### Habilitar solo lo necesario
+### Enable only what you need
 
-1. **MCP**: edita `~/tanka-workspace/.tanka/mcp.json` y añade únicamente los servidores de la tarea (ver `mcp.example.json`). El launcher usa `--strict-mcp-config`, así que nada más se carga. Con Haiku, más de ~3 servidores o ~15 tools degrada la elección de tool; el `SessionStart` avisa.
-2. **Skills propias**: copia solo skills de asistencia (redacción, procesos, clasificación) a `~/tanka-workspace/.claude/skills/<nombre>/SKILL.md`. Las de `~/.claude/skills` no se cargan.
-3. **Plugins**: ninguno salvo Tanka. `--setting-sources project,local` deja fuera los plugins habilitados en tu usuario.
+1. **MCP servers**: edit `~/tanka-workspace/.tanka/mcp.json` and add only what the task requires (see `mcp.example.json`). The launcher passes `--strict-mcp-config`, so nothing else loads. With Haiku, more than ~3 servers or ~15 tools degrades tool selection; the `SessionStart` hook warns you.
+2. **Your own skills**: copy assistant-type skills (writing, classification, processes) to `~/tanka-workspace/.claude/skills/<name>/SKILL.md`. Skills in `~/.claude/skills` are not loaded.
+3. **Plugins**: none except Tanka. `--setting-sources project,local` leaves your user-level plugins out.
 
-### Persona y formato
+### Persona and format
 
-`.tanka/persona.json` (o `/tanka:setup`): `name`, `user_name`, `language`, `tone`, `personality`, `output_format`, `signature`, `timezone`, `notes`. El rol de asistente y los invariantes de seguridad no se editan desde ahí: están en `plugin/output-styles/tanka.md` y en los hooks.
+`.tanka/persona.json` (or `/tanka:setup`): `name`, `user_name`, `language`, `tone`, `personality`, `output_format`, `signature`, `timezone`, `notes`. The assistant role and the safety invariants are not editable from there — they live in `plugin/output-styles/tanka.md` and in the hooks.
 
-### Política
+### Policy
 
-`.tanka/policy.json` sobreescribe parcialmente los valores por defecto de `plugin/scripts/tanka_common.py`:
+`.tanka/policy.json` partially overrides the defaults in `plugin/scripts/tanka_common.py`:
 
 ```json
 {
   "decisions": { "read": "allow", "draft": "allow", "modify": "ask", "send": "ask", "destructive": "deny", "unknown": "ask" },
-  "send_validation": { "recipient_allowlist": ["@miempresa\\.com$"], "internal_domains": ["miempresa.com"] },
+  "send_validation": { "recipient_allowlist": ["@mycompany\\.com$"], "internal_domains": ["mycompany.com"] },
   "loop_guard": { "max_identical_calls_per_turn": 2, "max_calls_per_turn": 25, "max_consecutive_failures": 3 }
 }
 ```
 
-Los tools MCP se clasifican por nombre (`mcp__<servidor>__<tool>`): `delete|trash|remove…` → destructivo (siempre denegado), `send|reply|forward|post|share…` → envío (validado y con confirmación), `label|archive|update|move…` → modificación (confirmación), `get|list|search|read…` → lectura (libre). Lo que no encaja es `unknown` → confirmación. Ajusta `tool_classes` si tu servidor usa otros nombres.
+MCP tools are classified by name (`mcp__<server>__<tool>`): `delete|trash|remove…` → destructive (always denied), `send|reply|forward|post|share…` → send (validated, then confirmed), `label|archive|update|move…` → modify (confirmed), `get|list|search|read…` → read (free). Anything else is `unknown` → confirmed. Adjust `tool_classes` if your server uses different naming.
 
-### Tareas delegadas sin humano
+### Delegated tasks, no human in the loop
 
 ```bash
-tanka run "Clasifica los correos no leídos de hoy y deja borradores para los urgentes" \
+tanka run "Triage today's unread mail and leave drafts for the urgent ones" \
   ~/tanka-workspace --objective triage-inbox --max-turns 20 --budget 0.50
 ```
 
-Modo fail-closed: todo lo que pediría confirmación se deniega, `may_send` se fuerza a `false`, y hay tope de turnos y de gasto. Puede leer, clasificar y dejar borradores; nunca enviar ni borrar.
+Fail-closed mode: anything that would ask for confirmation is denied, `may_send` is forced to `false`, and both turns and spend are capped. It can read, classify and leave drafts; it can never send or delete.
 
-## Cómo mitiga cada limitación de Haiku
+## How it mitigates each Haiku limitation
 
-| Limitación observada | Mecanismo |
+| Observed limitation | Mechanism |
 |---|---|
-| Repite la misma llamada aunque el tool le diga que ya está hecha | `PreToolUse` deniega la 3ª llamada idéntica del turno; tope de acciones por turno/sesión; 3 fallos seguidos → parar |
-| Inventa parámetros (destinatario, fecha) en vez de preguntar | Validación de envíos: placeholders, cuerpo mínimo, secretos, destinatarios bloqueados/allowlist |
-| Afirma «enviado» sin haber llamado al tool | `Stop` hook bloquea el cierre sin `tool_result` exitoso de esa clase |
-| Olvida reglas en conversaciones largas | Reglas duras reinyectadas cada turno; objetivo persistido en fichero; output style forzado |
-| Se degrada con muchos tools / 200K sin compaction | Workspace limpio, `--strict-mcp-config`, aviso >3 servidores, `MAX_MCP_OUTPUT_TOKENS` bajo |
-| Actúa de más (commits, envíos, borrados) | `send`/`modify` → confirmación; `destructive` → denegado; `may_send` por objetivo |
-| Obedece instrucciones incrustadas en correos | Contenido externo = datos (rol) y ninguna acción irreversible sin humano |
+| Repeats a call even after the tool says it is already done | `PreToolUse` denies the third identical call in a turn; per-turn and per-session action budgets; three consecutive failures stop the retry |
+| Invents parameters (recipient, date) instead of asking | Outgoing-message validation: placeholders, minimum body, secrets, blocked or non-allowlisted recipients |
+| Claims "sent" without having called the tool | The `Stop` hook blocks closure without a successful `tool_result` of that class |
+| Forgets rules in long conversations | Hard rules re-injected every turn; objective persisted to a file; forced output style |
+| Degrades with many tools / 200K without compaction | Clean workspace, `--strict-mcp-config`, warning above 3 servers, low `MAX_MCP_OUTPUT_TOKENS` |
+| Overreaches (commits, sends, deletes) | `send` and `modify` require confirmation; `destructive` is denied; `may_send` per objective |
+| Follows instructions embedded in email | External content is treated as data, and no irreversible action is possible without a human |
 
-## Desarrollo
+## Development
 
 ```bash
-tanka test                          # 38 tests de hooks
+tanka test                          # 38 hook tests
 claude plugin validate plugin --strict
 tanka doctor ~/tanka-workspace
 ```
 
-Prueba end-to-end con un buzón simulado (`tests/fake_mcp_server.py`): ver `docs/architecture.md` § Modo delegado y `tests/README.md`.
+End-to-end runs against a simulated mailbox (`tests/fake_mcp_server.py`) are described in [`tests/README.md`](tests/README.md).
 
-## Instalar como plugin (alternativa al launcher)
+## Installing as a plugin (instead of the launcher)
 
 ```bash
 claude plugin marketplace add Rixmerz/tanka
 claude plugin install tanka@tanka --scope project
 ```
 
-Sin el launcher solo actúa la segunda capa de aislamiento (settings del proyecto); los MCP y plugins de tu usuario seguirán cargándose.
+Without the launcher only the second isolation layer applies (project settings); your user-level MCP servers and plugins still load.
 
-## Limitaciones conocidas
+## Known limitations
 
-- No hace a Haiku más capaz en planificación abierta. `TANKA_MODEL=sonnet tanka start` cambia el modelo sin tocar nada más.
-- La clasificación por nombre de tool es heurística; revisa `tool_classes` para servidores con nombres opacos.
-- Las skills no pueden usar inyección dinámica con `` !`comando` `` porque Bash está denegado; usan Read.
+- It does not make Haiku better at open-ended planning. `TANKA_MODEL=sonnet tanka start` swaps the driver model without changing anything else.
+- Tool classification by name is a heuristic; review `tool_classes` for servers with opaque names.
+- Skills cannot use dynamic `` !`command` `` injection, because Bash is denied; they use `Read` instead.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
