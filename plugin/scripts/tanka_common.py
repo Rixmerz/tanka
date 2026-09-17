@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Utilidades compartidas por los hooks de Tanka.
+"""Shared helpers for the Tanka hooks.
 
-Solo biblioteca estándar. Cada hook lee JSON por stdin, consulta el estado del
-workspace (.tanka/) y escribe JSON por stdout. Ningún hook debe lanzar
-excepciones no controladas: un fallo del harness nunca debe tumbar la sesión,
-pero tampoco debe abrir la puerta a acciones peligrosas (fail-closed para
-tools de escritura, fail-open para lectura).
+Standard library only. Every hook reads a JSON event on stdin, consults the
+workspace state under `.tanka/`, and writes a JSON decision on stdout. No hook
+may raise: a broken harness must never take the session down, but it must not
+open the door to risky actions either — fail closed for writes and for MCP
+tools, fail open for reads.
+
+All harness text is English. The assistant speaks whatever language the user
+picked in `.tanka/persona.json`; the hooks tell it what to do, the model does
+the talking.
 """
 from __future__ import annotations
 
@@ -27,13 +31,13 @@ POLICY_FILE = "policy.json"
 MCP_FILE = "mcp.json"
 
 # --------------------------------------------------------------------------- #
-# Política por defecto. El usuario la sobreescribe parcialmente en
-# .tanka/policy.json (deep merge). Todo lo que no esté aquí no existe.
+# Default policy. The user overrides parts of it in .tanka/policy.json (deep
+# merge). Anything not described here does not exist.
 # --------------------------------------------------------------------------- #
 DEFAULT_POLICY: dict = {
     "version": 1,
-    # Clasificación de tools MCP por nombre. Se evalúa en orden; la primera
-    # clase cuyo patrón coincide gana. "unknown" si nada coincide.
+    # MCP tools are classified by name. Classes are tried in order and the
+    # first pattern that matches wins; anything unmatched is "unknown".
     "tool_classes": {
         "destructive": [
             r"mcp__.*__(delete|trash|remove|purge|revoke|destroy|wipe|drop|clear)[a-z0-9_]*",
@@ -53,7 +57,7 @@ DEFAULT_POLICY: dict = {
             r"mcp__.*__(get|list|search|read|fetch|find|download|query|describe|show|view|count|check|lookup|preview|export|resolve|batch_get|batch_list)[a-z0-9_]*",
         ],
     },
-    # Decisión por clase: allow | ask | deny
+    # Decision per class: allow | ask | deny
     "decisions": {
         "read": "allow",
         "draft": "allow",
@@ -62,11 +66,11 @@ DEFAULT_POLICY: dict = {
         "destructive": "deny",
         "unknown": "ask",
     },
-    # Tools built-in de Claude Code
+    # Claude Code's built-in tools
     "builtin": {
-        # Siempre denegados (el rol es asistente, no programador).
+        # Always denied: the role is assistant, not programmer.
         "deny": ["Bash", "PowerShell", "NotebookEdit", "REPL", "Computer"],
-        # Rutas (glob relativos al workspace) donde Write/Edit están permitidos.
+        # Paths (globs relative to the workspace) where Write/Edit are allowed.
         "write_allow_globs": [
             ".tanka/state/**",
             ".tanka/drafts/**",
@@ -75,7 +79,7 @@ DEFAULT_POLICY: dict = {
             "notes/**",
         ],
     },
-    # Validaciones aplicadas al tool_input de tools clase "send".
+    # Validation applied to the tool_input of "send"-class tools.
     "send_validation": {
         "recipient_fields": ["to", "cc", "bcc", "recipients", "recipient", "email", "emails", "attendees", "channel", "user", "users", "phone", "number"],
         "subject_fields": ["subject", "title"],
@@ -99,11 +103,12 @@ DEFAULT_POLICY: dict = {
             r"\bgh[pousr]_[A-Za-z0-9]{20,}\b",
             r"(?i)(password|contraseña)\s*[:=]\s*\S{6,}",
         ],
-        # Vacío = cualquier destinatario. Si se define, solo estos (regex).
+        # Empty = any recipient. If set, only these (regex).
         "recipient_allowlist": [],
-        # Siempre bloqueados (regex sobre cada destinatario).
+        # Always blocked (regex matched against each recipient).
         "recipient_blocklist": [r"(?i)noreply@", r"(?i)no-reply@", r"(?i)@example\.com$"],
-        # Dominios "externos" que fuerzan aviso en la razón de confirmación.
+        # Domains considered internal; anything else is flagged in the
+        # confirmation prompt as an external recipient.
         "internal_domains": [],
     },
     "loop_guard": {
@@ -115,48 +120,100 @@ DEFAULT_POLICY: dict = {
     },
     "objective": {
         "require_closing_report_when_tools_used": True,
-        "closing_report_regex": r"(?im)^\s*[*_`]*(estado|status)[*_`]*\s*:[*_`\s]*(completado|done|hecho|bloqueado|blocked|parcial|partial|necesita[ _]?(confirmaci[oó]n|usuario|input)|needs[ _]?(user|confirmation|input))",
-        # Frases que afirman haber realizado una acción con efectos externos.
+        # The canonical closing line is English ("Status: done"), but the check
+        # also accepts the equivalent in a few other languages so that an
+        # assistant working in the user's language is not blocked unfairly.
+        "closing_report_regex": r"(?im)^\s*[*_`]*(status|estado|état|etat|stato|statut)[*_`]*\s*:[*_`\s]*(done|completed?|finished|partial|blocked|needs?[\s_-]*(confirmation|user|input)|completado|hecho|parcial|bloqueado|necesita[\s_-]*(confirmaci[oó]n|usuario|input)|termin[ée]|bloqu[ée])",
+        # Phrases that claim an externally visible action was carried out.
+        # English and Spanish ship by default; add your language here if the
+        # assistant works in another one.
         "claim_patterns": {
             "send": [
-                r"(?i)\b(he |ya )?(enviad[oa]|envié|mandé|reenviad[oa]|reenvié|publiqué|publicad[oa]|contesté|respondí|respondid[oa])\b",
                 r"(?i)\b(i('ve| have)? |just )?(sent|forwarded|replied|posted|published|submitted)\b",
+                r"(?i)\b(he |ya )?(enviad[oa]|envi[ée]|mand[ée]|reenviad[oa]|reenvi[ée]|publiqu[ée]|publicad[oa]|contest[ée]|respond[íi]|respondid[oa])\b",
             ],
             "modify": [
-                r"(?i)\b(etiquetad[oa]|etiqueté|archivad[oa]|archivé|movid[oa]|moví|marcad[oa] como|marqué)\b",
                 r"(?i)\b(labeled|labelled|archived|moved to|marked as)\b",
+                r"(?i)\b(etiquetad[oa]|etiquet[ée]|archivad[oa]|archiv[ée]|movid[oa]|mov[íi]|marcad[oa] como|marqu[ée])\b",
             ],
             "destructive": [
-                r"(?i)\b(eliminad[oa]|eliminé|borrad[oa]|borré|deleted|trashed|removed)\b",
+                r"(?i)\b(deleted|trashed|removed)\b",
+                r"(?i)\b(eliminad[oa]|elimin[ée]|borrad[oa]|borr[ée])\b",
             ],
         },
     },
-    # Reglas duras reinyectadas en cada turno (cortas, imperativas).
+    # Hard rules re-injected on every turn. Short and imperative on purpose.
     "hard_rules": [
-        "Eres asistente, no programador: no escribes ni ejecutas código.",
-        "Nunca afirmes haber enviado, borrado o modificado algo sin un tool_result que lo confirme.",
-        "Antes de enviar cualquier mensaje: muestra el borrador completo y espera un 'sí' explícito del usuario.",
-        "Si falta un dato (destinatario, fecha, asunto, importe), pregunta; no lo inventes.",
-        "Si una acción falla dos veces, para y reporta; no la repitas.",
-        "Termina cada tarea con una línea `Estado: completado | parcial | bloqueado | necesita confirmación`.",
+        "You are an assistant, not a programmer: you do not write or run code.",
+        "Never claim you sent, deleted or changed anything without a tool result proving it.",
+        "Before sending any message: show the full draft and wait for an explicit yes.",
+        "If a detail is missing (recipient, date, subject, amount), ask. Do not invent it.",
+        "If an action fails twice, stop and report. Do not repeat it.",
+        "Close every task with a `Status: done | partial | blocked | needs-confirmation` line.",
     ],
 }
 
+# --------------------------------------------------------------------------- #
+# Persona
+# --------------------------------------------------------------------------- #
 DEFAULT_PERSONA: dict = {
+    "configured": False,
     "name": "Tanka",
     "user_name": "",
-    "language": "es",
-    "tone": "cercano, claro y profesional",
-    "personality": "Asistente ejecutivo: eficiente, ordenado, discreto. Prefiere preguntar a suponer.",
-    "output_format": "Respuestas cortas. Listas para opciones. Borradores en bloque de cita.",
+    "language": "",
+    "tone": "",
+    "personality": "",
+    "output_format": "",
     "signature": "",
     "timezone": "",
     "notes": "",
 }
 
+# Used for behaviour when the user has not set the field yet. These are
+# defaults, not answers: the field still counts as pending.
+PERSONA_FALLBACKS: dict = {
+    "tone": "warm, clear and professional",
+    "personality": "Executive assistant: efficient, organised, discreet. Prefers asking over assuming.",
+    "output_format": "Short answers. Lists for options. Drafts inside a quote block.",
+}
+
+# `language` is asked before anything else; everything here can be skipped at
+# setup time and filled in later, when it first matters.
+OPTIONAL_PERSONA_FIELDS = ["user_name", "tone", "personality", "output_format", "signature", "timezone", "notes"]
+
+# Why each pending field matters, so the assistant can ask at the right moment
+# instead of interrogating the user up front.
+PERSONA_FIELD_HINTS: dict = {
+    "user_name": "how to address the user",
+    "tone": "how outgoing messages should read",
+    "personality": "how you come across",
+    "output_format": "how answers should be laid out",
+    "signature": "needed before the first outgoing email is signed",
+    "timezone": "needed before scheduling anything or reading a date",
+    "notes": "priority people, recurring topics, things to avoid",
+}
+
+
+def persona_is_configured(persona: dict) -> bool:
+    return bool(persona.get("configured")) and bool(str(persona.get("language", "")).strip())
+
+
+def pending_persona_fields(persona: dict) -> list[str]:
+    """Optional fields the user has not filled in yet."""
+    return [f for f in OPTIONAL_PERSONA_FIELDS if not str(persona.get(f, "")).strip()]
+
+
+def effective_persona(persona: dict) -> dict:
+    """Persona with fallbacks applied, for rendering behaviour."""
+    out = copy.deepcopy(persona)
+    for k, v in PERSONA_FALLBACKS.items():
+        if not str(out.get(k, "")).strip():
+            out[k] = v
+    return out
+
 
 # --------------------------------------------------------------------------- #
-# E/S
+# I/O
 # --------------------------------------------------------------------------- #
 def read_input() -> dict:
     try:
@@ -174,7 +231,7 @@ def emit(obj: dict | None = None, exit_code: int = 0) -> None:
 
 
 def block_with_stderr(reason: str) -> None:
-    """Exit 2: el motivo va a Claude como error bloqueante (todos los eventos)."""
+    """Exit 2: the reason reaches Claude as a blocking error, on any event."""
     sys.stderr.write(reason)
     sys.stderr.flush()
     sys.exit(2)
@@ -198,7 +255,7 @@ def additional_context(event: str, text: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Rutas y ficheros
+# Paths and files
 # --------------------------------------------------------------------------- #
 def workspace_root(inp: dict | None = None) -> Path:
     env = os.environ.get("CLAUDE_PROJECT_DIR")
@@ -272,38 +329,38 @@ TOOL_CLASSES = {"read", "draft", "modify", "send", "destructive", "unknown"}
 
 
 def validate_objective(obj) -> list[str]:
-    """Devuelve lista de errores (vacía si es válido)."""
+    """Return a list of problems; empty means the objective is valid."""
     errs: list[str] = []
     if not isinstance(obj, dict):
-        return ["objective.json debe ser un objeto JSON"]
+        return ["objective.json must be a JSON object"]
     for k in OBJECTIVE_REQUIRED:
         if k not in obj:
-            errs.append(f"falta el campo obligatorio '{k}'")
+            errs.append(f"missing required field '{k}'")
     if "done_when" in obj and (not isinstance(obj["done_when"], list) or not obj["done_when"]):
-        errs.append("'done_when' debe ser una lista no vacía de criterios verificables")
+        errs.append("'done_when' must be a non-empty list of checkable criteria")
     if "allowed_tool_classes" in obj:
         atc = obj["allowed_tool_classes"]
         if not isinstance(atc, list):
-            errs.append("'allowed_tool_classes' debe ser una lista")
+            errs.append("'allowed_tool_classes' must be a list")
         else:
             bad = [c for c in atc if c not in TOOL_CLASSES]
             if bad:
-                errs.append(f"clases de tool desconocidas: {bad}; válidas: {sorted(TOOL_CLASSES)}")
+                errs.append(f"unknown tool classes: {bad}; valid ones: {sorted(TOOL_CLASSES)}")
             if "destructive" in atc:
-                errs.append("'destructive' no puede autorizarse desde un objetivo")
+                errs.append("'destructive' can never be authorised by an objective")
     if "status" in obj and obj["status"] not in OBJECTIVE_STATUSES:
-        errs.append(f"'status' inválido; válidos: {sorted(OBJECTIVE_STATUSES)}")
+        errs.append(f"invalid 'status'; valid ones: {sorted(OBJECTIVE_STATUSES)}")
     if "max_tool_calls" in obj:
         try:
             if int(obj["max_tool_calls"]) <= 0:
-                errs.append("'max_tool_calls' debe ser > 0")
+                errs.append("'max_tool_calls' must be greater than 0")
         except Exception:
-            errs.append("'max_tool_calls' debe ser un entero")
+            errs.append("'max_tool_calls' must be an integer")
     return errs
 
 
 # --------------------------------------------------------------------------- #
-# Estado de sesión (contadores anti-loop)
+# Session state (loop-guard counters)
 # --------------------------------------------------------------------------- #
 def _session_file(root: Path, session_id: str) -> Path:
     sid = re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "unknown")[:80]
@@ -328,7 +385,7 @@ def save_session(root: Path, st: dict) -> None:
 
 
 def ensure_turn(st: dict, prompt_id: str | None) -> None:
-    """Resetea contadores por turno cuando cambia prompt_id."""
+    """Reset the per-turn counters whenever prompt_id changes."""
     if prompt_id and st.get("turn", {}).get("prompt_id") != prompt_id:
         st["turn"] = {"calls": [], "prompt_id": prompt_id}
         st["current_prompt_id"] = prompt_id
@@ -371,7 +428,7 @@ def set_outcome(st: dict, tool_use_id: str | None, tool_name: str, tool_input, o
 
 
 # --------------------------------------------------------------------------- #
-# Clasificación de tools
+# Tool classification
 # --------------------------------------------------------------------------- #
 def classify_tool(tool_name: str, policy: dict) -> str:
     if not tool_name.startswith("mcp__"):
@@ -424,7 +481,7 @@ def path_allowed(root: Path, file_path: str, globs: list[str]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Validación de envíos
+# Outgoing-message validation
 # --------------------------------------------------------------------------- #
 def _flatten_strings(v, out: list[str], depth: int = 0) -> None:
     if depth > 6:
@@ -446,7 +503,7 @@ def _collect(tool_input: dict, fields: list[str]) -> list[str]:
     for k, v in tool_input.items():
         if k.lower() in fields:
             _flatten_strings(v, found)
-    # un nivel anidado (p.ej. {"message": {"to": ..., "body": ...}})
+    # one nested level, e.g. {"message": {"to": ..., "body": ...}}
     for v in tool_input.values():
         if isinstance(v, dict):
             for k2, v2 in v.items():
@@ -465,8 +522,15 @@ def split_recipients(values: list[str]) -> list[str]:
     return out
 
 
+def _safe_search(pat: str, s: str) -> bool:
+    try:
+        return re.search(pat, s) is not None
+    except re.error:
+        return False
+
+
 def validate_send(tool_input, policy: dict, objective: dict | None) -> tuple[list[str], dict]:
-    """Devuelve (violaciones, resumen)."""
+    """Return (violations, summary)."""
     sv = policy["send_validation"]
     violations: list[str] = []
     ti = tool_input if isinstance(tool_input, dict) else {}
@@ -477,11 +541,11 @@ def validate_send(tool_input, policy: dict, objective: dict | None) -> tuple[lis
     subject = " ".join(subjects)
 
     if sv.get("require_subject") and not subject.strip():
-        violations.append("falta el asunto")
+        violations.append("the subject is missing")
     if len(body.strip()) < int(sv.get("min_body_chars", 0)):
-        violations.append(f"el cuerpo tiene menos de {sv.get('min_body_chars')} caracteres")
+        violations.append(f"the body is shorter than {sv.get('min_body_chars')} characters")
     if recipients and len(recipients) > int(sv.get("max_recipients", 8)):
-        violations.append(f"demasiados destinatarios ({len(recipients)} > {sv.get('max_recipients')})")
+        violations.append(f"too many recipients ({len(recipients)} > {sv.get('max_recipients')})")
 
     haystack = subject + "\n" + body
     for pat in sv.get("placeholder_patterns", []):
@@ -490,12 +554,12 @@ def validate_send(tool_input, policy: dict, objective: dict | None) -> tuple[lis
         except re.error:
             continue
         if m:
-            violations.append(f"placeholder sin rellenar: '{m.group(0)}'")
+            violations.append(f"unfilled placeholder: '{m.group(0)}'")
             break
     for pat in sv.get("secret_patterns", []):
         try:
             if re.search(pat, haystack):
-                violations.append("el contenido parece incluir un secreto/credencial")
+                violations.append("the content looks like it contains a secret or credential")
                 break
         except re.error:
             continue
@@ -506,20 +570,20 @@ def validate_send(tool_input, policy: dict, objective: dict | None) -> tuple[lis
         for pat in block:
             try:
                 if re.search(pat, r):
-                    violations.append(f"destinatario bloqueado por política: {r}")
+                    violations.append(f"recipient blocked by policy: {r}")
                     break
             except re.error:
                 continue
         if allow and not any(_safe_search(p, r) for p in allow):
-            violations.append(f"destinatario fuera de la allowlist: {r}")
+            violations.append(f"recipient outside the allowlist: {r}")
 
     if objective:
         if objective.get("may_send") is False:
-            violations.append("el objetivo activo prohíbe enviar (may_send=false)")
+            violations.append("the active objective forbids sending (may_send=false)")
         obj_allow = objective.get("recipient_allowlist") or []
         for r in recipients:
             if obj_allow and not any(_safe_search(p, r) for p in obj_allow):
-                violations.append(f"destinatario no autorizado por el objetivo: {r}")
+                violations.append(f"recipient not authorised by the objective: {r}")
 
     external: list[str] = []
     internal = sv.get("internal_domains") or []
@@ -539,20 +603,13 @@ def validate_send(tool_input, policy: dict, objective: dict | None) -> tuple[lis
     return violations, summary
 
 
-def _safe_search(pat: str, s: str) -> bool:
-    try:
-        return re.search(pat, s) is not None
-    except re.error:
-        return False
-
-
 def fmt_send_summary(summary: dict) -> str:
     parts = []
     if summary.get("recipients"):
-        parts.append("Para: " + ", ".join(summary["recipients"]))
+        parts.append("To: " + ", ".join(summary["recipients"]))
     if summary.get("subject"):
-        parts.append("Asunto: " + summary["subject"])
-    parts.append(f"Cuerpo ({summary.get('body_chars', 0)} chars): {summary.get('body_preview', '')}")
+        parts.append("Subject: " + summary["subject"])
+    parts.append(f"Body ({summary.get('body_chars', 0)} chars): {summary.get('body_preview', '')}")
     if summary.get("external_recipients"):
-        parts.append("⚠ Destinatarios externos: " + ", ".join(summary["external_recipients"]))
+        parts.append("WARNING external recipients: " + ", ".join(summary["external_recipients"]))
     return "\n".join(parts)

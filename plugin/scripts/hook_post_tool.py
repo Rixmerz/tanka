@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse: marca la llamada como OK y resetea fallos consecutivos."""
+"""PostToolUse: mark the call as successful and clear the failure counter."""
 from __future__ import annotations
 
 import os
@@ -20,10 +20,9 @@ def main() -> None:
         tc.save_session(root, st)
     except Exception:
         pass
-    # Tras un envío confirmado, recordamos cerrar con evidencia.
     policy = tc.load_policy(root)
     if tc.classify_tool(tool, policy) in ("send", "modify"):
-        tc.emit(tc.additional_context("PostToolUse", f"[tanka] {tool} ejecutado con éxito. Repórtalo al usuario citando el resultado real del tool (id, hora o destinatario devuelto), no lo asumas."))
+        tc.emit(tc.additional_context("PostToolUse", f"{tool} succeeded. Report it to the user quoting the real tool result (id, time or recipient returned), not an assumption."))
     tc.emit({})
 
 

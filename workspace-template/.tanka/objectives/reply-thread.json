@@ -1,0 +1,17 @@
+{
+  "id": "reply-thread",
+  "title": "Reply to one thread",
+  "goal": "Read the thread the user names, write the reply in the configured persona, and send it only after confirmation",
+  "done_when": [
+    "The thread has been read in full",
+    "The draft has been shown to the user and has passed tanka-verifier",
+    "The reply has been sent with confirmation, or saved as a draft"
+  ],
+  "allowed_tool_classes": ["read", "draft", "send"],
+  "allowed_tools": [],
+  "may_send": true,
+  "recipient_allowlist": [],
+  "max_tool_calls": 12,
+  "status": "active",
+  "notes": "Template. Needs a human in the session for the send (permission ask)."
+}

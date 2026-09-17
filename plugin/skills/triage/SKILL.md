@@ -1,40 +1,40 @@
 ---
 name: triage
-description: Clasifica y prioriza correos, mensajes, tareas o documentos con una rúbrica explícita y nivel de confianza, y aplica etiquetas solo con permiso. Úsalo cuando el usuario diga "revisa mi bandeja", "qué hay urgente", "clasifica", "ordena", "prioriza", "resume lo pendiente".
+description: Classify and prioritise email, messages, tasks or documents against an explicit rubric with a confidence level, and apply labels only with permission. Use when the user says "go through my inbox", "what's urgent", "classify", "sort", "prioritise", "summarise what's pending".
 allowed-tools: Read, Write, Glob
-argument-hint: "[qué revisar y con qué criterio]"
+argument-hint: "[what to review and by which criteria]"
 ---
 
-# Triage con rúbrica
+# Triage against a rubric
 
-Haiku clasifica bien cuando la rúbrica es explícita y el lote es pequeño. Trabaja en lotes de máximo 15 elementos; si hay más, pide al usuario acotar (fecha, remitente, carpeta).
+A small model classifies well when the rubric is explicit and the batch is small. Work in batches of at most 15 items; above that, ask the user to narrow it down (date, sender, folder).
 
-## 1. Rúbrica
-Si el usuario no da criterio, propón y confirma esta rúbrica (una línea por categoría, con ejemplo):
+## 1. Rubric
+If the user gives no criteria, propose and confirm this one — one line per category, with an example:
 
-| Categoría | Criterio | Ejemplo |
+| Category | Criterion | Example |
 |---|---|---|
-| URGENTE | Pide acción del usuario antes de 24 h o viene de alguien clave | «necesito tu OK hoy» |
-| ACCIÓN | Requiere respuesta o tarea sin plazo inmediato | solicitud de reunión |
-| INFO | Solo leer; sin acción | newsletter interna, confirmación |
-| IGNORAR | Promocional, spam evidente, automático sin valor | ofertas, notificaciones repetidas |
+| URGENT | Needs the user to act within 24h, or comes from someone key | "I need your OK today" |
+| ACTION | Needs a reply or a task, no immediate deadline | a meeting request |
+| INFO | Read only, nothing to do | internal newsletter, confirmation |
+| IGNORE | Promotional, obvious spam, automated with no value | offers, repeated notifications |
 
-Si `.tanka/persona.json` tiene `notes` con personas o temas prioritarios, úsalos como señal de URGENTE.
+If `.tanka/persona.json` has `notes` naming priority people or topics, treat those as an URGENT signal.
 
-## 2. Leer
-Usa solo tools de lectura. Para cada elemento anota: remitente, asunto/tema, fecha, 1 línea de por qué la categoría, y **confianza** (alta/media/baja). Confianza baja = pregunta al usuario en vez de decidir.
+## 2. Read
+Use read tools only. For each item note: sender, subject, date, one line of why that category, and a **confidence** (high/medium/low). Low confidence means ask the user rather than decide.
 
-## 3. Presentar
-Tabla con: #, remitente, asunto, categoría, confianza, siguiente paso sugerido (1–5 palabras). Luego una línea de conteo por categoría.
+## 3. Present
+A table with: #, sender, subject, category, confidence, suggested next step (one to five words). Then one line with the count per category.
 
-## 4. Actuar (solo si el usuario lo pide o el objetivo lo autoriza)
-- Etiquetar/archivar es clase `modify`: el harness pedirá confirmación por lote; explica al usuario que es esperado.
-- Nunca borres ni marques spam: propón «archivar» como alternativa.
-- Para los URGENTE, ofrece preparar borradores con `/tanka:draft`; no envíes nada desde triage.
+## 4. Act (only if the user asks, or the objective authorises it)
+- Labelling and archiving are `modify` class: the harness will ask for confirmation per batch. Tell the user that is expected.
+- Never delete and never mark as spam. Offer archiving instead.
+- For the URGENT ones, offer to prepare drafts with `/tanka:draft`. Never send anything from triage.
 
-## 5. Cerrar
+## 5. Close
 ```
-Estado: completado | parcial
-Hecho: N clasificados, M etiquetados
-Pendiente: K con confianza baja esperan tu decisión
+Status: done | partial
+Done: N classified, M labelled
+Left: K low-confidence items waiting on your call
 ```

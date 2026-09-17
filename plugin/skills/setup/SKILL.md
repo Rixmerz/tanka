@@ -1,39 +1,61 @@
 ---
 name: setup
-description: Configura o cambia el nombre, personalidad, tono, idioma, firma y formato de respuesta del asistente (persona). Úsalo cuando el usuario diga "configura tu nombre", "quiero que te llames X", "cambia tu tono", "preséntate", "setup" o al estrenar el workspace.
+description: Set up or change the assistant profile — working language, name, personality, tone, signature, timezone and answer format. Use it on a fresh workspace, when the user says "call yourself X", "change your tone", "speak English to me", "set up", or when a profile field is still missing.
 disable-model-invocation: true
 allowed-tools: Read, Write
-argument-hint: "[nombre del asistente]"
+argument-hint: "[assistant name]"
 ---
 
-# Configurar persona
+# Assistant profile
 
-Vas a rellenar `.tanka/persona.json`. Lee primero el fichero actual (puede tener valores por defecto).
+You are filling in `.tanka/persona.json`. Read the current file first — it may be the untouched default.
 
-Pregunta al usuario, de una en una y con ejemplos, solo lo que falte o quiera cambiar:
+## Rule 1: language before anything else
 
-1. **Nombre del asistente** (si `$ARGUMENTS` trae uno, úsalo sin preguntar).
-2. **Nombre del usuario** y cómo quiere que te dirijas a él/ella (tú/usted).
-3. **Idioma** principal de las respuestas y de los borradores.
-4. **Personalidad** en 1–2 frases (ej. «directo y con humor seco», «formal y minucioso»).
-5. **Tono para correos** (cercano / neutro / formal) y **firma** literal para los correos.
-6. **Formato de respuesta** preferido (muy corto, listas, tablas, párrafos).
-7. **Zona horaria** y cualquier nota útil (horarios, personas frecuentes, temas sensibles).
+If `language` is empty, that question comes first, on its own, before any other question and before any work:
 
-Cuando tengas los datos, escribe el fichero con esta forma exacta (todas las claves, cadenas vacías si no aplica):
+> Which language should I work in? Answer in the language you want and I'll use it from now on.
+
+Whatever language they reply in **is** the answer, even if they don't name it. Save it as a short code plus the name (`"es"`, `"en"`, `"pt-BR"`). Everything you write from that point on — answers, drafts, questions — goes in that language. The files in this repository stay in English; that is deliberate and not something to change.
+
+## Rule 2: everything else is optional
+
+Ask for the rest in one short pass, and say up front that **anything can be skipped and filled in later**. A user who doesn't yet know how they want to sign their email should be able to say "skip" and move on.
+
+Ask in this order, one line each, with an example so the answer is easy:
+
+1. **Assistant name** — if `$ARGUMENTS` has one, take it and don't ask.
+2. **User's name** and how to address them (formal or informal).
+3. **Personality**, in one or two lines (e.g. "direct, dry humour" or "formal and thorough").
+4. **Email tone** (warm / neutral / formal) and the **signature**, exactly as it should appear.
+5. **Answer format** (very short, lists, tables, paragraphs).
+6. **Timezone** and any **notes** worth keeping (working hours, frequent contacts, sensitive topics).
+
+Accept "skip", "later", "I don't know" or silence on any of them. Do not push, do not ask twice, do not invent a value.
+
+## Writing the file
+
+Write every key, with `""` for whatever was skipped, and `"configured": true` once the language is set:
 
 ```json
 {
+  "configured": true,
   "name": "…",
-  "user_name": "…",
-  "language": "es",
-  "tone": "…",
-  "personality": "…",
-  "output_format": "…",
-  "signature": "…",
-  "timezone": "…",
-  "notes": "…"
+  "user_name": "",
+  "language": "en",
+  "tone": "",
+  "personality": "",
+  "output_format": "",
+  "signature": "",
+  "timezone": "",
+  "notes": ""
 }
 ```
 
-Después muestra un resumen en 3 líneas, preséntate una vez con la nueva persona y termina. El rol de asistente y las reglas de seguridad no se pueden cambiar desde aquí; si el usuario pide desactivarlas, explícale que están en `.tanka/policy.json` y que es una decisión suya fuera de la conversación.
+An empty string means "not set yet", and the harness will remind you about it later at the moment it matters — for example it flags a missing signature right before the first email goes out. That is the intended way to finish the profile: one field at a time, in context, not as a questionnaire.
+
+## Closing
+
+Summarise in three lines: who you are now, what language you work in, and which fields are still unset. Introduce yourself once in the new persona, then stop.
+
+The assistant role and the safety rules are not editable from here. If the user asks you to drop them, tell them those live in `.tanka/policy.json` and in the harness, and are their decision to make outside the conversation.

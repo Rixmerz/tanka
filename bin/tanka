@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tanka launcher: arranca Claude Code (Haiku por defecto) en un workspace limpio
-# con SOLO el plugin Tanka, SOLO los MCP de .tanka/mcp.json y sin settings de usuario.
+# Tanka launcher: starts Claude Code (Haiku by default) in a clean workspace with
+# ONLY the Tanka plugin, ONLY the MCP servers in .tanka/mcp.json, and no user settings.
 set -euo pipefail
 
 TANKA_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,17 +12,17 @@ CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
 usage() {
   cat <<USAGE
-tanka — harness de asistente seguro sobre Claude Haiku
+tanka - a guardrailed assistant harness on top of Claude Haiku
 
-Uso:
-  tanka init [dir]                 Crea un workspace limpio (por defecto: $DEFAULT_WS)
-  tanka start [dir] [-- args...]   Sesión interactiva aislada en el workspace
-  tanka run "tarea" [dir] [--objective nombre] [--max-turns N] [--budget USD]
-                                   Tarea delegada sin interacción (fail-closed: los envíos se deniegan)
-  tanka doctor [dir]               Comprueba configuración, plugin y estado
-  tanka test                       Ejecuta los tests del harness
+Usage:
+  tanka init [dir]                 Create a clean workspace (default: $DEFAULT_WS)
+  tanka start [dir] [-- args...]   Interactive, isolated session in the workspace
+  tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
+                                   Delegated task, no human in the loop (fail-closed: sends are denied)
+  tanka doctor [dir]               Check configuration, plugin and state
+  tanka test                       Run the harness test suite
 
-Variables: TANKA_HOME (workspace por defecto), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, CLAUDE_BIN
 USAGE
 }
 
@@ -35,7 +35,7 @@ resolve_ws() {
 require_ws() {
   local ws="$1"
   if [[ ! -f "$ws/.tanka/policy.json" ]]; then
-    echo "✗ '$ws' no es un workspace Tanka (falta .tanka/policy.json). Ejecuta: tanka init $ws" >&2
+    echo "x '$ws' is not a Tanka workspace (no .tanka/policy.json). Run: tanka init $ws" >&2
     exit 1
   fi
 }
@@ -43,20 +43,20 @@ require_ws() {
 cmd_init() {
   local ws; ws="$(resolve_ws "${1:-}")"
   if [[ -e "$ws/.tanka/policy.json" ]]; then
-    echo "✗ Ya existe un workspace en $ws (no se sobreescribe)." >&2; exit 1
+    echo "x A workspace already exists at $ws (refusing to overwrite)." >&2; exit 1
   fi
   mkdir -p "$ws"
   cp -R "$TEMPLATE_DIR/." "$ws/"
   mkdir -p "$ws/.tanka/state" "$ws/.tanka/drafts" "$ws/.claude/skills"
-  echo "✓ Workspace creado en $ws"
-  echo "  1. Edita $ws/.tanka/mcp.json y añade SOLO los servidores MCP que necesites (ver mcp.example.json)."
-  echo "  2. Copia tus skills de asistencia (no de código) a $ws/.claude/skills/<nombre>/SKILL.md"
-  echo "  3. Arranca: tanka start $ws   y ejecuta /tanka:setup para definir nombre y personalidad."
+  echo "+ Workspace created at $ws"
+  echo "  1. Edit $ws/.tanka/mcp.json and add ONLY the MCP servers you need (see mcp.example.json)."
+  echo "  2. Copy your assistant skills (not coding ones) to $ws/.claude/skills/<name>/SKILL.md"
+  echo "  3. Start it: tanka start $ws   The first session asks which language to work in."
 }
 
 common_args() {
   local ws="$1"
-  # Aislamiento: sin settings de usuario, sin MCP ajenos, sin plugins ajenos.
+  # Isolation: no user settings, no foreign MCP servers, no other plugins.
   printf '%s\n' \
     --setting-sources project,local \
     --strict-mcp-config --mcp-config "$ws/.tanka/mcp.json" \
@@ -77,7 +77,7 @@ cmd_start() {
 
 cmd_run() {
   local task="${1:-}"; shift || true
-  [[ -z "$task" ]] && { echo "✗ Falta la tarea." >&2; usage; exit 1; }
+  [[ -z "$task" ]] && { echo "x No task given." >&2; usage; exit 1; }
   local ws="$DEFAULT_WS" objective="" max_turns="${TANKA_MAX_TURNS:-20}" budget="${TANKA_BUDGET_USD:-1.00}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -92,7 +92,7 @@ cmd_run() {
   cd "$ws"
   if [[ -n "$objective" ]]; then
     local src="$ws/.tanka/objectives/$objective.json"
-    [[ -f "$src" ]] || { echo "✗ No existe $src" >&2; exit 1; }
+    [[ -f "$src" ]] || { echo "x No such file: $src" >&2; exit 1; }
     mkdir -p "$ws/.tanka/state"
     python3 - "$src" "$ws/.tanka/state/objective.json" <<'PY'
 import json, sys, time
@@ -100,13 +100,13 @@ src, dst = sys.argv[1], sys.argv[2]
 obj = json.load(open(src, encoding="utf-8"))
 obj["status"] = "active"
 obj["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-obj["may_send"] = False  # modo delegado: nunca enviar sin humano
+obj["may_send"] = False  # delegated mode: never send without a human
 json.dump(obj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-print(f"✓ Objetivo '{obj.get('title')}' activado (may_send forzado a false en modo delegado)")
+print(f"+ Objective '{obj.get('title')}' activated (may_send forced to false in delegated mode)")
 PY
   fi
   mapfile -t ARGS < <(common_args "$ws")
-  # Fail-closed: cualquier tool que pediría confirmación se deniega automáticamente.
+  # Fail-closed: anything that would ask for confirmation is denied automatically.
   "$CLAUDE_BIN" "${ARGS[@]}" -p "$task" \
     --permission-mode default --permission-prompts none \
     --max-turns "$max_turns" --max-budget-usd "$budget" \
@@ -118,21 +118,21 @@ cmd_doctor() {
   echo "Repo:     $TANKA_REPO"
   echo "Plugin:   $PLUGIN_DIR"
   echo "Workspace: $ws"
-  command -v "$CLAUDE_BIN" >/dev/null || { echo "✗ No encuentro '$CLAUDE_BIN' en PATH"; exit 1; }
+  command -v "$CLAUDE_BIN" >/dev/null || { echo "x '$CLAUDE_BIN' not found in PATH"; exit 1; }
   echo "Claude:   $("$CLAUDE_BIN" --version 2>/dev/null | head -1)"
-  command -v python3 >/dev/null || { echo "✗ python3 es necesario para los hooks"; exit 1; }
+  command -v python3 >/dev/null || { echo "x python3 is required by the hooks"; exit 1; }
   echo "Python:   $(python3 --version)"
   echo "--- plugin validate"
   "$CLAUDE_BIN" plugin validate "$PLUGIN_DIR" || true
   if [[ -f "$ws/.tanka/policy.json" ]]; then
     echo "--- workspace"
     for f in policy.json persona.json mcp.json; do
-      if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$ws/.tanka/$f" 2>/dev/null; then echo "✓ .tanka/$f"; else echo "✗ .tanka/$f inválido"; fi
+      if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$ws/.tanka/$f" 2>/dev/null; then echo "+ .tanka/$f"; else echo "x .tanka/$f is invalid"; fi
     done
-    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$ws/.claude/settings.json" && echo "✓ .claude/settings.json"
+    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$ws/.claude/settings.json" && echo "+ .claude/settings.json"
     CLAUDE_PROJECT_DIR="$ws" python3 "$PLUGIN_DIR/scripts/tanka_status.py" "$ws"
   else
-    echo "(sin workspace en $ws; ejecuta tanka init)"
+    echo "(no workspace at $ws; run tanka init)"
   fi
 }
 
@@ -147,5 +147,5 @@ case "${1:-}" in
   doctor) shift; cmd_doctor "$@";;
   test) shift; cmd_test "$@";;
   -h|--help|help|"") usage;;
-  *) echo "✗ Comando desconocido: $1" >&2; usage; exit 1;;
+  *) echo "x Unknown command: $1" >&2; usage; exit 1;;
 esac

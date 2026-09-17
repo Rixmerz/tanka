@@ -1,15 +1,17 @@
-# Workspace Tanka
+# Tanka workspace
 
-Este directorio es un entorno limpio para un asistente personal basado en Claude Haiku con el plugin Tanka. No es un proyecto de código.
+This directory is a clean room for a personal assistant running on Claude Haiku with the Tanka plugin. It is not a code project.
 
-- Configuración del asistente: `.tanka/persona.json` (nombre, personalidad, formato), `.tanka/policy.json` (qué puede hacer), `.tanka/mcp.json` (únicos servidores MCP cargados).
-- Estado de trabajo: `.tanka/state/objective.json` (tarea activa), `.tanka/drafts/` (borradores), `.tanka/objectives/` (plantillas de tareas delegadas).
-- Skills propias del usuario: `.claude/skills/<nombre>/SKILL.md`. Solo skills de asistencia (redacción, clasificación, procesos); no de programación.
+- Assistant configuration: `.tanka/persona.json` (language, name, personality, format), `.tanka/policy.json` (what it may do), `.tanka/mcp.json` (the only MCP servers that load).
+- Working state: `.tanka/state/objective.json` (active task), `.tanka/drafts/` (drafts), `.tanka/objectives/` (delegated-task templates).
+- The user's own skills: `.claude/skills/<name>/SKILL.md`. Assistant skills only (writing, classification, processes) — nothing for programming.
 
-Reglas duras (las repite el harness cada turno):
-1. Asistente, no programador.
-2. Nada de afirmar acciones sin tool_result.
-3. Borrador → confirmación explícita → envío.
-4. Falta un dato → pregunta, no inventes.
-5. Dos fallos → parar y reportar.
-6. Cierre con `Estado: …` cuando haya objetivo activo.
+Language: the repository's files are written in English on purpose. The assistant talks to the user in whatever language `persona.json` says, and asks for it on the first session if it is not set yet.
+
+Hard rules, repeated by the harness on every turn:
+1. Assistant, not programmer.
+2. Never claim an action without a tool result.
+3. Draft, then explicit confirmation, then send.
+4. Missing detail means ask, not guess.
+5. Two failures means stop and report.
+6. Close with `Status: …` whenever an objective is active.

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Stop: verificación de cierre.
+"""Stop: closure verification.
 
-1. Afirmaciones sin evidencia: si el mensaje final dice "enviado/borrado/
-   etiquetado" pero en este turno no hubo tool_result exitoso de esa clase,
-   se bloquea el cierre una vez y se exige corregir.
-2. Informe de cierre: con objetivo activo y tools usadas en el turno, el
-   mensaje debe terminar con `Estado: ...`.
-Nunca bloquea dos veces seguidas (stop_hook_active)."""
+1. Unbacked claims: if the final message says "sent" / "deleted" / "labeled"
+   but no successful tool result of that class exists in this turn, closure is
+   blocked once and the model has to correct the message.
+2. Closing report: with an active objective and tools used in the turn, the
+   message must carry a `Status: ...` line.
+Never blocks twice in a row (stop_hook_active)."""
 from __future__ import annotations
 
 import os
@@ -15,6 +15,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tanka_common as tc  # noqa: E402
+
+# A claim inside a negation, a condition or a question is not a claim.
+NEGATION = re.compile(
+    r"(?i)(\bno\b|\bnot\b|n't\b|\bnunca\b|\bsin\b|\bsi\b|\bif\b|\bantes de\b|\bbefore\b|\bpuedo\b|\bpodr[ií]a\b"
+    r"|\bcan\b|\bcould\b|\bquieres\b|\bwant\b|\bwould\b|\bready\b|\blist[oa] para\b|\bcuando\b|\bwhen\b|\bonce\b|¿|\?)"
+)
+# A successful call of these classes is evidence for a claim of the given class.
+SATISFIED_BY = {"send": {"send"}, "modify": {"modify", "draft", "send"}, "destructive": {"destructive"}}
 
 
 def main() -> None:
@@ -36,12 +44,9 @@ def main() -> None:
     ok_classes = {c["class"] for c in calls if c.get("outcome") == "ok"}
     problems: list[str] = []
 
-    # 1) Afirmaciones sin evidencia
-    claims = policy["objective"].get("claim_patterns", {})
-    satisfied = {"send": {"send"}, "modify": {"modify", "draft", "send"}, "destructive": {"destructive"}}
-    negation = re.compile(r"(?i)(\bno\b|\bnot\b|n't\b|\bnunca\b|\bsin\b|\bsi\b|\bif\b|\bantes de\b|\bbefore\b|\bpuedo\b|\bpodr[ií]a\b|\bcan\b|\bcould\b|\bquieres\b|\bwant\b|\bwould\b|\bready\b|\blist[oa] para\b|\bcuando\b|\bwhen\b|\bonce\b|¿|\?)")
-    for cls, pats in claims.items():
-        if ok_classes & satisfied.get(cls, {cls}):
+    # 1) Claims without evidence
+    for cls, pats in policy["objective"].get("claim_patterns", {}).items():
+        if ok_classes & SATISFIED_BY.get(cls, {cls}):
             continue
         for pat in pats:
             try:
@@ -50,26 +55,26 @@ def main() -> None:
                 continue
             if not m:
                 continue
-            # Contexto previo en la misma frase: negaciones, condicionales o preguntas no cuentan.
             start = max(msg.rfind(".", 0, m.start()), msg.rfind("\n", 0, m.start()), msg.rfind("!", 0, m.start())) + 1
             before = msg[start:m.start()]
             after = msg[m.end():m.end() + 40]
-            if negation.search(before) or "?" in after.split("\n")[0]:
+            if NEGATION.search(before) or "?" in after.split("\n")[0]:
                 continue
-            problems.append(f"Tu mensaje afirma una acción de tipo '{cls}' («{m.group(0)}») pero en este turno no hay ningún tool_result exitoso de esa clase. "
-                            "Corrige el mensaje: di exactamente qué se hizo y qué no, o realiza la acción (con confirmación) antes de afirmarla.")
+            problems.append(f"Your message claims a '{cls}' action (\"{m.group(0)}\") but this turn has no successful tool result of that class. "
+                            "Fix the message: say exactly what was and was not done, or carry the action out (with confirmation) before claiming it.")
             break
 
-    # 2) Informe de cierre con objetivo activo
+    # 2) Closing report while an objective is active
     if objective and objective.get("status") == "active" and policy["objective"].get("require_closing_report_when_tools_used"):
         used = [c for c in calls if c.get("outcome") in ("ok", "error")]
         if used and not re.search(policy["objective"]["closing_report_regex"], msg):
-            problems.append("Hay un objetivo activo y usaste tools en este turno, pero el mensaje no termina con la línea de cierre. "
-                            "Añade al final: `Estado: completado | parcial | bloqueado | necesita confirmación` seguido de una línea con lo hecho y lo pendiente. "
-                            "Si el objetivo está completo, actualiza .tanka/state/objective.json con status=done.")
+            problems.append("An objective is active and you used tools this turn, but the message has no closing line. "
+                            "Add at the end: `Status: done | partial | blocked | needs-confirmation`, then one line for what is done and what is left. "
+                            "Write the word `Status` even when you are working in another language. "
+                            "If the objective is complete, update .tanka/state/objective.json with status=done.")
 
     if problems:
-        tc.block_with_stderr("[tanka] Cierre bloqueado:\n- " + "\n- ".join(problems))
+        tc.block_with_stderr("Tanka blocked this closure:\n- " + "\n- ".join(problems))
     tc.emit({})
 
 
