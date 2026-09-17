@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""PostToolUseFailure: registra el fallo; a partir del segundo fallo del mismo
-tool instruye a parar y reportar en vez de reintentar a ciegas."""
+"""PostToolUseFailure: record the failure. From the second one on the same
+tool, tell the model to stop and report instead of retrying blindly."""
 from __future__ import annotations
 
 import os
@@ -27,10 +27,10 @@ def main() -> None:
     limit = int(policy["loop_guard"]["max_consecutive_failures"])
     err = str(inp.get("error", ""))[:300]
     if n >= limit - 1:
-        msg = (f"[tanka] {tool} ha fallado {n} veces seguidas ({err}). NO lo reintentes con los mismos argumentos. "
-               "Si no hay una alternativa clara, reporta al usuario con `Estado: bloqueado` y el error literal.")
+        msg = (f"{tool} has now failed {n} times in a row ({err}). DO NOT retry it with the same arguments. "
+               "If there is no clear alternative, report to the user with `Status: blocked` and the literal error.")
     else:
-        msg = f"[tanka] {tool} falló: {err}. Lee el error antes de reintentar; si el motivo es un dato que falta, pregunta al usuario."
+        msg = f"{tool} failed: {err}. Read the error before retrying; if the cause is a missing detail, ask the user for it."
     tc.emit(tc.additional_context("PostToolUseFailure", msg))
 
 

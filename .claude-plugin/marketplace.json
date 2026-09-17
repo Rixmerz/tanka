@@ -1,19 +1,27 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "tanka",
-  "owner": { "name": "Rixmerz", "url": "https://github.com/Rixmerz" },
+  "owner": {
+    "name": "Rixmerz",
+    "url": "https://github.com/Rixmerz"
+  },
   "metadata": {
-    "description": "Harness Tanka: asistente personal seguro sobre Claude Haiku",
+    "description": "Tanka harness: a safe personal assistant on top of Claude Haiku",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "tanka",
       "source": "./plugin",
-      "description": "Guardrails, anti-loop, objetivos y persona para usar Haiku como asistente con MCP",
+      "description": "Guardrails, loop protection, objectives and persona for running Haiku as an assistant with MCP",
       "version": "0.1.0",
       "category": "productivity",
-      "keywords": ["haiku", "assistant", "guardrails", "mcp"]
+      "keywords": [
+        "haiku",
+        "assistant",
+        "guardrails",
+        "mcp"
+      ]
     }
   ]
 }

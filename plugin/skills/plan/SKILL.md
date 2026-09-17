@@ -1,41 +1,41 @@
 ---
 name: plan
-description: Define, revisa o cierra el objetivo de una tarea delegada antes de actuar (criterios de hecho, tools permitidas, límite de acciones, si se puede enviar). Úsalo antes de cualquier tarea con más de 3 acciones o con envíos, cuando el usuario diga "encárgate de", "haz esto por mí", "tarea", "plan", o para cerrar con "plan close".
+description: Define, review or close the objective of a delegated task before acting — done-criteria, allowed tool classes, action budget, whether sending is permitted. Use before any task with more than three actions or any send, when the user says "take care of", "do this for me", "task", "plan", or "plan close".
 allowed-tools: Read, Write, Glob
-argument-hint: "[descripción de la tarea | close | show]"
+argument-hint: "[task description | close | show]"
 ---
 
-# Objetivo de tarea
+# Task objective
 
-El objetivo vive en `.tanka/state/objective.json`. El harness lo usa para bloquear tools fuera de alcance, limitar acciones y exigir un cierre verificable. Un objetivo mal definido = una tarea que no se puede validar. Sé concreto.
+The objective lives in `.tanka/state/objective.json`. The harness uses it to block out-of-scope tools, cap the number of actions and require a verifiable closure. A vague objective is a task nobody can check. Be concrete.
 
-## Si `$ARGUMENTS` es `show`
-Lee el fichero y resúmelo en 5 líneas (título, meta, criterios, permisos, estado). Fin.
+## If `$ARGUMENTS` is `show`
+Read the file and summarise it in five lines (title, goal, criteria, permissions, status). Stop there.
 
-## Si `$ARGUMENTS` es `close`
-Lee el fichero, pregunta al usuario si el resultado es `done`, `blocked` o `cancelled` si no está claro, actualiza `status` y añade `closed_at` (ISO) y `outcome` (1 frase). Termina con `Estado: completado` (o el que corresponda). Fin.
+## If `$ARGUMENTS` is `close`
+Read the file, ask whether the outcome is `done`, `blocked` or `cancelled` if it isn't obvious, set `status`, and add `closed_at` (ISO) and `outcome` (one sentence). Finish with the matching `Status:` line. Stop there.
 
-## En cualquier otro caso: crear objetivo
+## Otherwise: create the objective
 
-1. Si ya existe un objetivo con `status: active`, muéstralo y pregunta si lo reemplaza o continúa. No pises un objetivo activo sin permiso.
-2. Con la descripción (`$ARGUMENTS` o la última petición del usuario), redacta el objetivo. Si falta algo esencial (a quién, qué, cuándo, qué se considera terminado), haz UNA pregunta con opciones. Máximo dos preguntas en total.
-3. Elige las clases de tool mínimas:
-   - `read`: leer correos, ficheros, calendario, buscar.
-   - `draft`: crear borradores (no envía).
-   - `modify`: etiquetar, archivar, mover, actualizar (reversible).
-   - `send`: enviar, responder, reenviar, publicar, invitar (irreversible → siempre confirmación).
-   - `destructive` nunca se autoriza desde un objetivo.
-4. Escribe el fichero con esta forma (el harness lo valida y rechaza campos inválidos):
+1. If an objective with `status: active` already exists, show it and ask whether to replace it or continue. Never overwrite an active objective without permission.
+2. From the description (`$ARGUMENTS` or the user's last request), write the objective. If something essential is missing — who, what, by when, what counts as finished — ask ONE question with options. Two questions maximum, ever.
+3. Pick the smallest set of tool classes that can do the job:
+   - `read`: read email, files, calendar, search.
+   - `draft`: create drafts (never sends).
+   - `modify`: label, archive, move, update (reversible).
+   - `send`: send, reply, forward, post, invite (irreversible, always confirmed).
+   - `destructive` is never granted by an objective.
+4. Write the file in this shape. The harness validates it and rejects invalid fields:
 
 ```json
 {
-  "id": "2026-09-16-triage-inbox",
-  "title": "Triage del inbox de hoy",
-  "goal": "Clasificar los correos no leídos de hoy en urgente/normal/ignorar y preparar respuestas para los urgentes",
+  "id": "2026-09-17-triage-inbox",
+  "title": "Triage today's inbox",
+  "goal": "Classify today's unread mail as urgent/normal/ignore and prepare replies for the urgent ones",
   "done_when": [
-    "Todos los no leídos de hoy tienen etiqueta",
-    "Cada urgente tiene un borrador de respuesta guardado en Gmail",
-    "Se ha presentado al usuario una tabla resumen"
+    "Every unread message from today has a label",
+    "Each urgent message has a reply saved as a draft",
+    "The user has been shown a summary table"
   ],
   "allowed_tool_classes": ["read", "draft", "modify"],
   "allowed_tools": [],
@@ -43,18 +43,18 @@ Lee el fichero, pregunta al usuario si el resultado es `done`, `blocked` o `canc
   "recipient_allowlist": [],
   "max_tool_calls": 30,
   "status": "active",
-  "created_at": "2026-09-16T09:00:00Z",
+  "created_at": "2026-09-17T09:00:00Z",
   "notes": ""
 }
 ```
 
-   - `allowed_tools` vacío = cualquier tool de las clases permitidas; si lo rellenas, solo esas (nombres `mcp__servidor__tool`).
-   - `may_send: true` solo si el usuario ha dicho explícitamente que quiere que se envíe algo en esta tarea.
-   - `max_tool_calls`: estimación realista × 2, nunca más de 60.
+   - `allowed_tools` empty means any tool of the allowed classes; fill it and only those are permitted (names like `mcp__server__tool`).
+   - `may_send: true` only if the user explicitly said something should be sent in this task.
+   - `max_tool_calls`: a realistic estimate times two, never above 60.
 
-5. Muestra el objetivo en 4–6 líneas y pide un «ok». Solo entonces empieza a ejecutar, paso a paso, comprobando cada criterio de `done_when`.
+5. Show the objective in four to six lines and ask for an OK. Only then start executing, step by step, checking each `done_when` criterion as you go.
 
-## Durante la ejecución
-- Antes de cada acción, comprueba mentalmente: ¿está dentro de la clase permitida? ¿ya la hice? ¿tengo todos los datos?
-- Si el harness bloquea una acción, no la reintentes igual: lee el motivo, corrige o pregunta.
-- Al terminar o quedarte bloqueado, ejecuta `/tanka:plan close` y cierra con la línea `Estado: …`.
+## While executing
+- Before each action, check: is it within an allowed class? did I already do it? do I have every detail?
+- If the harness blocks an action, do not retry it unchanged: read the reason, fix it, or ask.
+- When you finish or get stuck, run `/tanka:plan close` and end with the `Status:` line.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""PreCompact: pide que el resumen preserve objetivo, confirmaciones pendientes
-y acciones ya realizadas (evita repetir envíos tras compactar)."""
+"""PreCompact: ask the summary to preserve the objective, pending confirmations
+and actions already carried out, so nothing gets sent twice after compaction."""
 from __future__ import annotations
 
 import os
@@ -14,11 +14,11 @@ def main() -> None:
     inp = tc.read_input()
     root = tc.workspace_root(inp)
     objective = tc.load_objective(root)
-    text = ("[tanka] Al resumir, conserva literalmente: (1) el objetivo activo y sus criterios de hecho, "
-            "(2) la lista de acciones YA realizadas con sus resultados (ids, destinatarios, horas), "
-            "(3) borradores pendientes de confirmación y (4) preguntas abiertas al usuario.")
+    text = ("When summarising, keep verbatim: (1) the active objective and its done-criteria, "
+            "(2) the list of actions ALREADY carried out with their results (ids, recipients, times), "
+            "(3) drafts waiting for confirmation, and (4) open questions to the user.")
     if objective:
-        text += f" Objetivo: «{objective.get('title')}» status={objective.get('status')}."
+        text += f" Objective: \"{objective.get('title')}\" status={objective.get('status')}."
     tc.emit(tc.additional_context("PreCompact", text))
 
 

@@ -4,8 +4,8 @@ Tanka is a **Claude Code harness** (plugin + clean workspace + launcher) that le
 
 It does not change the model. It changes the environment the model runs in. The rules that matter are enforced by hooks that deny or ask for confirmation, not by the prompt — the prompt is exactly what Haiku loses as context grows.
 
-- Research behind it (official docs, GitHub issues, forums): [`docs/research/`](docs/research/) *(in Spanish)*
-- Architecture and the limitation → mitigation map: [`docs/architecture.md`](docs/architecture.md) *(in Spanish)*
+- Research behind it (official docs, GitHub issues, forums): [`docs/research/`](docs/research/)
+- Architecture and the limitation → mitigation map: [`docs/architecture.md`](docs/architecture.md)
 
 ## What's in the box
 
@@ -14,7 +14,7 @@ It does not change the model. It changes the environment the model runs in. The 
 | `plugin/` | Hooks (per-class MCP tool policy, outgoing-message validation, loop guard, objectives, verified closure), skills (`setup`, `plan`, `draft`, `triage`, `status`), the `tanka-verifier` agent, and an output style that pins the assistant role. |
 | `workspace-template/` | A clean directory with `.tanka/` (persona, policy, MCP allowlist, objectives) and a restrictive `.claude/settings.json`. |
 | `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins. |
-| `tests/` | 38 hook tests driven by simulated hook input, plus a fake MCP server for end-to-end runs. |
+| `tests/` | 52 hook tests driven by simulated hook input, plus a fake MCP server for end-to-end runs. |
 
 ## Requirements
 
@@ -32,17 +32,21 @@ tanka init ~/tanka-workspace        # create the clean workspace
 tanka start ~/tanka-workspace       # interactive session, Haiku, isolated
 ```
 
+**The first session asks one question: which language should the assistant work in.** Answer in the language you want — the reply itself is the answer — and it is saved to `.tanka/persona.json`. Everything the assistant writes from then on is in that language. The repository's own files stay in English by design.
+
+Everything else about the profile is optional. Name, tone, signature, timezone and notes can all be skipped and filled in later, one at a time, at the moment they first matter: the harness asks for the signature right before your first email goes out, not in an onboarding questionnaire. `/tanka:setup` fills them all in one pass if you prefer that.
+
 Inside the session:
 
 ```
 /tanka:setup Kira                   # name, personality, language, signature…
-/tanka:status                       # what is enabled and what is allowed
+/tanka:status                       # what is enabled, what is allowed, what is still unset
 /tanka:plan take care of …          # objective with done-criteria before acting
 /tanka:draft reply to Ana …         # draft → verify → confirm → send
 /tanka:triage go through my inbox   # rubric-based classification with confidence
 ```
 
-The first time you start in the workspace, accept Claude Code's directory trust dialog. Without it, the project's `permissions.allow` rules are ignored.
+The first time you start in the workspace, accept Claude Code's directory trust dialog. Without it, the project's `permissions.allow` rules are ignored (the harness still enforces its own policy through hooks).
 
 ### Enable only what you need
 
@@ -52,7 +56,11 @@ The first time you start in the workspace, accept Claude Code's directory trust 
 
 ### Persona and format
 
-`.tanka/persona.json` (or `/tanka:setup`): `name`, `user_name`, `language`, `tone`, `personality`, `output_format`, `signature`, `timezone`, `notes`. The assistant role and the safety invariants are not editable from there — they live in `plugin/output-styles/tanka.md` and in the hooks.
+`.tanka/persona.json` (or `/tanka:setup`): `name`, `user_name`, `language`, `tone`, `personality`, `output_format`, `signature`, `timezone`, `notes`.
+
+An empty string means "not set yet". The harness never nags about those: it lists them once at session start and asks for one only when the current task needs it. `configured: false` is what triggers the language question on the first run.
+
+The assistant role and the safety invariants are not editable from there — they live in `plugin/output-styles/tanka.md` and in the hooks.
 
 ### Policy
 
@@ -92,7 +100,7 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 ## Development
 
 ```bash
-tanka test                          # 38 hook tests
+tanka test                          # 52 hook tests
 claude plugin validate plugin --strict
 tanka doctor ~/tanka-workspace
 ```
@@ -113,6 +121,7 @@ Without the launcher only the second isolation layer applies (project settings);
 - It does not make Haiku better at open-ended planning. `TANKA_MODEL=sonnet tanka start` swaps the driver model without changing anything else.
 - Tool classification by name is a heuristic; review `tool_classes` for servers with opaque names.
 - Skills cannot use dynamic `` !`command` `` injection, because Bash is denied; they use `Read` instead.
+- The unbacked-claim check matches phrasing in English and Spanish. Working in another language, add its patterns under `objective.claim_patterns` in `policy.json`; the closing `Status:` line is checked by its English keyword, which the assistant writes verbatim in any language.
 
 ## License
 

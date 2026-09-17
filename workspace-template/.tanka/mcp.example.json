@@ -1,5 +1,5 @@
 {
-  "_comentario": "Copia SOLO los servidores que necesites a mcp.json. Con Haiku, más de ~3 servidores o ~15 tools degrada la elección de tool. Los nombres de tool resultantes son mcp__<servidor>__<tool>.",
+  "_comment": "Copy ONLY the servers you need into mcp.json. On a small model, more than ~3 servers or ~15 tools degrades tool selection. The resulting tool names are mcp__<server>__<tool>.",
   "mcpServers": {
     "gmail": {
       "type": "http",
@@ -7,7 +7,7 @@
     },
     "calendar": {
       "command": "npx",
-      "args": ["-y", "@ejemplo/calendar-mcp"],
+      "args": ["-y", "@example/calendar-mcp"],
       "env": { "CALENDAR_TOKEN": "${CALENDAR_TOKEN}" }
     }
   }

@@ -1,25 +1,26 @@
 ---
 name: status
-description: Muestra el estado del workspace Tanka (persona, servidores MCP habilitados, política, objetivo activo). Úsalo cuando el usuario pregunte "cómo estás configurado", "qué puedes hacer", "estado", "qué objetivo tienes".
+description: Show the state of the Tanka workspace — profile, enabled MCP servers, policy, active objective, unset fields. Use when the user asks "how are you set up", "what can you do", "status", "what objective do you have".
 allowed-tools: Read, Glob
 ---
 
-# Estado del workspace
+# Workspace state
 
-Lee estos ficheros (los que existan) con la tool Read, sin usar Bash:
+Read these files with the Read tool, whichever exist. Do not use Bash.
 
-1. `.tanka/persona.json` — quién eres y para quién trabajas.
-2. `.tanka/mcp.json` — servidores MCP habilitados (clave `mcpServers`).
-3. `.tanka/policy.json` — decisiones por clase (`decisions`) y límites anti-loop (`loop_guard`).
-4. `.tanka/state/objective.json` — objetivo activo (puede no existir).
-5. `.tanka/objectives/*.json` (con Glob) — plantillas de tareas delegadas disponibles.
+1. `.tanka/persona.json` — who you are and who you work for; note any field that is an empty string, those are still unset.
+2. `.tanka/mcp.json` — enabled MCP servers (the `mcpServers` key).
+3. `.tanka/policy.json` — per-class decisions (`decisions`) and loop limits (`loop_guard`).
+4. `.tanka/state/objective.json` — the active objective, may not exist.
+5. `.tanka/objectives/*.json` (with Glob) — available delegated-task templates.
 
-Resume en lenguaje natural, en este orden y sin jerga:
+Summarise in plain language, in the user's language, in this order:
 
-- **Quién soy**: nombre, para quién trabajo, idioma y tono.
-- **Qué puedo usar**: servidores MCP habilitados (si son más de 3, avisa de que con Haiku conviene reducirlos).
-- **Qué está permitido**: lectura y borradores libres; modificaciones y envíos con confirmación; nada destructivo; sin código.
-- **Objetivo activo**: título, meta, criterios de hecho y estado; o «ninguno» y las plantillas disponibles.
-- **Límites**: llamadas idénticas por turno, acciones por turno, fallos seguidos.
+- **Who I am**: name, who I work for, language and tone.
+- **What I can reach**: enabled MCP servers. If there are more than three, mention that a small model picks tools better with fewer.
+- **What's allowed**: reading and drafting freely; modifications and sends need confirmation; nothing destructive; no code.
+- **Active objective**: title, goal, done-criteria and status — or "none", plus the templates available.
+- **Still unset**: the empty profile fields, and that they can be filled whenever, or all at once with `/tanka:setup`.
+- **Limits**: identical calls per turn, actions per turn, consecutive failures.
 
-No propongas cambiar la política desde la conversación: eso se edita en `.tanka/policy.json` fuera de la sesión.
+Do not offer to change the policy from the conversation: that is edited in `.tanka/policy.json` outside the session.
