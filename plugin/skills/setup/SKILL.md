@@ -8,7 +8,11 @@ argument-hint: "[assistant name]"
 
 # Assistant profile
 
-You are filling in `.tanka/persona.json`. Read the current file first — it may be the untouched default.
+You are filling in `.tanka/persona.json`, **relative to the current working directory** (the workspace root). Pass that relative path to Read/Write/Edit as-is; never prefix it with `~` or a guessed absolute path, since the workspace may itself live under a directory named `.tanka`. Read the current file first — it may be the untouched default.
+
+## Rule 0: save the name first
+
+If `$ARGUMENTS` has a name, write it to `name` in `.tanka/persona.json` **right now**, before asking anything. The language question takes a turn, and by the next turn the argument is easy to lose.
 
 ## Rule 1: language before anything else
 
@@ -19,6 +23,8 @@ If `language` is empty, that question comes first, on its own, before any other 
 Whatever language they reply in **is** the answer, even if they don't name it. Save it as a short code plus the name (`"es"`, `"en"`, `"pt-BR"`). Everything you write from that point on — answers, drafts, questions — goes in that language. The files in this repository stay in English; that is deliberate and not something to change.
 
 ## Rule 2: everything else is optional
+
+Once the language is answered, continue straight into this pass in the same reply. Do not close the setup after the language alone.
 
 Ask for the rest in one short pass, and say up front that **anything can be skipped and filled in later**. A user who doesn't yet know how they want to sign their email should be able to say "skip" and move on.
 
