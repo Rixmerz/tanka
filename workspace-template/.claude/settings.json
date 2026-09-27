@@ -3,8 +3,7 @@
   "model": "haiku",
   "enabledPlugins": {},
   "permissions": {
-    "defaultMode": "default",
-    "disableBypassPermissionsMode": "disable",
+    "defaultMode": "bypassPermissions",
     "deny": [
       "Bash",
       "PowerShell",
