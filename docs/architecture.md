@@ -46,7 +46,7 @@
 | `--model haiku` | Target model (`TANKA_MODEL` to change it). |
 | `--disallowedTools Bash PowerShell NotebookEdit` | Second barrier for the "not a programmer" role (the first one is the hook). |
 
-Second layer in the workspace's `.claude/settings.json`: `enabledPlugins: {}`, `permissions.deny` (Bash, WebFetch, reads of `~/.ssh`, `.env`), `permissions.allow` only for `.tanka/`, `claudeMdExcludes` for `~/.claude/CLAUDE.md`, `disableBypassPermissionsMode`.
+Second layer in the workspace's `.claude/settings.json`: `enabledPlugins: {}`, `permissions.deny` (Bash, WebFetch, reads of `~/.ssh`, `.env`), `permissions.allow` only for `.tanka/`, `claudeMdExcludes` for `~/.claude/CLAUDE.md`, `defaultMode: bypassPermissions` (Claude Code prompts are skipped; the hooks and `permissions.deny` still gate every tool).
 
 What **cannot** be isolated with settings alone, and therefore lives in the launcher: user MCP (`~/.claude.json`) and plugins installed at user level.
 
