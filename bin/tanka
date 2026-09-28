@@ -7,6 +7,8 @@ TANKA_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${TANKA_PLUGIN_DIR:-$TANKA_REPO/plugin}"
 TEMPLATE_DIR="$TANKA_REPO/workspace-template"
 DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
+# Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
+PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
@@ -22,7 +24,7 @@ Usage:
   tanka doctor [dir]               Check configuration, plugin and state
   tanka test                       Run the harness test suite
 
-Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), CLAUDE_BIN
 USAGE
 }
 
@@ -72,7 +74,7 @@ cmd_start() {
   require_ws "$ws"
   cd "$ws"
   mapfile -t ARGS < <(common_args "$ws")
-  exec "$CLAUDE_BIN" "${ARGS[@]}" --permission-mode default "$@"
+  exec "$CLAUDE_BIN" "${ARGS[@]}" --permission-mode "$PERMISSION_MODE" "$@"
 }
 
 cmd_run() {

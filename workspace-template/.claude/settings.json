@@ -3,8 +3,7 @@
   "model": "haiku",
   "enabledPlugins": {},
   "permissions": {
-    "defaultMode": "default",
-    "disableBypassPermissionsMode": "disable",
+    "defaultMode": "bypassPermissions",
     "deny": [
       "Bash",
       "PowerShell",
@@ -17,9 +16,9 @@
     ],
     "allow": [
       "Read(./.tanka/**)",
-      "Write(./.tanka/state/**)",
-      "Write(./.tanka/drafts/**)",
-      "Write(./.tanka/persona.json)"
+      "Edit(./.tanka/state/**)",
+      "Edit(./.tanka/drafts/**)",
+      "Edit(./.tanka/persona.json)"
     ]
   },
   "claudeMdExcludes": [
