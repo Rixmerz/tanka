@@ -57,6 +57,11 @@ DEFAULT_POLICY: dict = {
             r"mcp__.*__(get|list|search|read|fetch|find|download|query|describe|show|view|count|check|lookup|preview|export|resolve|batch_get|batch_list)[a-z0-9_]*",
         ],
     },
+    # MCP servers other than Tanka's own (tools under .claude/skills/*/tools/):
+    # "deny" = not loaded by the launcher and blocked here if they appear
+    # anyway (e.g. Claude in Chrome); "policy" = loaded from .tanka/mcp.json
+    # and classified by name like any other tool.
+    "external_mcp": "deny",
     # Decision per class: allow | ask | deny
     "decisions": {
         "read": "allow",
@@ -69,7 +74,9 @@ DEFAULT_POLICY: dict = {
     # Claude Code's built-in tools
     "builtin": {
         # Always denied: the role is assistant, not programmer.
-        "deny": ["Bash", "PowerShell", "NotebookEdit", "REPL", "Computer"],
+        "deny": ["Bash", "PowerShell", "NotebookEdit", "REPL", "Computer", "WebSearch", "WebFetch"],
+        # Subagents run outside these hooks' tool list; only Tanka's own may run.
+        "agent_prefix": "tanka:",
         # Paths (globs relative to the workspace) where Write/Edit are allowed.
         "write_allow_globs": [
             ".tanka/state/**",
@@ -430,9 +437,33 @@ def set_outcome(st: dict, tool_use_id: str | None, tool_name: str, tool_input, o
 # --------------------------------------------------------------------------- #
 # Tool classification
 # --------------------------------------------------------------------------- #
-def classify_tool(tool_name: str, policy: dict) -> str:
+def tanka_tools(root: Path) -> dict:
+    """Valid Tanka tool manifests of this workspace, by tool name."""
+    import tanka_tools as tt
+    return tt.scan(root)[0]
+
+
+def skills_line(root: Path) -> str:
+    """One line naming the user's skills and the tools each one owns."""
+    import tanka_tools as tt
+    tools, _ = tt.scan(root)
+    by_skill: dict = {}
+    for name, m in sorted(tools.items()):
+        by_skill.setdefault(m["_skill"], []).append(name)
+    parts = [f"{s} ({', '.join(by_skill[s])})" if s in by_skill else s for s in tt.skill_names(root)]
+    return ("Skills first: before answering, match the request to one of these skills and follow it: "
+            + (", ".join(parts) if parts else "none installed yet")
+            + ". Built in: /tanka:draft, /tanka:triage, /tanka:plan, /tanka:setup, /tanka:status. "
+            "If nothing covers the request, say so and stop; never work around a missing tool.")
+
+
+def classify_tool(tool_name: str, policy: dict, root: Path | None = None) -> str:
     if not tool_name.startswith("mcp__"):
         return "builtin"
+    if tool_name.startswith("mcp__tanka__"):
+        # A Tanka tool's class is declared in its manifest, never guessed from its name.
+        m = tanka_tools(root).get(tool_name[len("mcp__tanka__"):]) if root else None
+        return m["effect"] if m else "unknown"
     for cls in ("destructive", "send", "draft", "modify", "read"):
         for pat in policy["tool_classes"].get(cls, []):
             try:

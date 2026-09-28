@@ -24,6 +24,8 @@ WS=$(mktemp -d); cp -R workspace-template/. "$WS"/
 cat > "$WS/.tanka/mcp.json" <<JSON
 {"mcpServers": {"fakemail": {"command": "python3", "args": ["$PWD/tests/fake_mcp_server.py"], "env": {"FAKE_MCP_LOG": "$WS/mcp.log"}}}}
 JSON
+# The fake server is a foreign MCP server: let it load and classify it by name.
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["external_mcp"]="policy"; json.dump(d, open(p, "w"), indent=2)' "$WS/.tanka/policy.json"
 cd "$WS" && claude --setting-sources project,local --strict-mcp-config --mcp-config .tanka/mcp.json \
   --plugin-dir "$OLDPWD/plugin" --model haiku --disallowedTools Bash PowerShell NotebookEdit \
   --permission-mode default --permission-prompts none --max-turns 10 --max-budget-usd 0.5 \

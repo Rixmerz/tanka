@@ -39,6 +39,12 @@ class HookTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="tanka-test-"))
         shutil.copytree(TEMPLATE, self.tmp, dirs_exist_ok=True)
+        # These suites exercise name-based classification of foreign MCP
+        # servers, which only applies when the policy lets them load.
+        pol = self.tmp / ".tanka" / "policy.json"
+        data = json.loads(pol.read_text(encoding="utf-8"))
+        data["external_mcp"] = "policy"
+        pol.write_text(json.dumps(data), encoding="utf-8")
         self.sid = "sess-test"
         self.pid = "prompt-1"
 

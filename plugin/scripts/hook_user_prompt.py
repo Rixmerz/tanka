@@ -12,11 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tanka_common as tc  # noqa: E402
 
 
-def build_context(policy: dict, persona_raw: dict, objective: dict | None) -> str:
+def build_context(policy: dict, persona_raw: dict, objective: dict | None, root=None) -> str:
     persona = tc.effective_persona(persona_raw)
     lines = [f"Turn reminder for {persona.get('name', 'Tanka')}:"]
     for r in policy.get("hard_rules", []):
         lines.append(f"- {r}")
+    if root is not None:
+        try:
+            lines.append(tc.skills_line(root))
+        except Exception:
+            pass
 
     if not tc.persona_is_configured(persona_raw):
         lines.append("SETUP: the working language is still unset. Ask for it first, in one short line, save it to .tanka/persona.json with \"configured\": true, then answer the user's request.")
@@ -51,7 +56,7 @@ def main() -> None:
     policy = tc.load_policy(root)
     persona = tc.load_persona(root)
     objective = tc.load_objective(root)
-    tc.emit(tc.additional_context("UserPromptSubmit", build_context(policy, persona, objective)))
+    tc.emit(tc.additional_context("UserPromptSubmit", build_context(policy, persona, objective, root)))
 
 
 if __name__ == "__main__":

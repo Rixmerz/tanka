@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tanka launcher: starts Claude Code (Haiku by default) in a clean workspace with
-# ONLY the Tanka plugin, ONLY the MCP servers in .tanka/mcp.json, and no user settings.
+# ONLY the Tanka plugin, ONLY Tanka's own MCP server (the tools under
+# .claude/skills/*/tools/), and no user settings.
 set -euo pipefail
 
 TANKA_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,6 +11,8 @@ DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
+# Authoring designs tools a small model must use correctly: think it through.
+DEV_EFFORT="${TANKA_DEV_EFFORT:-high}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
 usage() {
@@ -22,9 +25,13 @@ Usage:
   tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
                                    Delegated task, no human in the loop (fail-closed: sends are denied)
   tanka doctor [dir]               Check configuration, plugin and state
+  tanka tools check|list [dir]     Validate or list the workspace's tools
+  tanka tools test <tool> '<json>' [dir]
+                                   Run one tool exactly as the assistant would, without Claude
+  tanka dev [dir]                  Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
 
-Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), CLAUDE_BIN
 USAGE
 }
 
@@ -51,21 +58,27 @@ cmd_init() {
   cp -R "$TEMPLATE_DIR/." "$ws/"
   mkdir -p "$ws/.tanka/state" "$ws/.tanka/drafts" "$ws/.claude/skills"
   echo "+ Workspace created at $ws"
-  echo "  1. Edit $ws/.tanka/mcp.json and add ONLY the MCP servers you need (see mcp.example.json)."
-  echo "  2. Copy your assistant skills (not coding ones) to $ws/.claude/skills/<name>/SKILL.md"
+  echo "  1. Build its skills and tools: tanka dev $ws   (rules: docs/skill-rules.md, docs/tool-rules.md)"
+  echo "  2. Check them: tanka tools check $ws"
   echo "  3. Start it: tanka start $ws   The first session asks which language to work in."
 }
 
 common_args() {
   local ws="$1"
-  # Isolation: no user settings, no foreign MCP servers, no other plugins.
+  # Isolation: no user settings, no foreign MCP servers, no other plugins, no
+  # browser integration. Tool search stays off: with at most 15 tools there is
+  # nothing to search, and a small model should see its tools up front.
   printf '%s\n' \
     --setting-sources project,local \
-    --strict-mcp-config --mcp-config "$ws/.tanka/mcp.json" \
+    --strict-mcp-config --mcp-config
+  python3 "$PLUGIN_DIR/scripts/tanka_tools.py" mcp-config "$ws" "$PLUGIN_DIR"
+  printf '%s\n' \
     --plugin-dir "$PLUGIN_DIR" \
     --model "$MODEL" \
-    --disallowedTools Bash PowerShell NotebookEdit
+    --no-chrome \
+    --disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch
 }
+export ENABLE_TOOL_SEARCH=false
 
 cmd_start() {
   local ws; ws="$(resolve_ws "${1:-}")"; shift || true
@@ -138,6 +151,35 @@ cmd_doctor() {
   fi
 }
 
+cmd_tools() {
+  local sub="${1:-check}"; shift || true
+  case "$sub" in
+    check|list)
+      local ws; ws="$(resolve_ws "${1:-}")"; require_ws "$ws"
+      python3 "$PLUGIN_DIR/scripts/tanka_tools.py" "$sub" "$ws";;
+    test)
+      local tool="${1:-}" args="${2:-}" ws; ws="$(resolve_ws "${3:-}")"; require_ws "$ws"
+      [[ -z "$tool" ]] && { echo "x Usage: tanka tools test <tool> '<json args>' [dir]" >&2; exit 1; }
+      python3 "$PLUGIN_DIR/scripts/tanka_tools.py" test "$ws" "$tool" "${args:-{\}}";;
+    *) echo "x Unknown: tanka tools $sub" >&2; usage; exit 1;;
+  esac
+}
+
+cmd_dev() {
+  local ws; ws="$(resolve_ws "${1:-}")"; shift || true
+  [[ "${1:-}" == "--" ]] && shift || true
+  require_ws "$ws"
+  ws="$(cd "$ws" && pwd)"
+  # Authoring runs from the repo on the user's normal model and settings, with
+  # the workspace added as a directory. It never runs inside the workspace, so
+  # the assistant's deny rules and CLAUDE.md do not apply to the author, and
+  # the assistant itself can never write a tool.
+  cd "$TANKA_REPO"
+  export TANKA_WORKSPACE="$ws"
+  exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --add-dir "$ws" --effort "$DEV_EFFORT" \
+    --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md and docs/tool-rules.md in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
+}
+
 cmd_test() {
   cd "$TANKA_REPO" && python3 -m unittest discover -s tests -v
 }
@@ -148,6 +190,8 @@ case "${1:-}" in
   run) shift; cmd_run "$@";;
   doctor) shift; cmd_doctor "$@";;
   test) shift; cmd_test "$@";;
+  tools) shift; cmd_tools "$@";;
+  dev) shift; cmd_dev "$@";;
   -h|--help|help|"") usage;;
   *) echo "x Unknown command: $1" >&2; usage; exit 1;;
 esac

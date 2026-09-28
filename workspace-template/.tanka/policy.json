@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "external_mcp": "deny",
   "decisions": {
     "read": "allow",
     "draft": "allow",
@@ -13,7 +14,10 @@
     "min_body_chars": 15,
     "max_recipients": 8,
     "recipient_allowlist": [],
-    "recipient_blocklist": ["(?i)noreply@", "(?i)no-reply@"],
+    "recipient_blocklist": [
+      "(?i)noreply@",
+      "(?i)no-reply@"
+    ],
     "internal_domains": []
   },
   "loop_guard": {

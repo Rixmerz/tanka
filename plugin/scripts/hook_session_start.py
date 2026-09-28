@@ -41,7 +41,7 @@ def main() -> None:
                 warnings.append(f"{name} is not valid JSON ({exc}); defaults are being used instead.")
     mcp = tc.load_json(tdir / tc.MCP_FILE, {})
     servers = list((mcp.get("mcpServers") or {}).keys()) if isinstance(mcp, dict) else []
-    if len(servers) > MAX_RECOMMENDED_SERVERS:
+    if policy.get("external_mcp", "deny") != "deny" and len(servers) > MAX_RECOMMENDED_SERVERS:
         warnings.append(f"{len(servers)} MCP servers are enabled ({', '.join(servers)}). Tool selection degrades above roughly 10-15 tools on a small model; keep only what this task needs.")
 
     lines: list[str] = []
@@ -69,8 +69,20 @@ def main() -> None:
                          "Ask for one only at the moment it actually matters, in a single line, and offer to save it to .tanka/persona.json. "
                          "`/tanka:setup` fills them all in one pass.")
 
-    lines.append("Enabled MCP servers: " + (", ".join(servers) if servers else "none (conversation and workspace files only)."))
-    lines.append("Policy: read=" + policy["decisions"]["read"] + ", drafts=" + policy["decisions"]["draft"]
+    tool_problems: list[str] = []
+    try:
+        import tanka_tools as tt
+        _, tool_problems = tt.scan(root)
+        lines.append(tc.skills_line(root))
+    except Exception as exc:
+        warnings.append(f"Tanka tools could not be loaded ({exc}).")
+    if tool_problems:
+        warnings.append("Some tools were skipped because they break the tool rules (the user can fix them with `tanka dev`; `tanka tools check` lists them): " + "; ".join(tool_problems[:5]))
+    if policy.get("external_mcp", "deny") != "deny":
+        lines.append("Extra MCP servers from .tanka/mcp.json: " + (", ".join(servers) if servers else "none") + ".")
+    lines.append("Your skills' tools (mcp__tanka__*) run without asking the user: that is why a skill says when to confirm first.")
+    if policy.get("external_mcp", "deny") != "deny":
+        lines.append("Policy for the extra servers: read=" + policy["decisions"]["read"] + ", drafts=" + policy["decisions"]["draft"]
                  + ", modifications=" + policy["decisions"]["modify"] + ", sending=" + policy["decisions"]["send"]
                  + ", destructive=" + policy["decisions"]["destructive"] + ".")
     if objective:
@@ -78,7 +90,6 @@ def main() -> None:
                      + ("Continue with it or close it with /tanka:plan close." if objective.get("status") == "active" else "It is closed; start a new one with /tanka:plan if needed."))
     if source == "compact":
         lines.append("The context was just compacted: re-read .tanka/state/objective.json before continuing, and do not repeat actions already carried out.")
-    lines.append("Skills: /tanka:setup (profile), /tanka:plan (objective), /tanka:draft (email and messages), /tanka:triage (classify), /tanka:status (state).")
     if warnings:
         lines.append("WARNINGS: " + " | ".join(warnings))
     tc.emit(tc.additional_context("SessionStart", "\n".join(lines)))
