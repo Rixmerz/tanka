@@ -32,7 +32,7 @@ def main() -> None:
         tc.emit({})
         return
 
-    cls = tc.classify_tool(tool, policy)
+    cls = tc.classify_tool(tool, policy, root)
 
     # ---------------- Loop guard (every tool except questions) --------------
     lg = policy["loop_guard"]
@@ -73,6 +73,14 @@ def main() -> None:
             tc.save_session(root, st)
             tc.pre_tool_decision("deny", f"{tool} is disabled: Tanka is an assistant and does not run code or commands. Tell the user what you need and why.")
             return
+        if tool in ("Agent", "Task"):
+            sub = str(tool_input.get("subagent_type", "")) if isinstance(tool_input, dict) else ""
+            prefix = policy["builtin"].get("agent_prefix", "tanka:")
+            if not sub.startswith(prefix):
+                tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
+                tc.save_session(root, st)
+                tc.pre_tool_decision("deny", f"Subagent '{sub or 'general-purpose'}' is not available: only {prefix}* agents run in Tanka. Do the task with your own skills and tools, or tell the user it is not covered.")
+                return
         if tool in ("Write", "Edit", "MultiEdit"):
             fp = str(tool_input.get("file_path", "")) if isinstance(tool_input, dict) else ""
             if not tc.path_allowed(root, fp, policy["builtin"]["write_allow_globs"]):
@@ -105,6 +113,19 @@ def main() -> None:
         tc.emit({})  # every other built-in follows the normal permission flow
         return
 
+    # ---------------- Tanka tools and foreign MCP servers ------------------
+    is_tanka = tool.startswith("mcp__tanka__")
+    if is_tanka and cls == "unknown":
+        tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
+        tc.save_session(root, st)
+        tc.pre_tool_decision("deny", f"{tool} is not a valid Tanka tool in this workspace. Use only the tools listed for your skills.")
+        return
+    if not is_tanka and policy.get("external_mcp", "deny") == "deny":
+        tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
+        tc.save_session(root, st)
+        tc.pre_tool_decision("deny", f"{tool} is outside Tanka: only the tools of your skills (mcp__tanka__*) are allowed. If none covers this, tell the user it needs a new tool.")
+        return
+
     # ---------------- MCP tools --------------------------------------------
     decision = policy["decisions"].get(cls, "ask")
 
@@ -129,6 +150,15 @@ def main() -> None:
         tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
         tc.save_session(root, st)
         tc.pre_tool_decision("deny", f"{tool} is a destructive or irreversible action and is blocked by policy. Offer the user the reversible alternative (archive, label, move to drafts) or ask them to do it themselves.")
+        return
+
+    if is_tanka:
+        # Pre-approved: the tool was written and checked by a person outside the
+        # session (`tanka dev`), and the assistant cannot write tool manifests.
+        # Its class still drives the objective scope above and the Stop check.
+        tc.record_call(st, tool, tool_input, cls, "pending", tool_use_id)
+        tc.save_session(root, st)
+        tc.pre_tool_decision("allow", f"Tanka tool ({cls}) pre-approved")
         return
 
     if cls == "send":

@@ -21,7 +21,7 @@ def main() -> None:
     except Exception:
         pass
     policy = tc.load_policy(root)
-    if tc.classify_tool(tool, policy) in ("send", "modify"):
+    if tc.classify_tool(tool, policy, root) in ("send", "modify"):
         tc.emit(tc.additional_context("PostToolUse", f"{tool} succeeded. Report it to the user quoting the real tool result (id, time or recipient returned), not an assumption."))
     tc.emit({})
 

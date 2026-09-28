@@ -11,10 +11,12 @@ It does not change the model. It changes the environment the model runs in. The 
 
 | Piece | Purpose |
 |---|---|
-| `plugin/` | Hooks (per-class MCP tool policy, outgoing-message validation, loop guard, objectives, verified closure), skills (`setup`, `plan`, `draft`, `triage`, `status`), the `tanka-verifier` agent, and an output style that pins the assistant role. |
+| `plugin/` | Hooks (per-class MCP tool policy, outgoing-message validation, loop guard, objectives, verified closure), the **Tanka MCP server** that serves your skills' tools, skills (`setup`, `plan`, `draft`, `triage`, `status`), the `tanka-verifier` agent, and an output style that pins the assistant role. |
+| `builder/` | The `tanka-dev` plugin loaded by `tanka dev`: `new-skill` and `new-tool`, for building skills and tools on a stronger model. |
+| `docs/tool-rules.md`, `docs/skill-rules.md` | The rules every tool and skill must follow, most of them enforced by `tanka tools check`. |
 | `workspace-template/` | A clean directory with `.tanka/` (persona, policy, MCP allowlist, objectives) and a restrictive `.claude/settings.json`. |
-| `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins. |
-| `tests/` | 52 hook tests driven by simulated hook input, plus a fake MCP server for end-to-end runs. |
+| `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`, `tools`, `dev`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins, no browser. |
+| `tests/` | 81 tests for the hooks, the tool rules, the executor and the MCP server, plus a fake MCP server for end-to-end runs. |
 
 ## Requirements
 
@@ -29,6 +31,7 @@ git clone https://github.com/Rixmerz/tanka
 export PATH="$PWD/tanka/bin:$PATH"
 
 tanka init ~/tanka-workspace        # create the clean workspace
+tanka dev ~/tanka-workspace         # build its skills and tools (your default model)
 tanka start ~/tanka-workspace       # interactive session, Haiku, isolated
 ```
 
@@ -48,11 +51,34 @@ Inside the session:
 
 The first time you start in the workspace, accept Claude Code's directory trust dialog. Without it, the project's `permissions.allow` rules are ignored (the harness still enforces its own policy through hooks).
 
-### Enable only what you need
+### Skills and tools: the only things the assistant can use
 
-1. **MCP servers**: edit `~/tanka-workspace/.tanka/mcp.json` and add only what the task requires (see `mcp.example.json`). The launcher passes `--strict-mcp-config`, so nothing else loads. With Haiku, more than ~3 servers or ~15 tools degrades tool selection; the `SessionStart` hook warns you.
-2. **Your own skills**: copy assistant-type skills (writing, classification, processes) to `~/tanka-workspace/.claude/skills/<name>/SKILL.md`. Skills in `~/.claude/skills` are not loaded.
-3. **Plugins**: none except Tanka. `--setting-sources project,local` leaves your user-level plugins out.
+The assistant acts through **tools you define**, grouped under **skills**, and nothing else:
+
+```
+~/tanka-workspace/.claude/skills/library/
+├── SKILL.md                         which tool answers which request
+└── tools/
+    ├── library_loans.json            manifest: description, typed params, examples, effect, command
+    ├── library_loans.py              the command it runs
+    └── ...
+```
+
+- Tanka's own MCP server serves every valid manifest as `mcp__tanka__<tool>`. Tools are **pre-approved**: no confirmation prompt. The skill decides when the assistant confirms with the user first.
+- A tool's name starts with its skill's prefix (`library_*`), declares an effect (`read`, `draft`, `modify`, `send`; never destructive), and fits hard limits: 15 tools in total, 6 per skill, 6 params. The limits and the reasons are in [`docs/tool-rules.md`](docs/tool-rules.md) and [`docs/skill-rules.md`](docs/skill-rules.md).
+- **Build them with `tanka dev`**, which opens your normal Claude Code (your default model) on the repo with the `new-skill` and `new-tool` skills. The assistant itself cannot write skills or tools.
+- Check and try them without Claude:
+
+```bash
+tanka tools check                   # every rule, per tool and per skill
+tanka tools test library_loans '{}' # run one exactly as the assistant would
+```
+
+Every turn the harness reminds the assistant of its skills and tools and tells it to say so, not improvise, when none fits.
+
+Foreign MCP servers, Claude in Chrome, web search and non-Tanka subagents are blocked. To go back to loading `.tanka/mcp.json` with the name-based policy below, set `"external_mcp": "policy"` in `policy.json`.
+
+Plugins: none except Tanka. `--setting-sources project,local` leaves your user-level plugins out.
 
 ### Persona and format
 
@@ -100,7 +126,8 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 ## Development
 
 ```bash
-tanka test                          # 52 hook tests
+tanka test                          # 81 tests
+tanka tools check                   # the workspace's tools and skills
 claude plugin validate plugin --strict
 tanka doctor ~/tanka-workspace
 ```
@@ -119,7 +146,8 @@ Without the launcher only the second isolation layer applies (project settings);
 ## Known limitations
 
 - It does not make Haiku better at open-ended planning. `TANKA_MODEL=sonnet tanka start` swaps the driver model without changing anything else.
-- Tool classification by name is a heuristic; review `tool_classes` for servers with opaque names.
+- Tool classification by name is a heuristic (only with `"external_mcp": "policy"`); review `tool_classes` for servers with opaque names. Tanka tools declare their class instead.
+- Pre-approved `send` tools run without a harness prompt. A skill's confirmation step works when a value is missing or was looked up; when the user's own message carries every value, Haiku acts directly.
 - Skills cannot use dynamic `` !`command` `` injection, because Bash is denied; they use `Read` instead.
 - The unbacked-claim check matches phrasing in English and Spanish. Working in another language, add its patterns under `objective.claim_patterns` in `policy.json`; the closing `Status:` line is checked by its English keyword, which the assistant writes verbatim in any language.
 

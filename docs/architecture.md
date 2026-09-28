@@ -41,10 +41,12 @@
 | Flag | Why |
 |---|---|
 | `--setting-sources project,local` | Ignores `~/.claude/settings.json`: the user's hooks, permissions and plugins do not get in. |
-| `--strict-mcp-config --mcp-config .tanka/mcp.json` | Only the MCP servers the user put in that file; nothing from `~/.claude.json` or from other plugins. |
+| `--strict-mcp-config --mcp-config <tanka server>` | Only Tanka's own MCP server, which serves the workspace's tool manifests. `.tanka/mcp.json` is added only with `"external_mcp": "policy"`. Nothing from `~/.claude.json` or from other plugins. |
 | `--plugin-dir plugin/` | Loads Tanka without installing it; nothing else is loaded. |
 | `--model haiku` | Target model (`TANKA_MODEL` to change it). |
-| `--disallowedTools Bash PowerShell NotebookEdit` | Second barrier for the "not a programmer" role (the first one is the hook). |
+| `--disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch` | Second barrier for the "not a programmer" role (the first one is the hook). |
+| `--no-chrome` | Claude in Chrome is not an `--mcp-config` server, so `--strict-mcp-config` does not remove it; Haiku reached it through tool search. |
+| `ENABLE_TOOL_SEARCH=false` | With at most 15 tools there is nothing to search; the model sees its tools up front (research/02: do not depend on tool search). |
 
 Second layer in the workspace's `.claude/settings.json`: `enabledPlugins: {}`, `permissions.deny` (Bash, WebFetch, reads of `~/.ssh`, `.env`), `permissions.allow` only for `.tanka/`, `claudeMdExcludes` for `~/.claude/CLAUDE.md`, `defaultMode: bypassPermissions` (Claude Code prompts are skipped; the hooks and `permissions.deny` still gate every tool).
 
@@ -63,6 +65,21 @@ What **cannot** be isolated with settings alone, and therefore lives in the laun
 | `PreCompact` | `hook_pre_compact.py` | Asks to preserve the objective, the actions already done with their ids, drafts and open questions. | Re-sending after compaction. |
 
 All state lives in `.tanka/state/sessions/<session_id>.json` (per session, per turn via `prompt_id`). The scripts are dependency-free Python 3; if they fail, the default decision is `deny` for writes/MCP.
+
+### 2.2b Tanka tools
+
+The assistant's only way to act outside the conversation. A tool is a JSON manifest at `.claude/skills/<skill>/tools/<name>.json` wrapping one argv command; `plugin/scripts/tanka_mcp.py` (stdio, standard library) serves the valid ones as `mcp__tanka__<name>`, and `plugin/scripts/tanka_tools.py` holds every rule and limit (see [tool-rules.md](tool-rules.md) and [skill-rules.md](skill-rules.md)).
+
+| Decision | Why |
+|---|---|
+| The skill directory sets the tool prefix, and the skill must mention each tool | Identity is structural, not a naming convention; a tool no skill points to is not picked |
+| Hard caps: 15 tools, 6 per skill, 6 params, 4 required, no nested types, mandatory examples | Haiku selection drops below 90% at 10-15 tools; it infers missing values instead of asking; examples raise parameter accuracy 72% → 90% (research/01, 02) |
+| Pre-approved (`PreToolUse` → allow), but classed by the manifest's `effect` | No confirmation prompts, while the loop guard, the objective scope and the Stop claim check keep working; `destructive` is not a valid effect |
+| The assistant cannot write under `.claude/skills/` | A pre-approved command runner it could author would be Bash under another name; tools are built with `tanka dev` on the user's model |
+| Foreign MCP tools and non-`tanka:` subagents are denied | Last session Haiku reached Chrome via tool search and delegated to a browser agent that asked the user to run commands |
+| Arguments validated before the command runs; argv only; a whole-argument value may not start with `-`; output capped at 6000 characters | Short, actionable errors instead of a failed command; no shell or flag injection; results never spill to a file |
+
+`UserPromptSubmit` and `SessionStart` add one line naming each skill and its tools, and telling the assistant to say so, not improvise, when none fits.
 
 ### 2.3 Cognitive layer (skills and agent)
 

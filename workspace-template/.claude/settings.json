@@ -9,6 +9,7 @@
       "PowerShell",
       "NotebookEdit",
       "WebFetch",
+      "WebSearch",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(**/.env)",

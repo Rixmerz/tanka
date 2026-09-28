@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "tanka-dev",
+  "displayName": "Tanka authoring",
+  "version": "0.1.0",
+  "description": "Authoring mode for Tanka: create skills and the tools of the Tanka MCP server, following the tool and skill rules, and verify them before the assistant uses them. Loaded by `tanka dev`, never inside the assistant's session.",
+  "author": {
+    "name": "Rixmerz",
+    "url": "https://github.com/Rixmerz/tanka"
+  },
+  "repository": "https://github.com/Rixmerz/tanka",
+  "license": "MIT"
+}
