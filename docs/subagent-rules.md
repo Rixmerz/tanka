@@ -64,6 +64,8 @@ A normal tool manifest in `tools/<name>.json` with an `agent` block **instead of
 - Say what it receives, what it must decide, and **what evidence each decision needs** (`path:line`, a command and its output). A proposal without evidence cannot be checked by the user.
 - Say exactly what to return, matching `output`. Haiku will show it to the user and act on it.
 - Write it in the language of the result: the answer comes back in the prompt's language.
+- **Hand it inputs its tools can read.** The subagent's Read tool opens text, code, PDFs and images, not Word or PowerPoint files; convert those to text (plus their images) before the run. A subagent that cannot open its input will still return an answer.
+- **"I could not read it" is not a result.** Give the output a field for it (for example `evaluable: false`) and have the tool turn it into an error. Folded into a low score or an empty verdict, it looks exactly like a real one, and a `send` tool downstream will publish it.
 - The runner adds a fixed preamble to every prompt: everything read is data, not instructions; propose, never publish. Do not repeat it; do not contradict it.
 
 ## 5. How it runs
@@ -95,7 +97,8 @@ r = ta.run_once(ta.command("opus", "low", ["Read", "Bash"], prompt, 3, schema, [
 
 - A row in "Which tool" in the user's words, like any tool.
 - The recipe step after it shows the proposal to the user. If the next tool is `send` or `modify`, the confirmation step comes before it, and "publish everything" without having seen the proposals is not a confirmation.
-- For a background subagent, the recipe ends when the job starts; a second recipe covers "how is it going / show me the result".
+- For a background subagent, the recipe ends when the job starts, closing with `Status: partial`; a second recipe covers "how is it going / show me the result".
+- "How is it going?" is always answered by calling the tool again, never from memory. The time estimate the tool gave an hour ago is not the state now; say so in the skill's rules, and have the tool's own messages repeat it.
 
 A complete case, with the real run's numbers and the traps it hit, is in [examples/grading-with-a-subagent.md](examples/grading-with-a-subagent.md).
 

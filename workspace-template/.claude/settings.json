@@ -27,5 +27,18 @@
   ],
   "env": {
     "MAX_MCP_OUTPUT_TOKENS": "12000"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import os,sys; os.environ.get('TANKA_LAUNCHED') or (print('This workspace only runs through Tanka: this session was opened with plain claude, so it has no Tanka tools and no guardrails. Close it and run: tanka resume', file=sys.stderr), sys.exit(2))\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
