@@ -127,6 +127,22 @@ class TestManifestRules(ToolsCase):
         self.assertIn("limit is 15", " ".join(problems))
 
 
+class TestLauncherOnlyGuard(unittest.TestCase):
+    def run_guard(self, env_extra):
+        cmd = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+        env = {k: v for k, v in __import__("os").environ.items() if k != "TANKA_LAUNCHED"}
+        env.update(env_extra)
+        return subprocess.run(cmd, shell=True, capture_output=True, text=True, env=env)
+
+    def test_plain_claude_is_refused(self):
+        p = self.run_guard({})
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("tanka resume", p.stderr)
+
+    def test_launcher_session_passes(self):
+        self.assertEqual(self.run_guard({"TANKA_LAUNCHED": "1"}).returncode, 0)
+
+
 class TestSkillRules(ToolsCase):
     def test_clean_skill_has_no_warnings(self):
         self.assertEqual(tt.skill_warnings(self.ws), [])

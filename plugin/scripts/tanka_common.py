@@ -374,6 +374,13 @@ def _session_file(root: Path, session_id: str) -> Path:
     return state_dir(root) / SESSION_STATE_DIR / f"{sid}.json"
 
 
+DONE_LEDGER_MAX = 30
+
+
+def done_lines(st: dict) -> list[str]:
+    return [f"- {time.strftime('%H:%M', time.localtime(d['t']))} {d['tool']} ({d['class']}) {d['args']}" for d in st.get("done", [])]
+
+
 def load_session(root: Path, session_id: str) -> dict:
     st = load_json(_session_file(root, session_id), {})
     st.setdefault("session_id", session_id)
@@ -427,6 +434,17 @@ def set_outcome(st: dict, tool_use_id: str | None, tool_name: str, tool_input, o
         if (tool_use_id and c.get("id") == tool_use_id) or (c.get("hash") == h and c.get("outcome") == "pending"):
             c["outcome"] = outcome
             break
+    if outcome == "ok":
+        for c in reversed(calls):
+            if (tool_use_id and c.get("id") == tool_use_id) or c.get("hash") == h:
+                if c.get("class") in ("draft", "modify", "send"):
+                    # Session-long ledger of what changed the world. It survives compaction
+                    # and resume, unlike the turn's calls, and SessionStart re-injects it.
+                    done = st.setdefault("done", [])
+                    done.append({"tool": tool_name, "class": c["class"], "t": c.get("t", time.time()),
+                                 "args": json.dumps(tool_input, ensure_ascii=False, default=str)[:200]})
+                    del done[:-DONE_LEDGER_MAX]
+                break
     cf = st.setdefault("consecutive_failures", {})
     if outcome == "error":
         cf[tool_name] = int(cf.get(tool_name, 0)) + 1

@@ -328,9 +328,22 @@ class TestContextHooks(HookTestCase):
         code, out, _ = self.pre("mcp__gmail__trash_message", {"id": "1"})
         self.assertEqual(decision(out), "deny")
 
-    def test_pre_compact(self):
-        code, out, _ = run_hook("hook_pre_compact.py", {"session_id": self.sid, "cwd": str(self.tmp), "hook_event_name": "PreCompact", "source": "auto"}, self.tmp)
-        self.assertIn("keep verbatim", out["hookSpecificOutput"]["additionalContext"])
+    def session_start(self, source):
+        _, out, _ = run_hook("hook_session_start.py", {"session_id": self.sid, "cwd": str(self.tmp), "hook_event_name": "SessionStart", "source": source}, self.tmp)
+        return out["hookSpecificOutput"]["additionalContext"]
+
+    def test_done_actions_survive_compaction(self):
+        args = {"id": "m1", "label": "urgent"}
+        self.pre("mcp__gmail__archive_message", args)
+        self.post("mcp__gmail__archive_message", args)
+        self.pre("mcp__gmail__list_messages", {}, tool_use_id="tu2")
+        self.post("mcp__gmail__list_messages", {}, tool_use_id="tu2")
+        ctx = self.session_start("compact")
+        self.assertIn("may be stale", ctx)
+        self.assertIn("mcp__gmail__archive_message (modify)", ctx)
+        self.assertNotIn("list_messages", ctx)  # reads change nothing, so they are not in the ledger
+        self.assertIn("mcp__gmail__archive_message", self.session_start("resume"))
+        self.assertNotIn("may be stale", self.session_start("startup"))
 
 
 class TestPersonaOnboarding(HookTestCase):

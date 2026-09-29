@@ -33,6 +33,7 @@ export PATH="$PWD/tanka/bin:$PATH"
 tanka init ~/tanka-workspace        # create the clean workspace
 tanka dev ~/tanka-workspace         # build its skills and tools (your default model)
 tanka start ~/tanka-workspace       # interactive session, Haiku, isolated
+tanka resume                        # reopen a previous session, still through Tanka
 ```
 
 **The first session asks one question: which language should the assistant work in.** Answer in the language you want — the reply itself is the answer — and it is saved to `.tanka/persona.json`. Everything the assistant writes from then on is in that language. The repository's own files stay in English by design.
@@ -123,6 +124,8 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 | Degrades with many tools / 200K without compaction | Clean workspace, `--strict-mcp-config`, warning above 3 servers, low `MAX_MCP_OUTPUT_TOKENS` |
 | Overreaches (commits, sends, deletes) | `send` and `modify` require confirmation; `destructive` is denied; `may_send` per objective |
 | Follows instructions embedded in email | External content is treated as data, and no irreversible action is possible without a human |
+
+**Always open the workspace through `tanka`.** A plain `claude` or `claude -r` inside it has none of Tanka's tools or guardrails and loads your own plugins, so the workspace's settings refuse its first prompt and point to `tanka resume`.
 
 ## Development
 

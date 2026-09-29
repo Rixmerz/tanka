@@ -22,6 +22,7 @@ tanka - a guardrailed assistant harness on top of Claude Haiku
 Usage:
   tanka init [dir]                 Create a clean workspace (default: $DEFAULT_WS)
   tanka start [dir] [-- args...]   Interactive, isolated session in the workspace
+  tanka resume [dir]               Pick a previous session and reopen it through Tanka (never plain claude -r)
   tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
                                    Delegated task, no human in the loop (fail-closed: sends are denied)
   tanka doctor [dir]               Check configuration, plugin and state
@@ -31,7 +32,7 @@ Usage:
   tanka dev [dir]                  Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
 
-Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), CLAUDE_BIN
 USAGE
 }
 
@@ -79,6 +80,13 @@ common_args() {
     --disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch
 }
 export ENABLE_TOOL_SEARCH=false
+# The workspace's own settings refuse every prompt without this, so a plain
+# `claude` or `claude -r` there (no Tanka tools, no hooks, the user's plugins)
+# stops at the first message instead of running as an unguarded assistant.
+export TANKA_LAUNCHED=1
+# Haiku follows its rules less well as the context grows (docs/research/02), so
+# compact earlier than the default. TANKA_AUTOCOMPACT_PCT=100 keeps the default.
+export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
 cmd_start() {
   local ws; ws="$(resolve_ws "${1:-}")"; shift || true
@@ -187,6 +195,7 @@ cmd_test() {
 case "${1:-}" in
   init) shift; cmd_init "$@";;
   start) shift; cmd_start "$@";;
+  resume) shift; ws="$(resolve_ws "${1:-}")"; cmd_start "$ws" -- --resume;;
   run) shift; cmd_run "$@";;
   doctor) shift; cmd_doctor "$@";;
   test) shift; cmd_test "$@";;
