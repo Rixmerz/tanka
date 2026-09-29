@@ -15,6 +15,8 @@ python3 -m unittest discover -s tests -v     # or: bin/tanka test
 - **Stop**: claims without evidence, negations and questions that must not be blocked, the closing report line.
 - **Onboarding**: the first run asks for the working language before anything else, optional fields can stay unset, and a missing signature is raised exactly when a message is about to go out.
 
+`test_tools.py` covers tool manifests, execution and the MCP server. `test_agents.py` covers subagents: the `agent` block and its prompt file, the confined command (restricted, fail-closed sandbox for Bash, clean environment), result parsing, and foreground and background runs against a fake `claude` on `PATH` (no API).
+
 ## End-to-end against a simulated mailbox (uses the API, about USD 0.05)
 
 `fake_mcp_server.py` is a dependency-free stdio MCP server with `list_messages` (read), `send_message` (send) and `trash_message` (destructive). It logs every call that actually reaches it to `$FAKE_MCP_LOG`.

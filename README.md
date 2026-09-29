@@ -12,8 +12,8 @@ It does not change the model. It changes the environment the model runs in. The 
 | Piece | Purpose |
 |---|---|
 | `plugin/` | Hooks (per-class MCP tool policy, outgoing-message validation, loop guard, objectives, verified closure), the **Tanka MCP server** that serves your skills' tools, skills (`setup`, `plan`, `draft`, `triage`, `status`), the `tanka-verifier` agent, and an output style that pins the assistant role. |
-| `builder/` | The `tanka-dev` plugin loaded by `tanka dev`: `new-skill` and `new-tool`, for building skills and tools on a stronger model. |
-| `docs/tool-rules.md`, `docs/skill-rules.md` | The rules every tool and skill must follow, most of them enforced by `tanka tools check`. |
+| `builder/` | The `tanka-dev` plugin loaded by `tanka dev`: `new-skill`, `new-tool` and `new-subagent`, for building skills, tools and subagents on a stronger model. |
+| `docs/tool-rules.md`, `docs/skill-rules.md`, `docs/subagent-rules.md` | The rules every tool, skill and subagent must follow, most of them enforced by `tanka tools check`. |
 | `workspace-template/` | A clean directory with `.tanka/` (persona, policy, MCP allowlist, objectives) and a restrictive `.claude/settings.json`. |
 | `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`, `tools`, `dev`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins, no browser. |
 | `tests/` | 81 tests for the hooks, the tool rules, the executor and the MCP server, plus a fake MCP server for end-to-end runs. |
@@ -66,7 +66,8 @@ The assistant acts through **tools you define**, grouped under **skills**, and n
 
 - Tanka's own MCP server serves every valid manifest as `mcp__tanka__<tool>`. Tools are **pre-approved**: no confirmation prompt. The skill decides when the assistant confirms with the user first.
 - A tool's name starts with its skill's prefix (`library_*`), declares an effect (`read`, `draft`, `modify`, `send`; never destructive), and fits hard limits: 15 tools in total, 6 per skill, 6 params. The limits and the reasons are in [`docs/tool-rules.md`](docs/tool-rules.md) and [`docs/skill-rules.md`](docs/skill-rules.md).
-- **Build them with `tanka dev`**, which opens your normal Claude Code (your default model) on the repo with the `new-skill` and `new-tool` skills. The assistant itself cannot write skills or tools.
+- **Subagents** are tools whose work a stronger model does (`opus`, `sonnet`, with their own effort and dollar cap): Haiku calls one for the expensive step, such as reviewing work against a rubric, and acts on the proposal itself. They run outside the session, confined, and never publish. See [`docs/subagent-rules.md`](docs/subagent-rules.md) and the [worked grading example](docs/examples/grading-with-a-subagent.md).
+- **Build them with `tanka dev`**, which opens your normal Claude Code (your default model) on the repo with the `new-skill`, `new-tool` and `new-subagent` skills. The assistant itself cannot write skills or tools.
 - Check and try them without Claude:
 
 ```bash

@@ -177,7 +177,7 @@ cmd_dev() {
   cd "$TANKA_REPO"
   export TANKA_WORKSPACE="$ws"
   exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --add-dir "$ws" --effort "$DEV_EFFORT" \
-    --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md and docs/tool-rules.md in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
+    --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md, docs/tool-rules.md and, for a tool run by a stronger model, docs/subagent-rules.md in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
 }
 
 cmd_test() {

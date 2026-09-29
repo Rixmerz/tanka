@@ -79,6 +79,8 @@ The assistant's only way to act outside the conversation. A tool is a JSON manif
 | Foreign MCP tools and non-`tanka:` subagents are denied | Last session Haiku reached Chrome via tool search and delegated to a browser agent that asked the user to run commands |
 | Arguments validated before the command runs; argv only; a whole-argument value may not start with `-`; output capped at 6000 characters | Short, actionable errors instead of a failed command; no shell or flag injection; results never spill to a file |
 
+**Subagents.** A manifest may carry an `agent` block (model, effort, tools, dollar cap, output schema, background) instead of `run`, with its prompt in `tools/<name>.md`. `plugin/scripts/tanka_agent.py` runs it as `claude -p` outside the session: `--restricted`, no hooks or settings, Bash only in a fail-closed sandbox, a clean environment, and `effect` limited to `read`/`draft`. It runs outside because the session denies Bash and its loop guard (25 calls per turn) would cut a long review short. Rules: [subagent-rules.md](subagent-rules.md).
+
 `UserPromptSubmit` and `SessionStart` add one line naming each skill and its tools, and telling the assistant to say so, not improvise, when none fits.
 
 ### 2.3 Cognitive layer (skills and agent)

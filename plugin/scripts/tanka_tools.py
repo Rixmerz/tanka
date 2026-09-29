@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tanka_agent as ta  # noqa: E402
+
 # --------------------------------------------------------------------------- #
 # Limits. docs/tool-rules.md quotes these; change them here, not there.
 # Tool selection on Haiku drops below 90% between 10 and 15 tools
@@ -42,7 +45,7 @@ MAX_SKILL_LINES = 100  # docs/skill-rules.md; a warning, not a failure
 EFFECTS = ("read", "draft", "modify", "send")  # destructive is never a tool
 PARAM_TYPES = ("string", "integer", "number", "boolean")
 PARAM_KEYS = {"type", "description", "required", "enum", "default", "pattern", "minimum", "maximum"}
-MANIFEST_KEYS = {"name", "effect", "description", "params", "examples", "run", "timeout_sec"}
+MANIFEST_KEYS = {"name", "effect", "description", "params", "examples", "run", "agent", "timeout_sec"}
 
 SKILL_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 PARAM_RE = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
@@ -205,7 +208,12 @@ def validate_manifest(m, skill: str, file_stem: str) -> list[str]:
             errs.extend(f"example {i}: {e}" for e in ee)
 
     run = m.get("run")
-    if not isinstance(run, list) or not run:
+    if "agent" in m:
+        # A subagent: the work is a prompt for a stronger model (tanka_agent.py), not a command.
+        if "run" in m:
+            errs.append("a tool has either run (a command) or agent (a subagent), not both")
+        errs.extend(ta.validate_agent(m))
+    elif not isinstance(run, list) or not run:
         errs.append("run must be a non-empty argv list (no shell)")
     else:
         first = run[0]
@@ -293,6 +301,8 @@ def scan(ws: Path) -> tuple[dict, list[str]]:
                 problems.append(f"{skill}/tools/{f.name}: not valid JSON ({exc})")
                 continue
             errs = validate_manifest(m, skill, f.stem)
+            if not errs and "agent" in m:
+                errs.extend(ta.prompt_problems(m, tdir))
             if not errs and m["name"] not in skill_text:
                 errs.append(f"SKILL.md of '{skill}' never mentions {m['name']}; say when to use it there")
             if errs:
@@ -366,11 +376,15 @@ def _fmt(v) -> str:
 def run_tool(ws: Path, m: dict, raw_args: dict) -> tuple[str, bool]:
     """Run one tool call. Returns (text, is_error)."""
     args, errs = check_args(m, raw_args or {})
-    if not errs:
+    if not errs and "run" in m:
         argv, errs = build_argv(m, args)
     if errs:
         return ("Invalid arguments: " + "; ".join(errs) + ". Fix them and call again, or ask the user for the missing detail.", True)
-    env = dict(os.environ, TANKA_WORKSPACE=str(ws), TANKA_TOOL=m["name"], TANKA_SKILL=m["_skill"])
+    if "agent" in m:
+        return ta.call(ws, m, args)
+    # TANKA_PLUGIN_DIR lets a scripted tool import tanka_agent for a subagent of its own.
+    env = dict(os.environ, TANKA_WORKSPACE=str(ws), TANKA_TOOL=m["name"], TANKA_SKILL=m["_skill"],
+               TANKA_PLUGIN_DIR=str(Path(__file__).resolve().parent.parent))
     timeout = int(m.get("timeout_sec", DEFAULT_TIMEOUT))
     try:
         p = subprocess.run(argv, input=json.dumps(args, ensure_ascii=False), capture_output=True, text=True,
@@ -406,7 +420,8 @@ def main(argv: list[str]) -> int:
     if cmd == "check":
         tools, problems = scan(ws)
         for name, m in sorted(tools.items()):
-            print(f"ok   {name} ({m['effect']}, {len(m.get('params', {}))} params)")
+            sub = f", subagent {m['agent']['model']}/{m['agent']['effort']}" if "agent" in m else ""
+            print(f"ok   {name} ({m['effect']}, {len(m.get('params', {}))} params{sub})")
         for p in problems:
             print(f"FAIL {p}")
         warns = skill_warnings(ws)

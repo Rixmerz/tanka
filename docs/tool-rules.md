@@ -13,7 +13,8 @@ Evidence cited as `research/01` and `research/02` is in [`docs/research/`](resea
 ├── SKILL.md                      the skill: when to use which tool
 └── tools/
     ├── <skill>_<name>.json       the manifest
-    └── <skill>_<name>.py         the command it runs (optional; any program works)
+    ├── <skill>_<name>.py         the command it runs (optional; any program works)
+    └── <skill>_<name>.md         a subagent's prompt, when the manifest has `agent` instead of `run`
 ```
 
 - **[checked]** A tool belongs to exactly one skill, and its name starts with that skill's prefix: skill `library` → `library_*`, skill `win10-vm` → `win10_vm_*`. The prefix comes from the directory, not from the author.
@@ -107,6 +108,8 @@ Do not write marketing ("powerful", "seamless"), implementation details (URLs, H
 **[checked]** 1-3 complete argument objects, each one valid against the params. Use real values. If the tool has optional params, one example uses them and another does not.
 
 ## 9. The command
+
+A tool has either `run` (a command, below) or `agent` (a subagent: a stronger model does the work; see [subagent-rules.md](subagent-rules.md)), never both.
 
 ```json
 "run": ["python3", "library_loans.py"],
