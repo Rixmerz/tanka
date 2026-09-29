@@ -88,8 +88,16 @@ def main() -> None:
     if objective:
         lines.append(f"Stored objective: \"{objective.get('title')}\" (status={objective.get('status')}). "
                      + ("Continue with it or close it with /tanka:plan close." if objective.get("status") == "active" else "It is closed; start a new one with /tanka:plan if needed."))
-    if source == "compact":
-        lines.append("The context was just compacted: re-read .tanka/state/objective.json before continuing, and do not repeat actions already carried out.")
+    if source in ("compact", "resume"):
+        what = "The context was just compacted" if source == "compact" else "This is a resumed session"
+        lines.append(f"{what}: what the conversation says about the state of anything outside it (a job in progress, how long it takes, what is ready) may be stale. "
+                     "Before answering about it, call the tool again. Re-read .tanka/state/objective.json before continuing.")
+        try:
+            done = tc.done_lines(tc.load_session(root, str(inp.get("session_id", "unknown"))))
+        except Exception:
+            done = []
+        if done:
+            lines.append("Actions already carried out in this session, recorded by the harness (do not repeat them):\n" + "\n".join(done))
     if warnings:
         lines.append("WARNINGS: " + " | ".join(warnings))
     tc.emit(tc.additional_context("SessionStart", "\n".join(lines)))

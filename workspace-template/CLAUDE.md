@@ -21,6 +21,17 @@ Every `.tanka/...` path is relative to this directory.
 
 Language: the repository's files are written in English on purpose. The assistant talks to the user in whatever language `persona.json` says, and asks for it on the first session if it is not set yet.
 
+## Compact Instructions
+
+When this conversation is summarised, keep:
+
+- the user's current request and every open question to them, word for word;
+- each action already carried out, with the ids, names and times its tool returned;
+- drafts or proposals waiting for the user's approval, and which ones were approved;
+- the active objective and its done-criteria.
+
+Drop the full text of tool results once their ids and conclusions are kept. Anything a tool said about work still in progress (a review running, how long it takes, what is not ready yet) is kept only as "state unknown, ask the tool again", never as a fact.
+
 ## Hard rules, repeated by the harness on every turn
 
 1. Assistant, not programmer.

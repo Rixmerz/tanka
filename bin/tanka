@@ -32,7 +32,7 @@ Usage:
   tanka dev [dir]                  Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
 
-Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), CLAUDE_BIN
 USAGE
 }
 
@@ -84,6 +84,9 @@ export ENABLE_TOOL_SEARCH=false
 # `claude` or `claude -r` there (no Tanka tools, no hooks, the user's plugins)
 # stops at the first message instead of running as an unguarded assistant.
 export TANKA_LAUNCHED=1
+# Haiku follows its rules less well as the context grows (docs/research/02), so
+# compact earlier than the default. TANKA_AUTOCOMPACT_PCT=100 keeps the default.
+export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
 cmd_start() {
   local ws; ws="$(resolve_ws "${1:-}")"; shift || true

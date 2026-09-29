@@ -72,17 +72,6 @@
           }
         ]
       }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_pre_compact.py\"",
-            "timeout": 10
-          }
-        ]
-      }
     ]
   }
 }
