@@ -24,7 +24,7 @@ def build_context(policy: dict, persona_raw: dict, objective: dict | None, root=
             pass
 
     if not tc.persona_is_configured(persona_raw):
-        lines.append("SETUP: the working language is still unset. Ask for it first, in one short line, save it to .tanka/persona.json with \"configured\": true, then answer the user's request.")
+        lines.append("SETUP: the working language is still unset. Ask for it first, in one short line, save it with \"configured\": true, then answer the user's request. " + tc.PERSONA_EDIT)
     else:
         lines.append(f"Answer in: {persona['language']}.")
         if persona.get("user_name"):

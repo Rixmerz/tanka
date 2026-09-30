@@ -2,17 +2,17 @@
 name: setup
 description: Set up or change the assistant profile — working language, name, personality, tone, signature, timezone and answer format. Use it on a fresh workspace, when the user says "call yourself X", "change your tone", "speak English to me", "set up", or when a profile field is still missing.
 disable-model-invocation: true
-allowed-tools: Read, Write
+allowed-tools: Read, Edit
 argument-hint: "[assistant name]"
 ---
 
 # Assistant profile
 
-You are filling in `.tanka/persona.json`, **relative to the current working directory** (the workspace root). Pass that relative path to Read/Write/Edit as-is; never prefix it with `~` or a guessed absolute path, since the workspace may itself live under a directory named `.tanka`. Read the current file first — it may be the untouched default.
+You are filling in `.tanka/persona.json`, **relative to the current working directory** (the workspace root). Pass that relative path to Read and Edit as-is; never prefix it with `~` or a guessed absolute path, since the workspace may itself live under a directory named `.tanka`. **The file always exists** (`tanka init` creates it): Read it first, then change each field with Edit. Never use Write on it — Write refuses a file that was not read in this session, and rewriting it whole would drop the other fields.
 
 ## Rule 0: save the name first
 
-If `$ARGUMENTS` has a name, write it to `name` in `.tanka/persona.json` **right now**, before asking anything. The language question takes a turn, and by the next turn the argument is easy to lose.
+If `$ARGUMENTS` has a name, set `name` in `.tanka/persona.json` with Edit **right now**, before asking anything. The language question takes a turn, and by the next turn the argument is easy to lose.
 
 ## Rule 1: language before anything else
 
@@ -39,9 +39,9 @@ Ask in this order, one line each, with an example so the answer is easy:
 
 Accept "skip", "later", "I don't know" or silence on any of them. Do not push, do not ask twice, do not invent a value.
 
-## Writing the file
+## Updating the file
 
-Write every key, with `""` for whatever was skipped, and `"configured": true` once the language is set:
+Change each answered field with Edit, leave `""` for whatever was skipped, and set `"configured": true` once the language is set. When done, the file has every key:
 
 ```json
 {

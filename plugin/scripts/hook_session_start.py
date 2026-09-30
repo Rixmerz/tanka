@@ -15,8 +15,9 @@ MAX_RECOMMENDED_SERVERS = 3
 FIRST_RUN_BLOCK = """FIRST RUN — the assistant profile is not set up yet.
 Before you do anything the user asked for, ask ONE short question: which language should you work in?
 Ask it in English, and tell them they can simply reply in the language they want — their reply is the answer.
-Then write that language into `.tanka/persona.json` (`language`, e.g. "en", "es", "pt-BR") together with `"configured": true`, confirm in that language in one line, and carry on with whatever they originally asked for.
-Everything else about the profile (name, tone, signature, timezone…) is optional and can be skipped now and filled in later, one field at a time, when it first matters. Say so in that same line. Offer `/tanka:setup` for the user who wants to set it all at once."""
+Then save that language in `.tanka/persona.json`: set `language` (e.g. "en", "es", "pt-BR") and `"configured": true`. {edit}
+Confirm in that language in one line, and carry on with whatever they originally asked for.
+Everything else about the profile (name, tone, signature, timezone…) is optional and can be skipped now and filled in later, one field at a time, when it first matters. Say so in that same line. Offer `/tanka:setup` for the user who wants to set it all at once.""".format(edit=tc.PERSONA_EDIT)
 
 
 def main() -> None:
@@ -66,7 +67,7 @@ def main() -> None:
         if pending:
             hints = ", ".join(f"{f} ({tc.PERSONA_FIELD_HINTS.get(f, '')})" for f in pending)
             lines.append("Profile fields still unset: " + hints + ". Do not interrogate the user about them. "
-                         "Ask for one only at the moment it actually matters, in a single line, and offer to save it to .tanka/persona.json. "
+                         "Ask for one only at the moment it actually matters, in a single line, and offer to save it. " + tc.PERSONA_EDIT + " "
                          "`/tanka:setup` fills them all in one pass.")
 
     tool_problems: list[str] = []

@@ -27,6 +27,10 @@ STATE_DIR_NAME = "state"
 SESSION_STATE_DIR = "sessions"
 OBJECTIVE_FILE = "objective.json"
 PERSONA_FILE = "persona.json"
+# `tanka init` always creates the profile, so it is only ever updated. Write refuses
+# a file this session has not read, and rewriting it whole would drop other fields.
+PERSONA_EDIT = ("`.tanka/persona.json` already exists: Read it, then change only those fields with Edit. "
+                "Never use Write on it.")
 POLICY_FILE = "policy.json"
 MCP_FILE = "mcp.json"
 
