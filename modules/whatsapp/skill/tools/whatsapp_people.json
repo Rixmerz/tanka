@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp_people",
+  "effect": "read",
+  "description": "Lists the contacts the user assigned to this assistant with the fields of their record: what you noted in notes/people/<number>.md, such as sale_status or company. Use it when the user asks who is in some state (for example, who got a quote), what is known about their contacts, or looks for someone by a detail. It reads no messages (that is whatsapp_chats) and does not search the phone's address book (that is whatsapp_contacts). Returns one line per person: +number | name | role | field=value; field=value.",
+  "params": {
+    "where": {
+      "type": "string",
+      "pattern": "^[^=]+=.+$",
+      "description": "field=value to filter on, as written in the records (e.g. sale_status=quoted). Leave it out to list everyone."
+    },
+    "search": {
+      "type": "string",
+      "description": "A word that must appear in the name, the record or the notes (e.g. \"logo\"). Optional."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "where": "sale_status=quoted"
+    }
+  ],
+  "timeout_sec": 30,
+  "run": [
+    "python3",
+    "whatsapp_people.py"
+  ]
+}

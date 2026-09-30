@@ -8,6 +8,10 @@ TANKA_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${TANKA_PLUGIN_DIR:-$TANKA_REPO/plugin}"
 TEMPLATE_DIR="$TANKA_REPO/workspace-template"
 DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
+# Named workspaces live here, as directories or as symlinks to a workspace kept elsewhere.
+WORKSPACES_DIR="${TANKA_WORKSPACES:-$HOME/.tanka/workspaces}"
+# Names that are commands cannot be workspace names.
+RESERVED="init start resume run doctor test tools dev help whatsapp"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
@@ -20,26 +24,65 @@ usage() {
 tanka - a guardrailed assistant harness on top of Claude Haiku
 
 Usage:
-  tanka init [dir]                 Create a clean workspace (default: $DEFAULT_WS)
-  tanka start [dir] [-- args...]   Interactive, isolated session in the workspace
-  tanka resume [dir]               Pick a previous session and reopen it through Tanka (never plain claude -r)
+  tanka <name>                     Reopen the named workspace: pick a previous session (a new one if it has none)
+  tanka start <name> [-- args...]  New session in the workspace; creates it first if it does not exist
+  tanka init [name|dir]            Create a clean workspace without starting it
+  tanka resume [name|dir]          Same as tanka <name> (never plain claude -r)
   tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
                                    Delegated task, no human in the loop (fail-closed: sends are denied)
   tanka doctor [dir]               Check configuration, plugin and state
   tanka tools check|list [dir]     Validate or list the workspace's tools
   tanka tools test <tool> '<json>' [dir]
                                    Run one tool exactly as the assistant would, without Claude
-  tanka dev [dir]                  Authoring session (your default model) to create skills and tools
+  tanka dev [name|dir]             Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
+  tanka whatsapp link|status       Link WhatsApp (QR in this terminal), or check the link
+  tanka whatsapp install <name> [--scope S]
+                                   Add the WhatsApp skill to a workspace
 
-Environment: TANKA_HOME (default workspace), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), CLAUDE_BIN
+Every [dir] also takes a workspace name. A name is a directory (or a symlink to
+one) under $WORKSPACES_DIR; without one, the default is $DEFAULT_WS.
+USAGE
+  list_workspaces
+  cat <<USAGE
+
+Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), CLAUDE_BIN
 USAGE
 }
 
+is_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; }
+
+list_workspaces() {
+  local found="" d
+  for d in "$WORKSPACES_DIR"/*/; do
+    [[ -f "$d.tanka/policy.json" ]] && found+=" $(basename "$d")"
+  done
+  echo "Workspaces:${found:- (none yet; create one with: tanka start <name>)}"
+}
+
+# A bare word is a workspace name under WORKSPACES_DIR; anything with a slash is a path.
+# Names resolve through symlinks to the real directory, because Claude Code keys a
+# project's session history by its real path and `resume` must find it.
 resolve_ws() {
   local d="${1:-$DEFAULT_WS}"
   [[ "$d" == "--" ]] && d="$DEFAULT_WS"
+  if is_name "$d"; then
+    if [[ -d "$WORKSPACES_DIR/$d" ]]; then (cd -P "$WORKSPACES_DIR/$d" && pwd); else echo "$WORKSPACES_DIR/$d"; fi
+    return
+  fi
   echo "$d"
+}
+
+check_name() {
+  if is_name "$1" && [[ " $RESERVED " == *" $1 "* ]]; then
+    echo "x '$1' is a tanka command, not a workspace name. Pick another name." >&2; exit 1
+  fi
+}
+
+# True when Claude Code has at least one saved session for this workspace.
+has_sessions() {
+  local key="${1//[^a-zA-Z0-9]/-}"
+  compgen -G "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$key/*.jsonl" >/dev/null
 }
 
 require_ws() {
@@ -51,6 +94,7 @@ require_ws() {
 }
 
 cmd_init() {
+  check_name "${1:-}"
   local ws; ws="$(resolve_ws "${1:-}")"
   if [[ -e "$ws/.tanka/policy.json" ]]; then
     echo "x A workspace already exists at $ws (refusing to overwrite)." >&2; exit 1
@@ -58,10 +102,11 @@ cmd_init() {
   mkdir -p "$ws"
   cp -R "$TEMPLATE_DIR/." "$ws/"
   mkdir -p "$ws/.tanka/state" "$ws/.tanka/drafts" "$ws/.claude/skills"
+  local ref="$ws"; is_name "${1:-}" && ref="$1"
   echo "+ Workspace created at $ws"
-  echo "  1. Build its skills and tools: tanka dev $ws   (rules: docs/skill-rules.md, docs/tool-rules.md)"
-  echo "  2. Check them: tanka tools check $ws"
-  echo "  3. Start it: tanka start $ws   The first session asks which language to work in."
+  echo "  1. Build its skills and tools: tanka dev $ref   (rules: docs/skill-rules.md, docs/tool-rules.md)"
+  echo "  2. Check them: tanka tools check $ref"
+  echo "  3. Open it: tanka $ref   The first session asks which language to work in."
 }
 
 common_args() {
@@ -89,13 +134,37 @@ export TANKA_LAUNCHED=1
 export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
 cmd_start() {
-  local ws; ws="$(resolve_ws "${1:-}")"; shift || true
-  [[ "${1:-}" == "$ws" ]] && shift || true
+  local arg="${1:-}"
+  [[ "$arg" == "--" ]] && arg=""
+  check_name "$arg"
+  local ws; ws="$(resolve_ws "$arg")"; [[ -n "$arg" ]] && shift
   [[ "${1:-}" == "--" ]] && shift || true
-  require_ws "$ws"
+  if [[ ! -f "$ws/.tanka/policy.json" ]]; then
+    # A typo here would silently create a new, empty assistant, so ask first.
+    [[ -t 0 ]] || { echo "x No workspace at $ws. Create it with: tanka init ${arg:-$ws}" >&2; exit 1; }
+    list_workspaces >&2
+    read -r -p "No workspace '${arg:-$ws}' yet. Create it at $ws? [y/N] " ok
+    [[ "$ok" == [yYsS]* ]] || { echo "x Not created." >&2; exit 1; }
+    cmd_init "${arg:-$ws}"
+  fi
   cd "$ws"
   mapfile -t ARGS < <(common_args "$ws")
   exec "$CLAUDE_BIN" "${ARGS[@]}" --permission-mode "$PERMISSION_MODE" "$@"
+}
+
+cmd_resume() {
+  local arg="${1:-}"
+  local ws; ws="$(resolve_ws "$arg")"
+  if [[ ! -f "$ws/.tanka/policy.json" ]]; then
+    echo "x No workspace '${arg:-$ws}'." >&2; list_workspaces >&2
+    echo "  To create it: tanka start ${arg:-<name>}" >&2; exit 1
+  fi
+  if has_sessions "$ws"; then
+    cmd_start "$ws" -- --resume
+  else
+    echo "+ No previous sessions in ${arg:-$ws}; starting a new one." >&2
+    cmd_start "$ws"
+  fi
 }
 
 cmd_run() {
@@ -108,7 +177,7 @@ cmd_run() {
       --max-turns) max_turns="$2"; shift 2;;
       --budget) budget="$2"; shift 2;;
       --) shift; break;;
-      *) ws="$1"; shift;;
+      *) ws="$(resolve_ws "$1")"; shift;;
     esac
   done
   require_ws "$ws"
@@ -195,12 +264,20 @@ cmd_test() {
 case "${1:-}" in
   init) shift; cmd_init "$@";;
   start) shift; cmd_start "$@";;
-  resume) shift; ws="$(resolve_ws "${1:-}")"; cmd_start "$ws" -- --resume;;
+  resume) shift; cmd_resume "$@";;
   run) shift; cmd_run "$@";;
   doctor) shift; cmd_doctor "$@";;
   test) shift; cmd_test "$@";;
   tools) shift; cmd_tools "$@";;
   dev) shift; cmd_dev "$@";;
+  whatsapp) shift
+    if [[ "${1:-}" == install ]]; then
+      # Resolve the workspace here, so names work exactly as in every other command.
+      ws="$(resolve_ws "${2:-}")"; require_ws "$ws"
+      exec python3 "$TANKA_REPO/modules/whatsapp/cli.py" install "$ws" "$(basename "${2:-$ws}")" "${@:3}"
+    fi
+    exec python3 "$TANKA_REPO/modules/whatsapp/cli.py" "$@";;
   -h|--help|help|"") usage;;
-  *) echo "x Unknown command: $1" >&2; usage; exit 1;;
+  -*) echo "x Unknown option: $1" >&2; usage; exit 1;;
+  *) cmd_resume "$@";;
 esac

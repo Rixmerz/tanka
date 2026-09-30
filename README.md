@@ -30,11 +30,16 @@ It does not change the model. It changes the environment the model runs in. The 
 git clone https://github.com/Rixmerz/tanka
 export PATH="$PWD/tanka/bin:$PATH"
 
-tanka init ~/tanka-workspace        # create the clean workspace
-tanka dev ~/tanka-workspace         # build its skills and tools (your default model)
-tanka start ~/tanka-workspace       # interactive session, Haiku, isolated
-tanka resume                        # reopen a previous session, still through Tanka
+tanka start work                    # create the workspace "work" (asks first) and open a new session
+tanka dev work                      # build its skills and tools (your default model)
+tanka work                          # reopen it: pick a previous session, or a new one if it has none
 ```
+
+**One workspace per domain, each with its own 15 tools.** A workspace is named: `tanka <name>` reopens it, `tanka start <name>` opens a new session and, when the name does not exist yet, creates it after asking (a typo should not produce a new empty assistant). Named workspaces live in `~/.tanka/workspaces/` (`TANKA_WORKSPACES`), as directories or as symlinks to a workspace kept elsewhere; a symlink is resolved to the real path, because Claude Code keys a project's session history by it. Every command that takes a directory also takes a name, and a path still works. Command names (`init`, `start`, `run`, `tools`…) cannot be workspace names.
+
+Separate workspaces also separate what each assistant can reach: one that can message your clients has no tool that grades students, and the other way round.
+
+**Optional modules** live in [`modules/`](modules/). [`modules/whatsapp`](modules/whatsapp/README.md) lets a workspace read and answer WhatsApp for the contacts you assign to it and look at images and files; add it to a workspace with `tanka whatsapp install <name>` and link the phone with `tanka whatsapp link`.
 
 **The first session asks one question: which language should the assistant work in.** Answer in the language you want — the reply itself is the answer — and it is saved to `.tanka/persona.json`. Everything the assistant writes from then on is in that language. The repository's own files stay in English by design.
 
@@ -125,12 +130,12 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 | Overreaches (commits, sends, deletes) | `send` and `modify` require confirmation; `destructive` is denied; `may_send` per objective |
 | Follows instructions embedded in email | External content is treated as data, and no irreversible action is possible without a human |
 
-**Always open the workspace through `tanka`.** A plain `claude` or `claude -r` inside it has none of Tanka's tools or guardrails and loads your own plugins, so the workspace's settings refuse its first prompt and point to `tanka resume`.
+**Always open the workspace through `tanka`.** A plain `claude` or `claude -r` inside it has none of Tanka's tools or guardrails and loads your own plugins, so the workspace's settings refuse its first prompt and point to `tanka <workspace name>`.
 
 ## Development
 
 ```bash
-tanka test                          # 81 tests
+tanka test                          # 115 tests
 tanka tools check                   # the workspace's tools and skills
 claude plugin validate plugin --strict
 tanka doctor ~/tanka-workspace

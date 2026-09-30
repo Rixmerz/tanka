@@ -1,0 +1,40 @@
+{
+  "name": "whatsapp_chats",
+  "effect": "read",
+  "description": "Reads the user's WhatsApp, only for contacts whose role lets this assistant read them. Without a contact it lists those chats, unread first, with each one's last message; with a contact it shows the conversation, the user's instructions for that role and the person's record. Use it when the user asks what someone wrote, who is waiting for an answer, what a contact asked for, or before whatsapp_reply. With attachments set to true it also saves the images and files so you can open them with Read; audio cannot be played. Nothing is marked as read. It does not search the address book (that is whatsapp_contacts), and contacts without a role or in groups are never read. Returns one line per chat (+number | name | role | unread | last) or per message (when | who | text).",
+  "params": {
+    "contact": {
+      "type": "string",
+      "description": "Number with country code, or a name, as the chat list shows it (e.g. +15551234567). Leave it out to list the chats."
+    },
+    "limit": {
+      "type": "integer",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 50,
+      "description": "How many recent messages of that conversation to show (e.g. 20). Only used with contact."
+    },
+    "attachments": {
+      "type": "boolean",
+      "default": false,
+      "description": "true to download the images and files of those messages so they can be opened with Read. Slower."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "contact": "+15551234567",
+      "limit": 20
+    },
+    {
+      "contact": "+15551234567",
+      "limit": 10,
+      "attachments": true
+    }
+  ],
+  "timeout_sec": 300,
+  "run": [
+    "python3",
+    "whatsapp_chats.py"
+  ]
+}

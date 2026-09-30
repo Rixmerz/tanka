@@ -137,10 +137,72 @@ class TestLauncherOnlyGuard(unittest.TestCase):
     def test_plain_claude_is_refused(self):
         p = self.run_guard({})
         self.assertEqual(p.returncode, 2)
-        self.assertIn("tanka resume", p.stderr)
+        self.assertIn("tanka <workspace name>", p.stderr)
 
     def test_launcher_session_passes(self):
         self.assertEqual(self.run_guard({"TANKA_LAUNCHED": "1"}).returncode, 0)
+
+
+class TestNamedWorkspaces(unittest.TestCase):
+    """`tanka <name>` resumes, `tanka start <name>` creates; claude is a stub that logs its call."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.log = self.tmp / "calls.log"
+        stub = self.tmp / "claude"
+        stub.write_text(f'#!/bin/sh\necho "$PWD|$*" >> {self.log}\n', encoding="utf-8")
+        stub.chmod(0o755)
+        self.wsdir = self.tmp / "workspaces"
+        self.env = {k: v for k, v in __import__("os").environ.items()}
+        self.env.update(CLAUDE_BIN=str(stub), TANKA_WORKSPACES=str(self.wsdir),
+                        TANKA_HOME=str(self.tmp / "default"), CLAUDE_CONFIG_DIR=str(self.tmp / "claude-config"))
+
+    def tanka(self, *args):
+        return subprocess.run([str(REPO / "bin" / "tanka"), *args], capture_output=True, text=True,
+                              env=self.env, stdin=subprocess.DEVNULL)
+
+    def last_call(self):
+        return self.log.read_text(encoding="utf-8").splitlines()[-1].split("|", 1)
+
+    def test_unknown_name_points_to_start(self):
+        p = self.tanka("personal")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("tanka start personal", p.stderr)
+
+    def test_name_without_sessions_starts_fresh_then_resumes(self):
+        self.assertEqual(self.tanka("init", "personal").returncode, 0)
+        ws = self.wsdir / "personal"
+        self.assertEqual(self.tanka("personal").returncode, 0)
+        cwd, args = self.last_call()
+        self.assertEqual(cwd, str(ws))
+        self.assertNotIn("--resume", args)
+        key = "".join(c if c.isalnum() else "-" for c in str(ws))
+        (self.tmp / "claude-config" / "projects" / key).mkdir(parents=True)
+        (self.tmp / "claude-config" / "projects" / key / "s.jsonl").write_text("{}\n")
+        self.tanka("personal")
+        self.assertIn("--resume", self.last_call()[1])
+
+    def test_symlinked_name_opens_the_real_directory(self):
+        real = self.tmp / "elsewhere"
+        self.assertEqual(self.tanka("init", str(real)).returncode, 0)
+        self.wsdir.mkdir()
+        (self.wsdir / "work").symlink_to(real)
+        self.tanka("start", "work")
+        cwd, args = self.last_call()
+        self.assertEqual(cwd, str(real))
+        self.assertNotIn("--resume", args)
+
+    def test_start_does_not_create_without_a_terminal(self):
+        p = self.tanka("start", "nuevo")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("tanka init nuevo", p.stderr)
+        self.assertFalse((self.wsdir / "nuevo").exists())
+
+    def test_command_names_are_reserved(self):
+        p = self.tanka("init", "tools")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("is a tanka command", p.stderr)
 
 
 class TestSkillRules(ToolsCase):

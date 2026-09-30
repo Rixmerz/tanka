@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp_reply",
+  "effect": "send",
+  "description": "Sends a text message from the user's WhatsApp to a contact whose role allows replies, and checks that WhatsApp's server received it; the person gets it at once. Use it only after showing the user the exact text and getting a yes. For any other role, no role or a group it refuses and sends nothing. It reads no messages (that is whatsapp_chats). If the same text went out recently it is not sent again; never call it twice for the same message. Returns one line confirming the send.",
+  "params": {
+    "contact": {
+      "type": "string",
+      "required": true,
+      "description": "Number with country code as whatsapp_chats shows it (e.g. +15551234567)."
+    },
+    "message": {
+      "type": "string",
+      "required": true,
+      "description": "The exact text the user approved, with nothing added (e.g. \"Hi Clara, I will send the quote tomorrow.\")."
+    }
+  },
+  "examples": [
+    {
+      "contact": "+15551234567",
+      "message": "Hi Clara, I will send the quote tomorrow."
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "whatsapp_reply.py"
+  ]
+}

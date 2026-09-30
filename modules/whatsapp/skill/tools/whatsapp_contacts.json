@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp_contacts",
+  "effect": "read",
+  "description": "Searches the address book of the user's phone by part of a name or number and shows the role of each match (a role this assistant can see, no role, or another assistant's role). Use it when the user asks for someone's number, which role a person has, or why you cannot read or answer someone. It shows no messages (that is whatsapp_chats) and it does not assign roles: only the user assigns them, in their contact list, outside the assistant. Returns one line per contact: +number | name on the phone | role.",
+  "params": {
+    "query": {
+      "type": "string",
+      "required": true,
+      "description": "Part of the name (at least 2 letters) or of the number (at least 4 digits), as the user said it (e.g. \"Clara\" or \"5555\")."
+    }
+  },
+  "examples": [
+    {
+      "query": "Clara"
+    }
+  ],
+  "timeout_sec": 120,
+  "run": [
+    "python3",
+    "whatsapp_contacts.py"
+  ]
+}
