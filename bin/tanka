@@ -11,7 +11,7 @@ DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
 # Named workspaces live here, as directories or as symlinks to a workspace kept elsewhere.
 WORKSPACES_DIR="${TANKA_WORKSPACES:-$HOME/.tanka/workspaces}"
 # Names that are commands cannot be workspace names.
-RESERVED="init start resume run doctor test tools dev help whatsapp"
+RESERVED="init start resume run doctor test tools dev help modules install routine trigger automation"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
@@ -36,9 +36,16 @@ Usage:
                                    Run one tool exactly as the assistant would, without Claude
   tanka dev [name|dir]             Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
-  tanka whatsapp link|status       Link WhatsApp (QR in this terminal), or check the link
-  tanka whatsapp install <name> [--scope S]
-                                   Add the WhatsApp skill to a workspace
+  tanka modules [check <module>]   List the reusable modules, or validate one
+  tanka install <module> <name> [--scope S]
+                                   Add a module's skill to a workspace
+  tanka <module> <command>         A module's own commands (e.g. tanka whatsapp link)
+  tanka routine add <name|dir> <routine> --every 5m "task"
+                                   Run the assistant on a clock, unattended
+  tanka trigger add <name|dir> <trigger> --on whatsapp:<role> "task"
+                                   Run it when an event arrives (see tanka modules)
+  tanka routine|trigger list|remove|run ...
+  tanka automation service install|remove|status | daemon | alert <ws> [--whatsapp N] | log <ws>
 
 Every [dir] also takes a workspace name. A name is a directory (or a symlink to
 one) under $WORKSPACES_DIR; without one, the default is $DEFAULT_WS.
@@ -73,16 +80,20 @@ resolve_ws() {
   echo "$d"
 }
 
+is_module() { is_name "$1" && [[ -f "$TANKA_REPO/modules/$1/module.json" ]]; }
+
 check_name() {
-  if is_name "$1" && [[ " $RESERVED " == *" $1 "* ]]; then
-    echo "x '$1' is a tanka command, not a workspace name. Pick another name." >&2; exit 1
+  if is_name "$1" && { [[ " $RESERVED " == *" $1 "* ]] || is_module "$1"; }; then
+    echo "x '$1' is a tanka command or module, not a workspace name. Pick another name." >&2; exit 1
   fi
 }
 
-# True when Claude Code has at least one saved session for this workspace.
+# True when Claude Code has an interactive session to offer for this workspace.
+# Headless runs (`tanka run`, entrypoint "sdk-cli") are saved too, but the resume
+# picker hides them, so counting them opens an empty picker.
 has_sessions() {
   local key="${1//[^a-zA-Z0-9]/-}"
-  compgen -G "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$key/*.jsonl" >/dev/null
+  grep -lsqm1 '"entrypoint":"cli"' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$key"/*.jsonl
 }
 
 require_ws() {
@@ -198,6 +209,9 @@ print(f"+ Objective '{obj.get('title')}' activated (may_send forced to false in 
 PY
   fi
   mapfile -t ARGS < <(common_args "$ws")
+  # Tools read this to tell a run with nobody watching from one the user attends: a send
+  # tool refuses there unless the user opted that recipient in (e.g. auto_reply on a role).
+  export TANKA_UNATTENDED=1
   # Fail-closed: anything that would ask for confirmation is denied automatically.
   "$CLAUDE_BIN" "${ARGS[@]}" -p "$task" \
     --permission-mode default --permission-prompts none \
@@ -253,8 +267,9 @@ cmd_dev() {
   # the assistant itself can never write a tool.
   cd "$TANKA_REPO"
   export TANKA_WORKSPACE="$ws"
-  exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --add-dir "$ws" --effort "$DEV_EFFORT" \
-    --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md, docs/tool-rules.md and, for a tool run by a stronger model, docs/subagent-rules.md in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
+  # builder/settings.json declares the Rastro plugin, which authoring uses to map sites (skill map-site).
+  exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --settings "$TANKA_REPO/builder/settings.json" --add-dir "$ws" --effort "$DEV_EFFORT" \
+    --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md, docs/tool-rules.md, for a tool run by a stronger model docs/subagent-rules.md, for a reusable module under modules/ docs/module-rules.md, and to reach a website the map-site skill with Rastro, in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
 }
 
 cmd_test() {
@@ -270,14 +285,34 @@ case "${1:-}" in
   test) shift; cmd_test "$@";;
   tools) shift; cmd_tools "$@";;
   dev) shift; cmd_dev "$@";;
-  whatsapp) shift
-    if [[ "${1:-}" == install ]]; then
-      # Resolve the workspace here, so names work exactly as in every other command.
-      ws="$(resolve_ws "${2:-}")"; require_ws "$ws"
-      exec python3 "$TANKA_REPO/modules/whatsapp/cli.py" install "$ws" "$(basename "${2:-$ws}")" "${@:3}"
+  modules) shift; exec python3 "$PLUGIN_DIR/scripts/tanka_modules.py" "${@:-list}";;
+  routine|trigger)
+    kind="$1"; shift
+    # The second word, when there is one past the verb, names a workspace: resolve it like everywhere else.
+    if [[ "${1:-}" =~ ^(add|remove|run)$ && -n "${2:-}" ]]; then
+      ws="$(resolve_ws "$2")"; require_ws "$ws"; verb="$1"; shift 2
+      exec python3 "$PLUGIN_DIR/scripts/tanka_automation.py" "$kind" "$verb" "$ws" "$@"
+    elif [[ "${1:-}" == list && -n "${2:-}" ]]; then
+      ws="$(resolve_ws "$2")"; require_ws "$ws"
+      exec python3 "$PLUGIN_DIR/scripts/tanka_automation.py" "$kind" list "$ws"
     fi
-    exec python3 "$TANKA_REPO/modules/whatsapp/cli.py" "$@";;
+    exec python3 "$PLUGIN_DIR/scripts/tanka_automation.py" "$kind" "${@:-list}";;
+  automation) shift
+    if [[ "${1:-}" =~ ^(alert|log)$ && -n "${2:-}" ]]; then
+      verb="$1"; ws="$(resolve_ws "$2")"; require_ws "$ws"; shift 2
+      exec python3 "$PLUGIN_DIR/scripts/tanka_automation.py" "$verb" "$ws" "$@"
+    fi
+    exec python3 "$PLUGIN_DIR/scripts/tanka_automation.py" "$@";;
+  install) shift
+    module="${1:-}"; [[ -z "$module" || -z "${2:-}" ]] && { echo "x Usage: tanka install <module> <workspace> [--scope NAME]" >&2; exit 1; }
+    # Resolve the workspace here, so names work exactly as in every other command.
+    ws="$(resolve_ws "$2")"; require_ws "$ws"
+    scope="$(basename "$2")"; [[ "${3:-}" == --scope && -n "${4:-}" ]] && scope="$4"
+    exec python3 "$PLUGIN_DIR/scripts/tanka_modules.py" install "$module" "$ws" "$scope";;
   -h|--help|help|"") usage;;
   -*) echo "x Unknown option: $1" >&2; usage; exit 1;;
-  *) cmd_resume "$@";;
+  *) if is_module "$1" && [[ -f "$TANKA_REPO/modules/$1/cli.py" ]]; then
+       m="$1"; shift; exec python3 "$TANKA_REPO/modules/$m/cli.py" "$@"
+     fi
+     cmd_resume "$@";;
 esac

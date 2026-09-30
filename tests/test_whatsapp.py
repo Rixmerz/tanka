@@ -137,7 +137,7 @@ class TestInstall(unittest.TestCase):
         return subprocess.run([str(REPO / "bin" / "tanka"), *args], capture_output=True, text=True, env=self.env)
 
     def test_install_scopes_the_skill_and_passes_the_checks(self):
-        p = self.tanka("whatsapp", "install", "sales")
+        p = self.tanka("install", "whatsapp", "sales")
         self.assertEqual(p.returncode, 0, p.stderr)
         tools = self.tmp / "workspaces" / "sales" / ".claude" / "skills" / "whatsapp" / "tools"
         self.assertIn('SCOPE = "sales"', (tools / "whatsapp_chats.py").read_text())
@@ -146,10 +146,10 @@ class TestInstall(unittest.TestCase):
         self.assertIn("4/15 tools loaded, 0 problem(s), 0 warning(s)", check.stdout)
 
     def test_scope_override_and_no_overwrite(self):
-        self.assertEqual(self.tanka("whatsapp", "install", "sales", "--scope", "shop").returncode, 0)
+        self.assertEqual(self.tanka("install", "whatsapp", "sales", "--scope", "shop").returncode, 0)
         tools = self.tmp / "workspaces" / "sales" / ".claude" / "skills" / "whatsapp" / "tools"
         self.assertIn('SCOPE = "shop"', (tools / "whatsapp_reply.py").read_text())
-        again = self.tanka("whatsapp", "install", "sales")
+        again = self.tanka("install", "whatsapp", "sales")
         self.assertEqual(again.returncode, 1)
         self.assertIn("already exists", again.stderr)
 
@@ -159,7 +159,7 @@ class TestLauncherReservesWhatsapp(unittest.TestCase):
         env = dict(os.environ, TANKA_WORKSPACES=tempfile.mkdtemp())
         p = subprocess.run([str(REPO / "bin" / "tanka"), "init", "whatsapp"], capture_output=True, text=True, env=env)
         self.assertEqual(p.returncode, 1)
-        self.assertIn("is a tanka command", p.stderr)
+        self.assertIn("is a tanka command or module", p.stderr)
 
 
 if __name__ == "__main__":

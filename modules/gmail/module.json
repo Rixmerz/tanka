@@ -1,0 +1,11 @@
+{
+  "name": "gmail",
+  "description": "Read, search, reply to and send Gmail, with attachments both ways, for the mailboxes assigned to the workspace.",
+  "requires": [
+    "rastro"
+  ],
+  "events": {
+    "poll_seconds": 60,
+    "description": "a new unread email in an assigned mailbox; on = gmail:<address> or gmail:*"
+  }
+}

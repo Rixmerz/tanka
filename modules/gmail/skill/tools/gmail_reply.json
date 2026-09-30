@@ -1,0 +1,35 @@
+{
+  "name": "gmail_reply",
+  "effect": "send",
+  "description": "Replies inside a conversation of the last gmail_inbox list, from the same mailbox, optionally attaching one file from the workspace; the recipients get it at once. Use it only after showing the user the exact text (and the file, if any) and getting a yes. It needs the number from that list. It does not start new conversations (that is gmail_send). Files outside the workspace are refused. Never call it twice for the same reply. Returns one line confirming the reply.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "maximum": 30,
+      "description": "Number of the conversation in the last gmail_inbox list (e.g. 2)."
+    },
+    "message": {
+      "type": "string",
+      "required": true,
+      "description": "The exact reply the user approved, with nothing added (e.g. \"Hi Clara, the quote is attached.\")."
+    },
+    "attachment": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "Full path of one file to attach, inside the workspace (e.g. a file gmail_read saved). Leave it out for no attachment."
+    }
+  },
+  "examples": [
+    {
+      "number": 2,
+      "message": "Hi Clara, the quote is attached."
+    }
+  ],
+  "timeout_sec": 240,
+  "run": [
+    "python3",
+    "gmail_reply.py"
+  ]
+}

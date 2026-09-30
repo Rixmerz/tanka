@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""`tanka whatsapp link|status|install`: the human side of the WhatsApp module.
+"""`tanka whatsapp link|status`: the human side of the WhatsApp module.
 
 link   opens the headless session and, if it is not linked, draws WhatsApp's QR
        code in this terminal (redrawn each time WhatsApp rotates it) until the
        phone scans it.
 status says whether the session is linked and to which number.
-install copies the `whatsapp` skill into a workspace, scoped to the roles whose
-       "workspace" is that workspace's name (or --scope).
+post-install runs after `tanka install whatsapp <workspace>`: creates an example
+       contacts.json when there is none.
 """
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -79,31 +78,19 @@ STARTER = {
 }
 
 
-def install(argv: list[str]) -> int:
-    """install <workspace dir> <workspace name> [--scope NAME]"""
-    if len(argv) < 2:
-        print("Usage: tanka whatsapp install <workspace> [--scope NAME]", file=sys.stderr)
-        return 1
-    ws, name, rest = Path(argv[0]), argv[1], argv[2:]
-    scope = rest[rest.index("--scope") + 1] if "--scope" in rest and rest.index("--scope") + 1 < len(rest) else name
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", scope):
-        print(f"x The scope must be letters, digits, - or _ (got {scope!r}).", file=sys.stderr)
-        return 1
-    dest = ws / ".claude" / "skills" / "whatsapp"
-    if dest.exists():
-        print(f"x {dest} already exists; remove it first to reinstall.", file=sys.stderr)
-        return 1
-    shutil.copytree(Path(__file__).resolve().parent / "skill", dest)
-    for f in dest.rglob("*"):
-        if f.is_file() and f.suffix in (".py", ".json", ".md"):
-            text = f.read_text(encoding="utf-8").replace("__SCOPE__", scope).replace("notes/people", wa.PEOPLE_DIR)
-            f.write_text(text, encoding="utf-8")
-    print(f"+ Skill installed in {dest}, scope \"{scope}\": it sees contacts whose role has \"workspace\": \"{scope}\".")
+def post_install(argv: list[str]) -> int:
+    """Called by `tanka install whatsapp <workspace>` after the skill is copied: post-install <workspace> <scope>."""
+    ws, scope = Path(argv[0]), argv[1]
+    skill = ws / ".claude" / "skills" / "whatsapp"
+    if wa.PEOPLE_DIR != "notes/people":
+        for f in skill.rglob("*"):
+            if f.is_file() and f.suffix in (".md", ".json"):
+                f.write_text(f.read_text(encoding="utf-8").replace("notes/people", wa.PEOPLE_DIR), encoding="utf-8")
     if not wa.REGISTRY.is_file():
         wa.HOME.mkdir(parents=True, exist_ok=True)
         wa.REGISTRY.write_text(json.dumps(STARTER, indent=2) + "\n", encoding="utf-8")
-        print(f"+ Created {wa.REGISTRY} with an example; replace it with your own contacts and roles.")
-    print("  Next: tanka whatsapp link (once per computer), then tanka tools check on this workspace.")
+        print(f"+ Created {wa.REGISTRY} with an example; replace it with your contacts and roles.")
+    print(f"  Roles whose \"workspace\" is \"{scope}\" are visible to it. Link the phone once with: tanka whatsapp link")
     return 0
 
 
@@ -111,12 +98,20 @@ def main(argv: list[str]) -> int:
     # qrencode writes straight to the terminal; our own lines must not lag behind it in a buffer.
     sys.stdout.reconfigure(line_buffering=True)
     cmd = argv[0] if argv else "status"
-    if cmd == "install":
-        return install(argv[1:])
+    if cmd == "post-install" and len(argv) == 3:
+        return post_install(argv[1:])
+    if cmd == "events":
+        # For the automation daemon: one JSON event per line, then exit.
+        for e in wa.drain_events():
+            print(json.dumps(e, ensure_ascii=False))
+        return 0
+    if cmd == "alert" and len(argv) == 3:
+        wa.send_alert(argv[1], argv[2])
+        return 0
     try:
         return {"link": link, "status": status}[cmd]()
     except KeyError:
-        print("Usage: tanka whatsapp link|status|install <workspace>", file=sys.stderr)
+        print("Usage: tanka whatsapp link|status", file=sys.stderr)
         return 1
     except wa.ToolError as e:
         print(f"x {e}", file=sys.stderr)

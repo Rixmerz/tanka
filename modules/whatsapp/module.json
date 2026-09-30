@@ -1,0 +1,12 @@
+{
+  "name": "whatsapp",
+  "description": "Read and answer WhatsApp for the contacts assigned to the workspace, with their images, files and a record per person.",
+  "requires": [
+    "rastro",
+    "openssl"
+  ],
+  "events": {
+    "poll_seconds": 3,
+    "description": "a new message from a contact with a role; on = whatsapp:<role>"
+  }
+}

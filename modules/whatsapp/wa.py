@@ -29,6 +29,9 @@ from pathlib import Path
 
 import media  # noqa: E402  (same folder)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
+import office  # noqa: E402  (modules/common)
+
 MODULE = Path(__file__).resolve().parent
 # Every setting has a default and an environment variable; see README.md.
 # User data lives outside every workspace, so no assistant can write it.
@@ -41,7 +44,7 @@ PEOPLE_DIR = os.environ.get("TANKA_WHATSAPP_PEOPLE_DIR", "notes/people")
 MEDIA_DIR = os.environ.get("TANKA_WHATSAPP_MEDIA_DIR", "whatsapp")
 LIST_LIMIT = int(os.environ.get("TANKA_WHATSAPP_LIST_LIMIT", "25"))
 URL = "https://web.whatsapp.com/"
-WRAPPER = MODULE / "chromium-headless"
+WRAPPER = MODULE.parent / "common" / "chromium-headless"
 
 
 class ToolError(Exception):
@@ -292,7 +295,7 @@ def describe_media(m: dict, folder: Path) -> str:
     if info["type"] in ("ptt", "audio", "video"):
         line += " (audio and video cannot be played here: tell the user so they can listen on the phone)"
     elif path.suffix in (".xlsx", ".docx"):
-        text = media.office_text(path)
+        text = office.office_text(path)
         if text:
             txt = path.with_name(path.name + ".txt")
             txt.write_text(text, encoding="utf-8")
@@ -361,6 +364,10 @@ def reply(workspace_name: str, contact: str, message: str) -> None:
     if not roles[person["role"]].get("reply", False):
         raise ToolError(f"{name} has the role {person['role']}, which does not allow replying from this assistant. "
                         "Tell the user; nothing was sent.")
+    if os.environ.get("TANKA_UNATTENDED") and not roles[person["role"]].get("auto_reply", False):
+        # Nobody is watching this run: only roles the user opted in may be answered without them.
+        raise ToolError(f"The user is not here and the role {person['role']} is not set to auto_reply. Nothing was sent: "
+                        "save the reply you propose in .tanka/drafts/ and report it for the user to approve.")
     if not message.strip():
         raise ToolError("The message is empty. Ask the user what to reply.")
     with session():
@@ -437,3 +444,53 @@ def list_people(workspace_name: str, where: str = "", search: str = "") -> None:
         print(f"+{num} | {person.get('name', '?')} | {person['role']} | {data}")
     if len(rows) > 40:
         print(f"(showing 40 of {len(rows)}; narrow the filter)")
+
+
+# ---------------------------------------------------------------- events (for triggers)
+
+EVENTS = r"""
+  // Installed once per page load: WhatsApp adds every arriving message to its Msg collection.
+  if (!window.__tankaQueue) {
+    window.__tankaQueue = [];
+    C.Msg.on("add", m => {
+      try {
+        if (!m.isNewMsg || m.id.fromMe) return;
+        const remote = m.id.remote;
+        if (!remote || remote.server === "g.us" || remote.server === "broadcast" || remote.server === "newsletter") return;
+        window.__tankaQueue.push({remote: remote._serialized, id: m.id.id, t: m.t});
+      } catch (e) {}
+    });
+    return JSON.stringify({installed: true, events: []});
+  }
+  const out = [];
+  for (const e of window.__tankaQueue.splice(0)) {
+    const chat = C.Chat.get(e.remote);
+    const n = chat ? pn(chat) : null;
+    if (n) out.push({number: n, id: e.id, t: e.t});
+  }
+  return JSON.stringify({events: out});
+"""
+
+
+def drain_events() -> list[dict]:
+    """New incoming messages since the last call, from contacts that have a role. No message text."""
+    reg = registry()
+    with session():
+        res = js(page(EVENTS), timeout=60)
+    events = []
+    for e in res.get("events", []):
+        person = reg["contacts"].get(e["number"])
+        role = reg["roles"].get(person.get("role")) if person else None
+        if not role:
+            continue  # no role: nobody is woken up, and nothing about it leaves this function
+        events.append({"source": "whatsapp", "kind": "message", "scope": role.get("workspace"), "role": person["role"],
+                       "contact": "+" + e["number"], "name": person.get("name", ""), "id": e["id"], "at": e["t"]})
+    return events
+
+
+def send_alert(number: str, message: str) -> None:
+    """Send the user's own alert to the number they configured for it. Used by the automation daemon only."""
+    with session():
+        res = js(page(SEND, number=digits(number), message=message), timeout=60)
+    if not (res.get("ok") or res.get("already")):
+        raise ToolError("The alert did not go out.")

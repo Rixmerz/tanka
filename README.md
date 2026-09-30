@@ -39,7 +39,13 @@ tanka work                          # reopen it: pick a previous session, or a n
 
 Separate workspaces also separate what each assistant can reach: one that can message your clients has no tool that grades students, and the other way round.
 
-**Optional modules** live in [`modules/`](modules/). [`modules/whatsapp`](modules/whatsapp/README.md) lets a workspace read and answer WhatsApp for the contacts you assign to it and look at images and files; add it to a workspace with `tanka whatsapp install <name>` and link the phone with `tanka whatsapp link`.
+**Routines and triggers** run the assistant on a clock or when a message arrives, unattended: it reads and drafts, and replies on its own only to the recipients you opt in. See [`docs/automation.md`](docs/automation.md).
+
+**Every workspace has an advisor**: when a request needs more judgment than its tools give, the assistant can consult a stronger model (Sonnet by default, `advisorModel` in the workspace's `.claude/settings.json`).
+
+**Authoring** (`tanka dev`) loads the [Rastro](https://github.com/Rixmerz/rastro) browser plugin and a `map-site` skill: map a website by hand, then turn it into headless calls a tool can make.
+
+**Optional modules** live in [`modules/`](modules/). [`modules/whatsapp`](modules/whatsapp/README.md) lets a workspace read and answer WhatsApp for the contacts you assign to it and look at images and files; add it to a workspace with `tanka install whatsapp <name>` and link the phone with `tanka whatsapp link`. `tanka modules` lists them.
 
 **The first session asks one question: which language should the assistant work in.** Answer in the language you want — the reply itself is the answer — and it is saved to `.tanka/persona.json`. Everything the assistant writes from then on is in that language. The repository's own files stay in English by design.
 
@@ -135,7 +141,7 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 ## Development
 
 ```bash
-tanka test                          # 115 tests
+tanka test                          # 147 tests
 tanka tools check                   # the workspace's tools and skills
 claude plugin validate plugin --strict
 tanka doctor ~/tanka-workspace

@@ -1,0 +1,43 @@
+{
+  "name": "gmail_send",
+  "effect": "send",
+  "description": "Sends a new message from the user's Gmail, optionally attaching one file from the workspace; the recipients get it at once. Use it only after showing the user the recipient, subject, exact text (and the file, if any) and getting a yes. To answer a message the user received, use gmail_reply instead, so it stays in its conversation. If the same subject already went to the same person in the last hour it is not sent again; never call it twice. Returns one line confirming the send.",
+  "params": {
+    "to": {
+      "type": "string",
+      "required": true,
+      "description": "Recipient address, or several separated by commas (e.g. clara@example.com)."
+    },
+    "subject": {
+      "type": "string",
+      "required": true,
+      "description": "The subject the user approved (e.g. \"Quote for the logo\")."
+    },
+    "message": {
+      "type": "string",
+      "required": true,
+      "description": "The exact text the user approved, with nothing added."
+    },
+    "attachment": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "Full path of one file to attach, inside the workspace (e.g. a file gmail_read saved). Leave it out for no attachment."
+    },
+    "account": {
+      "type": "string",
+      "description": "Address of the mailbox to use, when this assistant has more than one (e.g. someone@example.com). Leave it out to use the only one."
+    }
+  },
+  "examples": [
+    {
+      "to": "clara@example.com",
+      "subject": "Quote for the logo",
+      "message": "Hi Clara, here is the quote."
+    }
+  ],
+  "timeout_sec": 240,
+  "run": [
+    "python3",
+    "gmail_send.py"
+  ]
+}

@@ -178,8 +178,13 @@ class TestNamedWorkspaces(unittest.TestCase):
         self.assertEqual(cwd, str(ws))
         self.assertNotIn("--resume", args)
         key = "".join(c if c.isalnum() else "-" for c in str(ws))
-        (self.tmp / "claude-config" / "projects" / key).mkdir(parents=True)
-        (self.tmp / "claude-config" / "projects" / key / "s.jsonl").write_text("{}\n")
+        project = self.tmp / "claude-config" / "projects" / key
+        project.mkdir(parents=True)
+        # A headless run is saved but the resume picker hides it: still a fresh start.
+        (project / "run.jsonl").write_text('{"type":"user","entrypoint":"sdk-cli"}\n')
+        self.tanka("personal")
+        self.assertNotIn("--resume", self.last_call()[1])
+        (project / "chat.jsonl").write_text('{"type":"user","entrypoint":"cli"}\n')
         self.tanka("personal")
         self.assertIn("--resume", self.last_call()[1])
 

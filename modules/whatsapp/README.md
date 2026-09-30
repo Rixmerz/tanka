@@ -9,16 +9,16 @@ It drives a headless WhatsApp Web session through [Rastro](https://github.com/Ri
 ## Setup
 
 ```bash
-tanka whatsapp install <workspace>          # add the whatsapp skill (4 tools) to a workspace
+tanka install whatsapp <workspace>          # add the whatsapp skill (4 tools) to a workspace
 tanka whatsapp link                         # draw the QR code in this terminal; scan it from the phone
 tanka whatsapp status                       # linked number and chat count
 ```
 
-`install` copies [`skill/`](skill/) into the workspace, scoped to the workspace's name (`--scope NAME` to pick another), and creates an example `contacts.json` if there is none. It refuses to overwrite an installed skill. The skill takes 4 of the workspace's 15 tools.
+`tanka install` copies [`skill/`](skill/) into the workspace, scoped to the workspace's name (`--scope NAME` to pick another), and this module's `post-install` creates an example `contacts.json` if there is none. It refuses to overwrite an installed skill or to push a workspace past 15 tools; the skill takes 4.
 
 `link` redraws the code each time WhatsApp rotates it (about every 20 seconds) and stops once the phone is linked; it needs `qrencode`, and without it saves a screenshot and prints its path. The link survives restarts.
 
-It runs without a window. Headless Chromium announces itself as `HeadlessChrome` and WhatsApp refuses it as an unsupported browser, so [`chromium-headless`](chromium-headless) starts the same browser with the user agent a normal window sends; the library points Rastro at it through `RASTRO_CHROMIUM`.
+It runs without a window. Headless Chromium announces itself as `HeadlessChrome` and WhatsApp refuses it as an unsupported browser, so [`chromium-headless`](../common/chromium-headless) starts the same browser with the user agent a normal window sends; the library points Rastro at it through `RASTRO_CHROMIUM`.
 
 Requirements: Rastro, a Chromium-based browser, `openssl`, Python 3.10+.
 
@@ -63,7 +63,7 @@ Every setting has a default; override it in the environment Tanka runs in.
 | --- | --- | --- |
 | `TANKA_WHATSAPP_HOME` | `~/.tanka/shared/whatsapp` | Where `contacts.json` and the session lock live |
 | `TANKA_WHATSAPP_SESSION` | `whatsapp` | The Rastro session name |
-| `TANKA_WHATSAPP_BROWSER` | first found: Chromium, Chrome, Brave, Edge | The browser binary behind the headless wrapper |
+| `TANKA_BROWSER` | first found: Chromium, Chrome, Brave, Edge | The browser binary behind the headless wrapper (shared by every module) |
 | `TANKA_WHATSAPP_PEOPLE_DIR` | `notes/people` | Person records, relative to the workspace (set it before `install`: the skill's text names it) |
 | `TANKA_WHATSAPP_MEDIA_DIR` | `whatsapp` | Downloaded media, relative to the workspace |
 | `TANKA_WHATSAPP_MAX_MB` | `25` | Largest file that is downloaded |
@@ -74,9 +74,10 @@ Every setting has a default; override it in the environment Tanka runs in.
 | File | What it does |
 | --- | --- |
 | `wa.py` | Registry and scoping, the session, reading chats and threads, replying, person records |
-| `media.py` | Download, decryption, Office-to-text |
-| `cli.py` | `tanka whatsapp link\|status\|install` |
-| `chromium-headless` | The browser wrapper described above |
+| `media.py` | Download and decryption |
+| `module.json` | Name, description and required programs, read by `tanka modules` |
+| `cli.py` | `tanka whatsapp link\|status`, and `post-install` |
+| `../common/` | The browser wrapper and Office-to-text, shared with other modules |
 | `skill/` | The skill `install` copies: `SKILL.md` and four tools whose scripts import `wa` and set their `SCOPE` |
 
 Tests: `tests/test_whatsapp.py`.

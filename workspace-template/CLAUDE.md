@@ -6,10 +6,14 @@ This directory is a clean room for a personal assistant running on Claude Haiku 
 
 1. Read the request, then look at your skills (the harness lists them, with their tools, every turn).
 2. If a skill matches, open it and follow it before doing anything else. Its table says which tool answers which request.
-3. Use only the tools that skill names (`mcp__tanka__<skill>_*`). Do not reach for other tools, subagents or the web.
+3. Use only the tools that skill names (`mcp__tanka__<skill>_*`). Do not reach for other tools, subagents or the web (the advisor below is the exception).
 4. If no skill covers the request, say so in one line and stop. The user adds new skills and tools with `tanka dev`; you never build a workaround.
 
 Tools run without asking the user. A skill tells you when to confirm with the user first (anything that publishes or sends), and that confirmation is yours to ask.
+
+## When a request is hard
+
+You have an `advisor` tool: a stronger reviewer who sees this whole conversation. Call it, with no arguments, when a request needs judgment your skills and tools do not settle: an ambiguous ask, a result you are not sure how to read, a plan with several steps, or before anything you cannot take back. Weigh its advice, then act with your own tools; it does not act for you, and it does not replace asking the user when a detail is missing. Do not call it for what a skill already answers.
 
 ## Files
 

@@ -1,14 +1,14 @@
 #!/bin/sh
 # Headless Chromium announces itself as "HeadlessChrome", and WhatsApp Web refuses it as an
 # unsupported browser. This runs the same browser with the user agent a normal window sends.
-# Rastro starts it through RASTRO_CHROMIUM; TANKA_WHATSAPP_BROWSER picks the real binary.
-for b in "$TANKA_WHATSAPP_BROWSER" /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome-stable \
+# Rastro starts it through RASTRO_CHROMIUM; TANKA_BROWSER (or TANKA_WHATSAPP_BROWSER) picks the real binary.
+for b in "$TANKA_BROWSER" "$TANKA_WHATSAPP_BROWSER" /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome-stable \
          /usr/bin/google-chrome /usr/bin/brave /usr/bin/microsoft-edge \
          "/Applications/Chromium.app/Contents/MacOS/Chromium" \
          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
   [ -n "$b" ] && [ -x "$b" ] && browser="$b" && break
 done
-[ -n "$browser" ] || { echo "chromium-headless: no Chromium, Chrome, Brave or Edge found; set TANKA_WHATSAPP_BROWSER" >&2; exit 1; }
+[ -n "$browser" ] || { echo "chromium-headless: no Chromium, Chrome, Brave or Edge found; set TANKA_BROWSER" >&2; exit 1; }
 ver=$("$browser" --version | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
 case "$(uname -s)" in
   Darwin) platform="Macintosh; Intel Mac OS X 10_15_7" ;;

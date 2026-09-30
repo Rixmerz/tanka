@@ -1,0 +1,41 @@
+{
+  "name": "gmail_inbox",
+  "effect": "read",
+  "description": "Lists the conversations of the user's Gmail, newest first and numbered, with date, sender, subject, whether it is unread or has attachments, and how it starts. Use it when the user asks what mail they got, what is unread, or looks for a message by sender, subject or words (search takes Gmail search syntax such as from:, subject:, has:attachment). It opens nothing (that is gmail_read with the number) and marks nothing as read. The numbers are valid until the next list. Returns one line per conversation: number | date | from | subject | marks | start.",
+  "params": {
+    "search": {
+      "type": "string",
+      "description": "Gmail search, as the user described it (e.g. \"from:clara invoice\" or \"has:attachment\"). Leave it out for the inbox."
+    },
+    "unread": {
+      "type": "boolean",
+      "default": false,
+      "description": "true to show only unread conversations."
+    },
+    "limit": {
+      "type": "integer",
+      "default": 15,
+      "minimum": 1,
+      "maximum": 30,
+      "description": "How many conversations to show at most (e.g. 15)."
+    },
+    "account": {
+      "type": "string",
+      "description": "Address of the mailbox to use, when this assistant has more than one (e.g. someone@example.com). Leave it out to use the only one."
+    }
+  },
+  "examples": [
+    {
+      "unread": true
+    },
+    {
+      "search": "has:attachment invoice",
+      "limit": 5
+    }
+  ],
+  "timeout_sec": 150,
+  "run": [
+    "python3",
+    "gmail_inbox.py"
+  ]
+}
