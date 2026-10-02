@@ -35,6 +35,8 @@
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; }
+/* A native select's open list follows these, not the page, in some browsers: give it the theme. */
+select, option { background-color: var(--raised); color: var(--ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
@@ -47,8 +49,25 @@ button { font: inherit; color: inherit; }
 .mark .s { fill: var(--raised); }
 .event .head .mark { width: 16px; height: 16px; flex: none; }
 .brand h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
-.ws { font-size: 13px; color: var(--muted); padding: 2px 9px; border: 1px solid var(--line); border-radius: 99px; white-space: nowrap; }
-.ws select { font: inherit; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; }
+.ws { position: relative; flex: none; }
+.wsbtn { display: inline-flex; align-items: center; gap: 9px; max-width: 260px; border: 1px solid var(--line); background: var(--raised); color: var(--ink); border-radius: 11px; padding: 4px 9px 4px 5px; cursor: pointer; font-size: 14px; box-shadow: var(--shadow-sm); transition: border-color .15s; }
+.wsbtn:hover, .wsbtn[aria-expanded="true"] { border-color: var(--accent); }
+.wsbtn.single { cursor: default; }
+.wsbtn.single:hover { border-color: var(--line); }
+.ini { width: 24px; height: 24px; flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--ink); display: grid; place-items: center; font-weight: 750; font-size: 12.5px; }
+.wsbtn .nm, .wsopt .nm { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsbtn .sub, .wsopt .sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.wsbtn .chev { display: grid; color: var(--muted); }
+.wsbtn .chev svg { width: 14px; height: 14px; transition: transform .15s; }
+.wsbtn[aria-expanded="true"] .chev svg { transform: rotate(180deg); }
+.wsmenu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 270px; max-height: min(420px, 70vh); overflow-y: auto; margin: 0; padding: 6px; list-style: none; background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.wsmenu .cap { padding: 6px 9px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.wsopt { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 10px; cursor: pointer; outline: none; }
+.wsopt:hover, .wsopt.hot { background: var(--bubble); }
+.wsopt[aria-selected="true"] .ini { background: var(--accent); color: var(--accent-ink); }
+.wsopt .txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.wsopt .end { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--accent); }
+.wsopt .end svg { width: 16px; height: 16px; }
 .tabs { display: flex; gap: 2px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 11px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 .tabs button { border: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
 .tabs button:hover { color: var(--ink); }
@@ -730,16 +749,85 @@ function badgeOf(sc, t) {
   return t.badge ? t.badge(sc, modOf(sc, t.module)) || 0 : 0;
 }
 
+// ------------------------------------------------------------ the workspace switcher
+// A button and a listbox (not a native select, whose open list ignores the theme): each workspace by its
+// persona's name, its folder name under it, and how much waits there.
+const ICON_CHEV = "M6 9l6 6 6-6";
+const initial = s => (nameOf(s) || "?").trim().charAt(0).toUpperCase();
+const waiting = s => tabsOf(s).reduce((a, t) => a + badgeOf(s, t), 0);
+
+function pick(scope) {
+  ui.scope = scope; ui.sideSig = ""; ui.wsOpen = false; ui.wsSig = "";
+  remember("tanka.scope", scope);
+  render();
+  const b = $("ws").querySelector(".wsbtn"); if (b) b.focus();
+}
+
+function wsMenu(scopes, sc) {
+  const opts = scopes.map((s, i) => {
+    const n = waiting(s), same = s.name && s.name !== s.scope;
+    return el("li", { role: "option", class: "wsopt", id: "wsopt-" + i, tabindex: "-1", "data-scope": s.scope,
+      "aria-selected": String(!!sc && s.scope === sc.scope),
+      on: { click: () => pick(s.scope), mousemove: e => hot(e.currentTarget) } },
+      el("span", { class: "ini", "aria-hidden": "true" }, initial(s)),
+      el("span", { class: "txt" }, el("span", { class: "nm" }, nameOf(s)), same ? el("span", { class: "sub" }, s.scope) : null),
+      el("span", { class: "end" }, n ? el("span", { class: "badge" }, String(n)) : null,
+        sc && s.scope === sc.scope ? svg(ICON.check) : null));
+  });
+  return el("ul", { class: "wsmenu", role: "listbox", id: "wsmenu", "aria-label": T.workspace,
+    on: { keydown: wsKeys } }, el("li", { class: "cap", role: "presentation" }, T.workspace), opts);
+}
+
+function hot(li) {
+  for (const o of $("ws").querySelectorAll(".wsopt")) o.classList.toggle("hot", o === li);
+  if (li) { li.focus({ preventScroll: true }); li.scrollIntoView({ block: "nearest" }); }
+}
+
+function wsKeys(e) {
+  const opts = [...$("ws").querySelectorAll(".wsopt")], i = opts.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { e.preventDefault(); hot(opts[Math.min(i + 1, opts.length - 1)]); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); hot(opts[Math.max(i - 1, 0)]); }
+  else if (e.key === "Home") { e.preventDefault(); hot(opts[0]); }
+  else if (e.key === "End") { e.preventDefault(); hot(opts[opts.length - 1]); }
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); pick(opts[i].dataset.scope); }
+  else if (e.key === "Escape" || e.key === "Tab") { closeWs(e.key === "Escape"); }
+}
+
+function openWs() {
+  ui.wsOpen = true; ui.wsSig = "";
+  header(current());
+  const sel = $("ws").querySelector('.wsopt[aria-selected="true"]') || $("ws").querySelector(".wsopt");
+  hot(sel);
+}
+function closeWs(refocus) {
+  if (!ui.wsOpen) return;
+  ui.wsOpen = false; ui.wsSig = "";
+  header(current());
+  if (refocus) { const b = $("ws").querySelector(".wsbtn"); if (b) b.focus(); }
+}
+document.addEventListener("pointerdown", e => { if (ui.wsOpen && !$("ws").contains(e.target)) closeWs(false); });
+
+function wsSwitcher(scopes, sc) {
+  const many = scopes.length > 1;
+  const btn = el("button", { type: "button", class: "wsbtn" + (many ? "" : " single"), "aria-label": `${T.workspace}: ${nameOf(sc)}`,
+    "aria-haspopup": many ? "listbox" : false, "aria-expanded": many ? String(!!ui.wsOpen) : false, "aria-controls": many ? "wsmenu" : false,
+    on: { click: () => { if (many) (ui.wsOpen ? closeWs(true) : openWs()); },
+          keydown: e => { if (many && !ui.wsOpen && ["ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); openWs(); } } } },
+    el("span", { class: "ini", "aria-hidden": "true" }, initial(sc)),
+    el("span", { class: "nm" }, nameOf(sc)),
+    sc.name && sc.name !== sc.scope ? el("span", { class: "sub" }, sc.scope) : null,
+    many ? el("span", { class: "chev" }, svg(ICON_CHEV)) : null);
+  return [btn, many && ui.wsOpen ? wsMenu(scopes, sc) : null];
+}
+
 function header(sc) {
   const scopes = ui.state ? ui.state.scopes : [];
-  const wsSig = scopes.map(s => s.scope).join("|") + "#" + (sc ? sc.scope : "");
-  if (wsSig !== ui.wsSig) {  // rebuilt only when it changes, so an open dropdown is not closed under the pointer
+  // Rebuilt when the list, the names or what waits changes; never while it is open under the pointer.
+  const wsSig = JSON.stringify([scopes.map(s => [s.scope, s.name, waiting(s)]), sc ? sc.scope : "", !!ui.wsOpen]);
+  if (wsSig !== ui.wsSig && !(ui.wsOpen && ui.wsSig)) {
     ui.wsSig = wsSig;
     $("ws").hidden = !sc;
-    $("ws").replaceChildren(scopes.length > 1
-      ? el("select", { "aria-label": T.workspace, on: { change: e => { ui.scope = e.target.value; ui.sideSig = ""; remember("tanka.scope", ui.scope); render(); } } },
-          scopes.map(s => el("option", { value: s.scope, selected: sc && s.scope === sc.scope }, s.name && s.name !== s.scope ? `${s.name} · ${s.scope}` : s.scope)))
-      : (sc ? sc.scope : ""));
+    $("ws").replaceChildren(...(sc ? wsSwitcher(scopes, sc) : []).filter(Boolean));
   }
   const tabs = tabsOf(sc);
   if (!tabs.some(t => t.id === ui.tab)) ui.tab = "chat";
@@ -768,7 +856,7 @@ function header(sc) {
   $("live").title = title;
   $("banner").hidden = !ui.error;
   $("banner").textContent = ui.error ? T.unreachable(ui.error) : "";
-  $("brandName").textContent = sc ? nameOf(sc) : "Tanka";
+  $("brandName").textContent = "Tanka";
   document.title = (total ? `(${total}) ` : "") + (sc ? nameOf(sc) : "Tanka");
 }
 
