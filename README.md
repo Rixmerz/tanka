@@ -45,7 +45,7 @@ Separate workspaces also separate what each assistant can reach: one that can me
 
 **Authoring** (`tanka dev`) loads the [Rastro](https://github.com/Rixmerz/rastro) browser plugin and a `map-site` skill: map a website by hand, then turn it into headless calls a tool can make.
 
-**Optional modules** live in [`modules/`](modules/). [`modules/whatsapp`](modules/whatsapp/README.md) lets a workspace read and answer WhatsApp for the contacts you assign to it and look at images and files; add it to a workspace with `tanka install whatsapp <name>` and link the phone with `tanka whatsapp link`. `tanka modules` lists them.
+**Optional modules** live in [`modules/`](modules/). [`modules/whatsapp`](modules/whatsapp/README.md) lets a workspace read and answer WhatsApp for the contacts you assign to it and look at images and files; add it to a workspace with `tanka install whatsapp <name>` and link the phone with `tanka whatsapp link`. [`modules/companion`](modules/companion/README.md) watches your own Claude Code sessions and speaks first when one of the lenses you built with `/new-companion` says so; it never touches code ([design](docs/companion.md)). `tanka modules` lists them.
 
 **The first session asks one question: which language should the assistant work in.** Answer in the language you want — the reply itself is the answer — and it is saved to `.tanka/persona.json`. Everything the assistant writes from then on is in that language. The repository's own files stay in English by design.
 

@@ -226,6 +226,26 @@ def effective_persona(persona: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # I/O
 # --------------------------------------------------------------------------- #
+def desktop_notify(title: str, text: str) -> bool:
+    """A desktop notification on Linux (notify-send) or macOS (osascript); False when neither exists."""
+    import shutil
+    import subprocess
+    if shutil.which("notify-send"):
+        cmd = ["notify-send", "-a", "Tanka", title, text]
+    elif shutil.which("osascript"):
+        cmd = ["osascript", "-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+               "-e", "end run", title, text]
+    else:
+        return False
+    try:
+        p = subprocess.run(cmd, check=False, timeout=15, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    # Exit 0 only means the request was accepted: macOS drops it silently when Focus is on or
+    # the sender (Script Editor, for osascript) is not allowed in System Settings → Notifications.
+    return p.returncode == 0
+
+
 def read_input() -> dict:
     try:
         raw = sys.stdin.read()

@@ -9,28 +9,37 @@ Write allowlist stops at `.tanka/` and `notes/`):
      "triggers": {"<name>": {"on": "whatsapp:client", "scope": "<ws>", "task": "..."}},
      "alert":    {"notify": true, "whatsapp": "+15551234567"}}
 
-One daemon (`tanka automation daemon`, usually a systemd user service) polls the
-event sources that modules declare in module.json ("events"), keeps the
+One daemon (`tanka automation daemon`, usually a launchd agent on macOS or a systemd user service on
+Linux, `tanka automation service install`; a lock keeps it
+to one) polls the event sources that modules declare in module.json ("events"): the
+ones some trigger listens to, and the ones marked "always" (the companion's reminders
+fire without any trigger). It keeps the
 routines' clock, and starts `tanka run` in the workspace. A run is unattended
 (TANKA_UNATTENDED=1, sends refused by the harness unless the objective allows
 them, and every send tool checks the recipient was opted in with auto_reply).
 It ends with a `REPORT:` line; anything but `REPORT: -` reaches the user as a
 desktop notification, a WhatsApp to their own number if configured, and the
-workspace's `.tanka/automation.log`.
+workspace's `.tanka/automation.log`; a report worth telling is also kept in
+`.tanka/reports.jsonl`, where the companion's chat shows it.
 
 Standard library only.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tanka_common as tc  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 TANKA = REPO / "bin" / "tanka"
@@ -81,6 +90,12 @@ def module_events() -> dict:
         if ev:
             out[mj.parent.name] = int(ev.get("poll_seconds", 60))
     return out
+
+
+def always_polled() -> set[str]:
+    """Modules whose events are polled even when no trigger listens: their poll does work of its own."""
+    return {mj.parent.name for mj in MODULES.glob("*/module.json")
+            if (json.loads(mj.read_text(encoding="utf-8")).get("events") or {}).get("always")}
 
 
 def check_on(on: str) -> tuple[str, str]:
@@ -156,10 +171,17 @@ def log(ws: Path, line: str) -> None:
         f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {line}\n")
 
 
+def keep_report(ws: Path, kind: str, name: str, spec: dict, code: int, report: str) -> None:
+    """One JSON line per report worth telling, for whatever shows them (the companion's chat)."""
+    entry = {"t": round(time.time(), 3), "kind": kind, "name": name, "on": spec.get("on"), "exit": code, "report": report[:500]}
+    with (ws / ".tanka" / "reports.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 def alert(ws: Path, cfg: dict, text: str) -> None:
     title = f"Tanka · {name_of(ws)}"
-    if cfg.get("notify", True) and shutil.which("notify-send"):
-        subprocess.run(["notify-send", "-a", "Tanka", title, text], check=False, timeout=15)
+    if cfg.get("notify", True):
+        tc.desktop_notify(title, text)
     if cfg.get("whatsapp"):
         subprocess.run([sys.executable, str(MODULES / "whatsapp" / "cli.py"), "alert", cfg["whatsapp"], f"{title}: {text}"],
                        check=False, timeout=120, capture_output=True)
@@ -187,6 +209,7 @@ def run_once(ws: Path, kind: str, name: str, spec: dict, woke: str, runner=None)
     report = found[-1].strip() if found else ("the run failed: " + (p.stderr or p.stdout or "").strip()[-200:] if p.returncode else "-")
     log(ws, f"{kind} {name} | {woke} | exit {p.returncode} | {report}")
     if report not in ("-", "—", ""):
+        keep_report(ws, kind, name, spec, p.returncode, report)
         alert(ws, load(ws)["alert"], f"{name}: {report}")
     return report
 
@@ -239,7 +262,7 @@ class Daemon:
                     self.save_state()
                     self.start(ws, "routine", name, spec, f"the routine \"{name}\" (every {spec['every']})")
         # Triggers: poll each source that some trigger listens to, at the module's own pace.
-        wanted = {check_on(t["on"])[0] for _, cfg in spaces for t in cfg["triggers"].values()}
+        wanted = {check_on(t["on"])[0] for _, cfg in spaces for t in cfg["triggers"].values()} | always_polled()
         for module, pace in module_events().items():
             if module not in wanted or now < self.next_poll.get(module, 0):
                 continue
@@ -266,18 +289,24 @@ class Daemon:
                 scope = spec.get("scope") or name_of(ws)
                 if ev.get("source") != source or ev.get("scope") != scope:
                     continue
-                if source == "whatsapp" and value not in ("*", ev.get("role")):
+                # A module's event may carry its own `match` (what `--on source:<value>` compares) and `what` (the
+                # sentence the run is told); WhatsApp and Gmail predate that and are described here.
+                match = ev.get("match", ev.get("role") if source == "whatsapp" else ev.get("account"))
+                if value not in ("*", match):
                     continue
-                if source == "gmail" and value not in ("*", ev.get("account")):
-                    continue
-                what = (f"a new WhatsApp message from {ev['contact']} ({ev.get('name') or 'no name'}, role {ev['role']})"
-                        if source == "whatsapp" else f"a new email from {ev.get('from') or 'someone'} in {ev['account']}")
+                what = ev.get("what") or (
+                    f"a new WhatsApp message from {ev['contact']} ({ev.get('name') or 'no name'}, role {ev['role']})"
+                    if source == "whatsapp" else f"a new email from {ev.get('from') or 'someone'} in {ev['account']}")
                 p = self.pending.setdefault((str(ws), name), {"ws": ws, "name": name, "spec": spec, "since": now, "what": []})
                 p["last"] = now
                 p["what"].append(what)
 
-    def loop(self) -> None:
-        print(f"Tanka automation running: {len(workspaces())} workspace(s). Ctrl+C to stop.", flush=True)
+    def loop(self) -> int:
+        lock = hold_lock()
+        if lock is None:
+            print(f"= The automation daemon is already running (pid {daemon_pid()}).")
+            return 0
+        print(f"Tanka automation running (pid {os.getpid()}): {len(workspaces())} workspace(s). Ctrl+C to stop.", flush=True)
         while True:
             try:
                 self.tick()
@@ -286,21 +315,158 @@ class Daemon:
             time.sleep(2)
 
 
-# ---------------------------------------------------------------- service (systemd --user)
+# ---------------------------------------------------------------- one daemon at a time
+
+LOCK_FILE = STATE_HOME / "daemon.lock"
+
+
+def hold_lock():
+    """The open lock file while this process is the daemon, or None when another one is."""
+    STATE_HOME.mkdir(parents=True, exist_ok=True)
+    f = open(LOCK_FILE, "a+")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
+
+
+def daemon_pid() -> int | None:
+    """The running daemon's pid, or None. Two daemons would start every run twice."""
+    if not LOCK_FILE.is_file():
+        return None
+    with open(LOCK_FILE, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.seek(0)
+            pid = f.read().strip()
+            return int(pid) if pid.isdigit() else -1
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return None
+
+
+def start_detached() -> int:
+    """Start the daemon in the background, logging to daemon.log; returns its pid (the running one if any)."""
+    pid = daemon_pid()
+    if pid:
+        return pid
+    STATE_HOME.mkdir(parents=True, exist_ok=True)
+    log = open(STATE_HOME / "daemon.log", "a", encoding="utf-8")
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "daemon"], stdout=log, stderr=log,
+                     stdin=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(50):
+        time.sleep(0.1)
+        pid = daemon_pid()
+        if pid:
+            return pid
+    raise ValueError(f"the automation daemon did not start; see {STATE_HOME / 'daemon.log'}")
+
+
+# ---------------------------------------------------------------- service (launchd on macOS, systemd --user on Linux)
 
 UNIT_PATH = Path.home() / ".config" / "systemd" / "user" / "tanka-automation.service"
+LAUNCHD_LABEL = "com.tanka.automation"
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 
 
-def service(action: str) -> int:
-    if not shutil.which("systemctl"):
-        print("x systemctl is not available: run `tanka automation daemon` under your own supervisor.", file=sys.stderr)
+def service_env() -> dict[str, str]:
+    """What the daemon needs from this shell: Tanka's own settings, PATH and where Claude Code is."""
+    return {k: v for k, v in sorted(os.environ.items())
+            if k.startswith(("TANKA_", "RASTRO_")) or k in ("PATH", "CLAUDE_BIN", "CLAUDE_CONFIG_DIR")}
+
+
+def stop_detached() -> None:
+    """A daemon started by hand holds the lock, and the service's own would exit at once: stop it first."""
+    pid = daemon_pid()
+    if pid and pid > 0:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(50):
+            if not daemon_pid():
+                return
+            time.sleep(0.1)
+
+
+def quiet_run(cmd: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, check=False, capture_output=True, text=True)
+
+
+def service_installed() -> bool:
+    return (PLIST_PATH if sys.platform == "darwin" else UNIT_PATH).is_file()
+
+
+def service_start(run=quiet_run) -> bool:
+    """Start the installed service now (it may have been stopped); True when it took."""
+    if sys.platform == "darwin":
+        target = f"gui/{os.getuid()}"
+        if run(["launchctl", "bootstrap", target, str(PLIST_PATH)]).returncode == 0:
+            return True
+        return run(["launchctl", "kickstart", f"{target}/{LAUNCHD_LABEL}"]).returncode == 0  # already loaded
+    return run(["systemctl", "--user", "start", "tanka-automation.service"]).returncode == 0
+
+
+def service_stop(run=quiet_run) -> None:
+    """Stop the service until the next login (launchd would restart a daemon killed by hand)."""
+    if sys.platform == "darwin":
+        run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])
+    else:
+        run(["systemctl", "--user", "stop", "tanka-automation.service"])
+
+
+def service(action: str, run=None) -> int:
+    """Keep the daemon running across logins and restart it if it crashes."""
+    run = run or (lambda cmd: subprocess.run(cmd, check=False, stderr=subprocess.DEVNULL if "bootout" in cmd else None))
+    if action not in ("install", "remove", "status"):
+        print("Usage: tanka automation service install|remove|status", file=sys.stderr)
         return 1
+    if sys.platform == "darwin":
+        return launchd_service(action, run)
+    if not shutil.which("systemctl"):
+        print("x Neither launchd nor systemctl is available: run `tanka automation daemon` under your own supervisor.",
+              file=sys.stderr)
+        return 1
+    return systemd_service(action, run)
+
+
+def launchd_service(action: str, run) -> int:
+    domain = f"gui/{os.getuid()}"
     if action == "install":
-        env = "".join(f"Environment={k}={v}\n" for k, v in sorted(os.environ.items())
-                      if k.startswith(("TANKA_", "RASTRO_")) or k in ("PATH", "CLAUDE_BIN", "CLAUDE_CONFIG_DIR"))
+        import plistlib
+        STATE_HOME.mkdir(parents=True, exist_ok=True)
+        PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PLIST_PATH.write_bytes(plistlib.dumps({
+            "Label": LAUNCHD_LABEL, "ProgramArguments": [str(TANKA), "automation", "daemon"],
+            "EnvironmentVariables": service_env(), "RunAtLoad": True,
+            "KeepAlive": {"SuccessfulExit": False}, "ThrottleInterval": 10,
+            "StandardOutPath": str(STATE_HOME / "daemon.log"), "StandardErrorPath": str(STATE_HOME / "daemon.log")}))
+        stop_detached()
+        run(["launchctl", "bootout", f"{domain}/{LAUNCHD_LABEL}"])  # a previous install, if any
+        code = run(["launchctl", "bootstrap", domain, str(PLIST_PATH)]).returncode
+        if code == 0:
+            print(f"+ Installed {PLIST_PATH}: the daemon starts at login and restarts if it crashes.")
+        return code
+    if action == "remove":
+        run(["launchctl", "bootout", f"{domain}/{LAUNCHD_LABEL}"])
+        PLIST_PATH.unlink(missing_ok=True)
+        print("- Service removed.")
+        return 0
+    if not PLIST_PATH.is_file():
+        print("= No service installed: tanka automation service install")
+        return 0
+    return run(["launchctl", "print", f"{domain}/{LAUNCHD_LABEL}"]).returncode
+
+
+def systemd_service(action: str, run) -> int:
+    if action == "install":
+        env = "".join(f"Environment={k}={v}\n" for k, v in service_env().items())
         UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)
         UNIT_PATH.write_text(f"""[Unit]
-Description=Tanka automation (routines and triggers)
+Description=Tanka automation (routines, triggers, the companion's reminders and brief)
 
 [Service]
 ExecStart={TANKA} automation daemon
@@ -310,15 +476,16 @@ RestartSec=10
 [Install]
 WantedBy=default.target
 """, encoding="utf-8")
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-        return subprocess.run(["systemctl", "--user", "enable", "--now", "tanka-automation.service"]).returncode
+        stop_detached()
+        run(["systemctl", "--user", "daemon-reload"])
+        return run(["systemctl", "--user", "enable", "--now", "tanka-automation.service"]).returncode
     if action == "remove":
-        subprocess.run(["systemctl", "--user", "disable", "--now", "tanka-automation.service"], check=False)
+        run(["systemctl", "--user", "disable", "--now", "tanka-automation.service"])
         UNIT_PATH.unlink(missing_ok=True)
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        run(["systemctl", "--user", "daemon-reload"])
         print("- Service removed.")
         return 0
-    return subprocess.run(["systemctl", "--user", "status", "--no-pager", "tanka-automation.service"]).returncode
+    return run(["systemctl", "--user", "status", "--no-pager", "tanka-automation.service"]).returncode
 
 
 # ---------------------------------------------------------------- CLI
@@ -336,14 +503,69 @@ def listing(ws: Path) -> None:
     print(f"  alerts: {'desktop' if a.get('notify', True) else 'no desktop'}" + (f", WhatsApp {a['whatsapp']}" if a.get("whatsapp") else ""))
 
 
+def ensure() -> int | None:
+    """Run by an interactive `tanka start`/`dev`: start the daemon when none runs and there is work for
+    it (a routine, a trigger, or a companion whose reminders and brief need its poll). Returns the pid it
+    started, or None. Silent when one already runs."""
+    if daemon_pid():
+        return None
+    jobs, companions = 0, 0
+    for ws in workspaces():
+        try:
+            cfg = load(ws)
+        except ValueError:
+            continue
+        jobs += len(cfg["routines"]) + len(cfg["triggers"])
+        companions += (ws / ".claude" / "companion.json").is_file()
+    if not jobs and not companions:
+        return None
+    if service_installed() and service_start():
+        for _ in range(50):
+            if (pid := daemon_pid()) and pid > 0:
+                break
+            time.sleep(0.1)
+        print(f"+ Started the automation service again (pid {pid}): it was stopped. Stop it with: tanka automation stop")
+        return pid
+    pid = start_detached()
+    print(f"+ Started the automation daemon (pid {pid}): reminders, the companion's brief and your {jobs} "
+          "routine(s) and trigger(s) run from it. Stop it with: tanka automation stop")
+    return pid
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
         return 0
     what, rest = argv[0], argv[1:]
     try:
+        if what == "ensure":
+            ensure()
+            return 0
         if what == "daemon":
-            Daemon().loop()
+            if "--detach" in rest:
+                print(f"+ The automation daemon runs in the background (pid {start_detached()}); "
+                      f"log in {STATE_HOME / 'daemon.log'}. Stop it with: tanka automation stop")
+                return 0
+            return Daemon().loop()
+        if what in ("status", "stop"):
+            pid = daemon_pid()
+            if not pid:
+                print("= The automation daemon is not running. Start it with: tanka automation daemon [--detach]")
+                return 0
+            if what == "status":
+                print(f"The automation daemon is running (pid {pid}).")
+                return 0
+            if pid < 0:  # locked, but the pid is still being written: never signal -1 (every process)
+                print("x The daemon is starting; run this again in a second.", file=sys.stderr)
+                return 1
+            if service_installed():
+                service_stop()
+                print(f"- Stopped the automation service (pid {pid}) until your next login, or until `tanka start` "
+                      "starts it again. To remove it: tanka automation service remove")
+                return 0
+            os.kill(pid, signal.SIGTERM)
+            print(f"- Stopped the automation daemon (pid {pid}). A run it had started finishes on its own.")
+            return 0
         if what == "service":
             return service(rest[0] if rest else "status")
         if what in ("routine", "trigger") and rest and rest[0] == "list":

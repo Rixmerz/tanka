@@ -45,7 +45,7 @@ Usage:
   tanka trigger add <name|dir> <trigger> --on whatsapp:<role> "task"
                                    Run it when an event arrives (see tanka modules)
   tanka routine|trigger list|remove|run ...
-  tanka automation service install|remove|status | daemon | alert <ws> [--whatsapp N] | log <ws>
+  tanka automation service install|remove|status | daemon [--detach] | ensure | status | stop | alert <ws> [--whatsapp N] | log <ws>
 
 Every [dir] also takes a workspace name. A name is a directory (or a symlink to
 one) under $WORKSPACES_DIR; without one, the default is $DEFAULT_WS.
@@ -144,6 +144,13 @@ export TANKA_LAUNCHED=1
 # compact earlier than the default. TANKA_AUTOCOMPACT_PCT=100 keeps the default.
 export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
+# Reminders, the companion's brief and every routine and trigger run from the automation daemon, so an
+# interactive launch starts it when there is work for it and none runs. TANKA_NO_DAEMON=1 skips this.
+ensure_daemon() {
+  [[ -n "${TANKA_NO_DAEMON:-}" || -n "${TANKA_UNATTENDED:-}" ]] && return 0
+  python3 "$PLUGIN_DIR/scripts/tanka_automation.py" ensure >&2 || true
+}
+
 cmd_start() {
   local arg="${1:-}"
   [[ "$arg" == "--" ]] && arg=""
@@ -159,7 +166,8 @@ cmd_start() {
     cmd_init "${arg:-$ws}"
   fi
   cd "$ws"
-  mapfile -t ARGS < <(common_args "$ws")
+  ensure_daemon
+  ARGS=(); while IFS= read -r a; do ARGS+=("$a"); done < <(common_args "$ws")  # bash 3.2 (macOS) has no mapfile
   exec "$CLAUDE_BIN" "${ARGS[@]}" --permission-mode "$PERMISSION_MODE" "$@"
 }
 
@@ -208,7 +216,7 @@ json.dump(obj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 print(f"+ Objective '{obj.get('title')}' activated (may_send forced to false in delegated mode)")
 PY
   fi
-  mapfile -t ARGS < <(common_args "$ws")
+  ARGS=(); while IFS= read -r a; do ARGS+=("$a"); done < <(common_args "$ws")  # bash 3.2 (macOS) has no mapfile
   # Tools read this to tell a run with nobody watching from one the user attends: a send
   # tool refuses there unless the user opted that recipient in (e.g. auto_reply on a role).
   export TANKA_UNATTENDED=1
@@ -266,6 +274,7 @@ cmd_dev() {
   # the assistant's deny rules and CLAUDE.md do not apply to the author, and
   # the assistant itself can never write a tool.
   cd "$TANKA_REPO"
+  ensure_daemon
   export TANKA_WORKSPACE="$ws"
   # builder/settings.json declares the Rastro plugin, which authoring uses to map sites (skill map-site).
   exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --settings "$TANKA_REPO/builder/settings.json" --add-dir "$ws" --effort "$DEV_EFFORT" \

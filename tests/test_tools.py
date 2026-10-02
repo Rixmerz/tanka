@@ -39,7 +39,7 @@ def manifest(**over) -> dict:
 
 class ToolsCase(unittest.TestCase):
     def setUp(self):
-        self.ws = Path(tempfile.mkdtemp(prefix="tanka-tools-"))
+        self.ws = Path(tempfile.mkdtemp(prefix="tanka-tools-")).resolve()  # macOS: /var is a symlink to /private/var
         shutil.copytree(TEMPLATE, self.ws, dirs_exist_ok=True)
         self.skill = self.ws / ".claude" / "skills" / "demo"
         (self.skill / "tools").mkdir(parents=True)
@@ -147,7 +147,7 @@ class TestNamedWorkspaces(unittest.TestCase):
     """`tanka <name>` resumes, `tanka start <name>` creates; claude is a stub that logs its call."""
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()  # macOS: /var is a symlink to /private/var
         self.addCleanup(shutil.rmtree, self.tmp)
         self.log = self.tmp / "calls.log"
         stub = self.tmp / "claude"

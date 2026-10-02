@@ -1,0 +1,45 @@
+{
+  "name": "companion_diff",
+  "effect": "read",
+  "description": "Reads the git state of the project a watched session works in, without changing anything and without running the repository's own programs. View status lists changed files, stat counts changed lines per file, diff shows the changes against the last commit, and log shows the last 15 commits. Use it when a lens needs the actual change, such as reviewing a large turn or checking for uncommitted work. It does not show the session's prompts or failures (that is companion_digest). Returns the git output, cut to max_lines; in a backtest it refuses, because today's repository is not what it was then.",
+  "params": {
+    "view": {
+      "type": "string",
+      "enum": [
+        "status",
+        "stat",
+        "diff",
+        "log"
+      ],
+      "default": "stat",
+      "description": "What to read: status, stat, diff or log (e.g. stat). Start with stat; diff only when the lines matter."
+    },
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{4,64}$",
+      "description": "Session id or its first 8 characters, as companion_sessions or the signal shows it (e.g. 3f2a9c1e). Leave it out for the most recent session."
+    },
+    "max_lines": {
+      "type": "integer",
+      "default": 120,
+      "minimum": 10,
+      "maximum": 400,
+      "description": "The most lines of output to show (e.g. 120)."
+    }
+  },
+  "examples": [
+    {
+      "view": "stat",
+      "session": "3f2a9c1e"
+    },
+    {
+      "view": "diff",
+      "max_lines": 200
+    }
+  ],
+  "timeout_sec": 30,
+  "run": [
+    "python3",
+    "companion_diff.py"
+  ]
+}
