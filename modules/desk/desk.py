@@ -305,7 +305,7 @@ def fire_reminders() -> int:
                     fired += 1
                     kit.chat_event(scope, {"t": c["fired_at"], "who": "reminder", "id": c["id"]})
                     if not os.environ.get("TANKA_CODEPANION_BACKTEST"):
-                        tc.desktop_notify(f"⏰ {c['topic']} · {scope}", c["text"])
+                        tc.desktop_notify(f"Reminder · {c['topic']} · {scope}", c["text"])
     return fired
 
 

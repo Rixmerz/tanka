@@ -24,7 +24,7 @@ tanka trigger add duck watch --on codepanion:* --budget 0.15 "React to the signa
 tanka automation service install                  # keep the daemon running across logins
 ```
 
-Then, optionally: `tanka dev duck` → `/new-codepanion` for lenses of your own (it backtests them against your past sessions), `tanka codepanion recap duck on` for the end-of-session recap, and `tanka codepanion statusline install` for 🦆 N in your status line.
+Then, optionally: `tanka dev duck` → `/new-codepanion` for lenses of your own (it backtests them against your past sessions), `tanka codepanion recap duck on` for the end-of-session recap, and `tanka codepanion statusline install` for "2 notes · 1 due" in your status line.
 
 Read what it said with `tanka codepanion notes`, and rate a note with `tanka codepanion rate <id> good|bad`. Or open the page: `tanka ui duck` (`/page` in `tanka dev`; [`docs/page.md`](../../docs/page.md)). There the codepanion adds three tabs, its notes with their 👍/👎, the watched sessions with their timelines and the signals they crossed, and the lenses with their check status and ratings, and it speaks in the chat on its own: its notes and its tuning proposals show there between your messages. The chat itself, Your day (the desk, which it needs: what a session leaves open goes on your cards) and the daemon's health belong to the page.
 

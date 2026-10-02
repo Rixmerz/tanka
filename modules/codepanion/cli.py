@@ -20,7 +20,7 @@ lens <workspace> <lens> stricter|pause|resume
 recap <workspace> on|off
                      the optional end-of-session recap: what changed, what was not verified, what is at risk
 statusline [install|remove]
-                     the status line segment (🦆 N notes, ⏰ M reminders due); install wraps your current status line
+                     the status line segment ("2 notes · 1 due"); install wraps your current status line
 ui [...]             the same as `tanka ui`: the page, where the codepanion adds Notes, Sessions and Lenses
 signals              the signal catalog lenses can wake on
 events               for the automation daemon: one JSON signal per line
@@ -145,9 +145,9 @@ def tap(action: str) -> int:
 # ---------------------------------------------------------------- status line
 
 def segment() -> str:
-    """🦆 N for new notes, ⏰ M for reminders due; empty when there is neither."""
+    """"2 notes · 1 due": new notes and reminders due, in words; empty when there is neither."""
     n, d = c.unseen(), c.desk_module().due_count()
-    return " ".join(x for x in (f"🦆 {n}" if n else "", f"⏰ {d}" if d else "") if x)
+    return " · ".join(x for x in (f"{n} note{'s' if n != 1 else ''}" if n else "", f"{d} due" if d else "") if x)
 
 
 def statusline(argv: list[str]) -> int:

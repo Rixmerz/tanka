@@ -68,7 +68,7 @@ class TestCards(WorkspaceCase):
         self.t[0] = r["at"] + 1
         self.assertEqual(d.fire_reminders(), 1)
         self.assertEqual(d.fire_reminders(), 0)
-        self.assertEqual(sent, [("⏰ app · duck", "Revisar el PR")])
+        self.assertEqual(sent, [("Reminder · app · duck", "Revisar el PR")])
         self.assertEqual(d.due_count(), 1)
         d.update_card("duck", r["id"], "snooze", 10)
         self.assertEqual(d.due_count(), 0)
