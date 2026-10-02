@@ -58,6 +58,32 @@ class TestCheck(ModulesCase):
         self.assertTrue(any("__SCOPE__" in p for p in tm.check("loose")))
 
 
+class TestNeeds(ModulesCase):
+    def needs(self, name, needs):
+        mj = tm.MODULES / name / "module.json"
+        mj.write_text(json.dumps(dict(json.loads(mj.read_text()), needs=needs)))
+
+    def test_a_need_must_be_another_module(self):
+        self.make("top")
+        self.needs("top", ["nowhere"])
+        self.assertTrue(any("needs names 'nowhere'" in p for p in tm.check("top")))
+
+    def test_what_it_needs_comes_first_and_counts_toward_the_budget(self):
+        self.make("top", tools=2)
+        self.needs("top", ["demo"])
+        self.assertEqual(tm.install("top", self.ws, "shop"), 0)
+        self.assertEqual(sorted(p.name for p in tt.skills_dir(self.ws).iterdir()), ["demo", "top"])
+        self.make("huge", tools=5)
+        self.make("dep", tools=5)
+        self.needs("huge", ["dep"])
+        for i in range(2):
+            self.make(f"pad{i}", tools=2)
+            tm.install(f"pad{i}", self.ws, "shop")
+        # 3 + 4 tools installed; huge (5) plus dep (5) would go past 15, so neither goes in
+        self.assertEqual(tm.install("huge", self.ws, "shop"), 1)
+        self.assertFalse((tt.skills_dir(self.ws) / "dep").exists())
+
+
 class TestInstall(ModulesCase):
     def test_install_replaces_the_scope(self):
         self.assertEqual(tm.install("demo", self.ws, "shop"), 0)

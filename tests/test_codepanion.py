@@ -558,6 +558,14 @@ class TestSetup(CodepanionCase):
         self.assertIn("= The tap is already installed", again)
         self.assertNotIn("Next", again)
 
+    def test_a_new_companion_gets_its_name_and_language(self):
+        out_of(cli.setup, ["nova", str(self.other), "--name", "Nova", "--language", "es", "--no-service"])
+        persona = json.loads((self.wsdir / "nova" / ".tanka" / "persona.json").read_text())
+        self.assertEqual((persona["name"], persona["language"], persona["configured"]), ("Nova", "es", True))
+        self.assertEqual(self.started, ["Nova · ready"])
+        with self.assertRaisesRegex(c.ToolError, "--language"):
+            cli.setup(["nova", str(self.other), "--language", "1234"])
+
     def test_bad_project(self):
         with self.assertRaisesRegex(c.ToolError, "is not a directory"):
             cli.setup(["nova", str(self.tmp / "nope")])

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """`tanka codepanion …`: the human side of the codepanion module.
 
-setup <workspace> <project> [--no-service]
-                     all of it at once: workspace, module, watch, tap, trigger, daemon, then a self-test
+setup <workspace> <project> [--name NAME] [--language LANG] [--no-service]
+                     all of it at once: workspace and its persona, module, watch, tap, trigger, daemon, then a self-test
 watch add <path> <workspace> | remove <path> | list
                      which projects each codepanion may see (watch.json)
 tap install|remove|status
@@ -271,12 +271,26 @@ def tap_selftest(project: str) -> str | None:
 
 
 def setup(argv: list[str]) -> int:
-    """setup <workspace> <project> [--no-service]: everything a codepanion needs, then a self-test with no model."""
-    opts = [a for a in argv if a.startswith("--")]
-    args = [a for a in argv if not a.startswith("--")]
+    """setup <workspace> <project> [--name N] [--language L] [--no-service]: everything a codepanion
+    needs, then a self-test with no model."""
+    values, rest, i = {}, [], 0
+    while i < len(argv):
+        if argv[i] in ("--name", "--language") and i + 1 < len(argv):
+            values[argv[i][2:]] = argv[i + 1]
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    opts = [a for a in rest if a.startswith("--")]
+    args = [a for a in rest if not a.startswith("--")]
     if len(args) != 2 or set(opts) - {"--no-service"}:
-        print("Usage: tanka codepanion setup <workspace> <project path> [--no-service]", file=sys.stderr)
+        print("Usage: tanka codepanion setup <workspace> <project path> [--name NAME] [--language LANG] [--no-service]",
+              file=sys.stderr)
         return 1
+    if "name" in values and not 1 <= len(values["name"].strip()) <= 40:
+        raise c.ToolError("--name is 1-40 characters: what you call it, e.g. Nova")
+    if "language" in values and not re.fullmatch(r"[A-Za-z][A-Za-z -]{1,29}", values["language"]):
+        raise c.ToolError("--language is a language code or name, e.g. es or Spanish")
     name, project = args
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
         raise c.ToolError(f"'{name}' is not a workspace name: lowercase letters, digits, - and _")
@@ -296,6 +310,17 @@ def setup(argv: list[str]) -> int:
             raise c.ToolError(f"could not create the workspace: {p.stderr.strip() or p.stdout.strip()}")
         print(f"+ Workspace created at {ws}")
     ws = resolve_ws(name)
+    if values:
+        persona_file = ws / ".tanka" / "persona.json"
+        persona = c.read_json(persona_file, {})
+        if "name" in values:
+            persona["name"] = values["name"].strip()
+        if "language" in values:
+            persona["language"] = values["language"].strip()
+            persona["configured"] = True  # the language is the one question a first session would ask
+        c.write_json(persona_file, persona)
+        print(f"+ Persona: {persona.get('name') or name}" + (f", speaking {persona['language']}" if persona.get("language") else "")
+              + f". The rest (tone, how to address you) is in {persona_file}.")
     # What is missing: the codepanion and the modules it needs (an older install may lack the desk).
     plan = [m["name"] for m in tm.to_install("codepanion", ws) if not (ws / ".claude" / "skills" / m["name"]).is_dir()]
     if not plan:

@@ -7,10 +7,11 @@ The module ships the mechanism and no role. You build the role, meaning the lens
 ## Setup
 
 ```bash
-tanka codepanion setup duck ~/code/my-project     # everything below in one command, then a self-test
+tanka codepanion setup duck ~/code/my-project --name Duck --language en
+                                                  # everything below in one command, then a self-test
 ```
 
-`setup` creates the workspace if it does not exist, installs the module, watches the project, installs the tap, adds the `watch` trigger, and leaves the automation daemon running as a login service (`--no-service` starts a plain background daemon instead). Then it checks, with no model and nothing sent, that the configuration passes, that the tap writes the feed (with a synthetic session it deletes afterwards), that the daemon runs, and that a desktop notification shows. Run it again to fix what failed: it skips what is done. **Restart the Claude Code sessions already open** in the project: hooks reach new sessions only.
+`setup` creates the workspace if it does not exist (with `--name` and `--language` its persona is ready, so the first session does not ask),  installs the module, watches the project, installs the tap, adds the `watch` trigger, and leaves the automation daemon running as a login service (`--no-service` starts a plain background daemon instead). Then it checks, with no model and nothing sent, that the configuration passes, that the tap writes the feed (with a synthetic session it deletes afterwards), that the daemon runs, and that a desktop notification shows. Run it again to fix what failed: it skips what is done. **Restart the Claude Code sessions already open** in the project: hooks reach new sessions only.
 
 The same steps by hand:
 

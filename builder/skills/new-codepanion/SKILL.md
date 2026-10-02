@@ -53,14 +53,6 @@ Nothing is sent during a backtest.
 
 ## 6. Go live, quietly
 
-Tell them the three commands that are theirs to run, and why:
+If it is not running yet, tell them the command that is theirs to run, and why: `bin/tanka codepanion setup <name> <project path>`. It installs the tap (observe-only hooks in their normal Claude Code), adds the `watch` trigger, keeps the automation daemon running as a login service, and ends with a self-test that sends nothing. Claude Code sessions already open in the project must be restarted to be watched.
 
-- `bin/tanka codepanion tap install`, if `bin/tanka codepanion tap status` says it is not installed. It adds observe-only hooks to their normal Claude Code.
-- `bin/tanka trigger add <name> watch --on codepanion:* --budget 0.15 "React to the signal with your lenses."`
-- `bin/tanka automation daemon`, kept running in a terminal.
-
-Optionally, `bin/tanka codepanion statusline install` puts 🦆 N in their status line. They read the notes with `tanka codepanion notes`, and rate them with `tanka codepanion rate <id> good|bad`. Suggest running `/new-codepanion` again after a week: it reads that feedback.
-
-## Report
-
-Say what you built (the lenses, with one line on what each one waits for), what check and backtest returned, the wake-ups per day, what was not run, and what they still have to do from step 6.
+Then `bin/tanka ui <name>`: the codepanion's notes show in the chat and in the Notes tab, where 👍/👎 tunes it.

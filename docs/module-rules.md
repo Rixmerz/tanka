@@ -14,16 +14,19 @@ Keep it a workspace skill when it encodes one person's or one organisation's spe
 
 ```
 modules/<name>/
-├── module.json      {"name", "description", "requires": [programs on PATH]}   [checked]
+├── module.json      {"name", "description", "requires", "needs", "events"}     [checked]
 ├── README.md        what it does, setup, risks, configuration table          [checked]
 ├── <name>.py        the library: every rule and every call lives here
-├── cli.py           optional: `tanka <name> <command>`, and `post-install`
+├── cli.py           optional: `tanka <name> <command>`, `post-install`, `events`
+├── page.py, page.js optional: its part of the page, `tanka ui` (docs/page.md)
 └── skill/           copied into a workspace by `tanka install`                  [checked]
     ├── SKILL.md
     └── tools/       thin scripts that import the library and set SCOPE
 ```
 
 - **[checked]** The directory name, `module.json`'s `name` and the skill's name are the same, lowercase, and not a `tanka` command. The tools' prefix follows from it (`whatsapp` → `whatsapp_*`).
+- `requires` lists programs on PATH; **[checked]** `needs` lists other modules this one cannot work without (the codepanion needs the desk). `tanka install` installs those first, if the workspace lacks them, and counts their tools toward the 15.
+- `events` (`{"poll_seconds", "description", "always"}`) makes the automation daemon run `cli.py events` at that pace; each line it prints is a JSON event a trigger can listen to (`--on <name>:<value>`). `"always": true` polls it even with no trigger, for a poll that does work of its own (the desk fires reminders there). The poll runs every few seconds for every user: it must be fast, need no model, and never write the user's settings.
 - **[checked]** The skill passes `tanka tools check` in an empty workspace, within the same budget as any skill: at most 6 tools. Fewer is better: a module competes for the 15 slots of every workspace it is installed in.
 
 ## 3. Scope
@@ -49,11 +52,18 @@ A module installed in two workspaces must not let one assistant reach what belon
 - Say in the README, in a **Risk** line, when automating the service is against its terms.
 - One assistant at a time per session: take a lock (see `wa.session()`).
 
-## 6. Language
+## 6. The page
+
+A module adds to the page with `page.py` (state, chat items, chips under an answer, context for the next message, a hint naming only its own tools, actions) and `page.js` (tabs, how its items look). The contract is in [docs/page.md](page.md). Two rules matter most:
+
+- The page's actions change only what the user may change by hand (tick, rate, archive). Anything that acts in the world is a message the user sends in the chat, and the assistant does it with its tools, through the same rules as any other request. A button that needs a model writes its message into the chat's box (`Tanka.compose`) and never sends it.
+- `page.js` builds every element with `el()` and sets text as text. No `innerHTML`, no `eval`: the page has one script and one nonce, and a module's code runs inside it.
+
+## 7. Language
 
 Everything in the module is English: code, messages, CLI output, the shipped skill and its tool descriptions. The assistant answers in the user's language regardless. A workspace may later translate its installed copy; the module stays English.
 
-## 7. Before calling it done
+## 8. Before calling it done
 
 1. `tanka modules check <name>` → `ok`.
 2. Tests in `tests/test_<name>.py`: scope refusals, every parser and crypto routine on fixtures, `tanka install` into a temporary workspace. No network, no browser. `tanka test` passes.

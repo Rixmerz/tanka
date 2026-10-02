@@ -11,7 +11,7 @@ tanka boards build <workspace>           # one tool per view: boards_record_<vie
 tanka ui <workspace>                     # the Boards tab
 ```
 
-Declare your own board with `/new-view` in `tanka dev <workspace>`: it asks what one row is, writes the view, checks it and builds its tool.
+Declare your own board with `/new-view` in `tanka dev <workspace>` ([`builder/skills/new-view`](../../builder/skills/new-view/SKILL.md)): it asks what one row is, writes the view in your language, checks it, builds its tool and tests it.
 
 ## A view
 
@@ -33,7 +33,7 @@ Six fields because each one becomes a param of the view's tool, and a tool takes
 | Piece | What it does |
 | --- | --- |
 | `boards_rows` | Read. With no view, the boards with their fields and choices; with a view, its rows, one line each (60 at most, `match` narrows). |
-| `boards_record_<view>` | Draft. Made by `tanka boards build` from the view. Adds a row, or updates the fields given on the row with the same key. It cannot delete. |
+| `boards_record_<view>` | Draft. Made by `tanka boards build` from the view. Adds a row, or updates the fields given on the row with the same key: keys compare without case, accents or extra spaces ("ana perez" is "Ana Pérez"), and the row keeps the spelling it was first written with. It cannot delete. |
 | Rows | `<TANKA_BOARDS_HOME>/<workspace>/<view>.json`, outside every workspace: the assistant reaches them only through its tools. At most 2000 rows a view. |
 | The page | `page.py` and `page.js` ([`docs/page.md`](../../docs/page.md)): the Boards tab, a filter, a select on editable choices, archiving a row, and chips under an answer for the rows it recorded. |
 

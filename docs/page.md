@@ -71,7 +71,7 @@ is. It calls `Tanka.module(name, spec)` once; `spec` may hold:
 
 | Key | What it is |
 | --- | --- |
-| `tabs` | `[{id, label, render(sc, mod) → nodes, badge(sc, mod) → number}]` |
+| `tabs` | `[{id, label, render(sc, mod) → nodes, badge(sc, mod) → number, sig(sc, mod) → any}]`; with `sig`, the tab is rebuilt only when it changes, so an input on it keeps its focus between polls |
 | `items` | `{who: (sc, m, mod) → Node}`: how the module's chat items look |
 | `chips` | `(sc, f, mod) → Node`: one chip under an answer, for this module's effects |
 | `side` | `{render(sc, mod) → nodes, label(sc, mod) → nodes, sig(sc, mod) → string}`: the panel beside the chat (one module at most) |
@@ -84,6 +84,8 @@ is. It calls `Tanka.module(name, spec)` once; `spec` may hold:
 
 `Tanka` also gives the helpers every module needs: `el`, `svg`, `mark`, `api`, `act`, `T` (the core's
 strings), `hm`, `when`, `clock`, `isToday`, `shortDay`, `relOf`, `rich`, `plural`, `nameOf`,
-`focus(id)` and `render()`.
+`focus(id)` (flash an element of the side panel), `go(tab)`, `render()`, `refresh()`, and
+`compose(text)`, which opens the chat with that text in the box for the user to read and send: the
+way a button asks the assistant for something.
 
 Module text is set with `el`, which never parses HTML. A module must not use `innerHTML`.

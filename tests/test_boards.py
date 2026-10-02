@@ -88,6 +88,14 @@ class TestTools(BoardCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("evaluation", p.stderr)
 
+    def test_a_key_written_without_accents_is_the_same_row(self):
+        b.record("duck", "grades", {"course": "Programación I", "student": "Ana Pérez", "evaluation": "EVA1", "grade": 5})
+        row, changed = b.record("duck", "grades", {"course": "programacion i", "student": "ANA  PEREZ", "evaluation": "eva1", "grade": 6})
+        self.assertEqual(changed, ["grade"])
+        (only,) = b.live_rows("duck", "grades")
+        self.assertEqual((only["fields"]["student"], only["fields"]["grade"]), ("Ana Pérez", 6))
+        self.assertIn("1 row(s) matching", out_of(b.rows_tool, "duck", "grades", "perez"))
+
     def test_rows_tool_lists_views_then_rows(self):
         b.record("duck", "grades", {"course": "P1", "student": "Ana", "evaluation": "EVA1", "grade": 6})
         b.record("duck", "grades", {"course": "P2", "student": "Luis", "evaluation": "EVA1", "status": "reviewed"})
@@ -104,6 +112,22 @@ class TestTools(BoardCase):
         self.assertIn("removed boards_record_grades (its view is gone)", b.build(self.ws, "duck"))
         self.assertFalse((self.ws / ".claude/skills/boards/tools/boards_record_grades.py").exists())
         self.assertIn("No boards yet.", (self.ws / ".claude/skills/boards/SKILL.md").read_text())
+
+    def test_a_long_example_is_cut_and_the_tool_still_loads(self):
+        spec = json.loads(json.dumps(GRADES))
+        spec["example"]["feedback"] = "Muy bien. " * 200  # 2000 characters
+        self.view("grades", spec)
+        tools, problems = tt.scan(self.ws)
+        self.assertEqual(problems, [])
+        self.assertLessEqual(len(tools["boards_record_grades"]["examples"][0]["feedback"]), b.EXAMPLE_CHARS)
+
+    def test_build_writes_nothing_the_harness_would_refuse(self):
+        real = b.tool_manifest
+        self.patch(b, "tool_manifest", lambda name, spec: dict(real(name, spec), description="Too short."))
+        with self.assertRaisesRegex(b.ToolError, "harness would refuse"):
+            b.build(self.ws, "duck")
+        tools, _ = tt.scan(self.ws)
+        self.assertIn("boards_record_grades", tools)  # the earlier, valid tool is still there
 
     def test_build_counts_against_the_tool_limit(self):
         self.patch(tt, "MAX_TOOLS_TOTAL", 2)

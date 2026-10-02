@@ -27,9 +27,11 @@ Prefer an official API the user already has access to; otherwise a logged-in pag
 1. `modules/<name>/module.json`, then the library `<name>.py`: settings from `TANKA_<NAME>_*` with defaults, scope checks first, one function per tool, messages in English that say what to do next.
 2. `skill/tools/`: one thin script per tool (`SCOPE = "__SCOPE__"`, import the library, call one function) and its manifest. At most 6 tools; 3–4 is better.
 3. `skill/SKILL.md` in English: which tool, recipes, the confirmation step before any `send`, rules, out of scope.
-4. `cli.py` if the user needs a command (link an account, check status) or a `post-install` step (create the example data file).
-5. `README.md`: what, setup, risk, scope, configuration table, files.
-6. `tests/test_<name>.py`: scope refusals before any network call, parsers and crypto on fixtures, install into a temporary workspace.
+4. `cli.py` if the user needs a command (link an account, check status), a `post-install` step (create the example data file), or `events` for the automation daemon (`"events"` in module.json).
+5. `page.py` and `page.js` if it should show on the page (`tanka ui`): read `docs/page.md` first. A button that needs the model writes a message into the chat's box; the page never acts in the world.
+6. `"needs"` in module.json when it cannot work without another module (its tools are installed first and count toward the 15).
+7. `README.md`: what, setup, risk, scope, configuration table, files.
+8. `tests/test_<name>.py`: scope refusals before any network call, parsers and crypto on fixtures, install into a temporary workspace (reuse `tests/workspace_case.py`, which keeps every home in a temporary directory).
 
 ## 4. Verify — all of it
 
