@@ -36,6 +36,7 @@ HOME = Path(os.environ.get("TANKA_BOARDS_HOME", kit.SHARED / "boards"))
 VIEW_RE = re.compile(r"[a-z][a-z0-9_]{1,23}")
 FIELD_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")
 TYPES = ("text", "number", "choice", "date")
+TONES = ("info", "warn", "good", "accent", "bad", "dev", "neutral")  # the page's colours for a choice's values
 MAX_FIELDS, MAX_KEY, MAX_VIEWS, MAX_ACTIONS = 6, 4, 5, 4
 SHORT_CHARS, LONG_CHARS = 200, 2000
 MAX_ROWS = 2000
@@ -119,6 +120,10 @@ def view_problems(name: str, spec: dict) -> list[str]:
             if any(v is not None and not isinstance(v, (int, float)) for v in (lo, hi)) or \
                     (lo is not None and hi is not None and lo >= hi):
                 p.append(f"{where}: min and max must be numbers with min below max")
+        tones = f.get("tones")
+        if tones is not None and (f.get("type") != "choice" or not isinstance(tones, dict)
+                                  or any(k not in (f.get("choices") or []) or v not in TONES for k, v in tones.items())):
+            p.append(f"{where}: tones maps some of its choices to one of {', '.join(TONES)}")
         if "long" in f and f.get("type") != "text":
             p.append(f"{where}: long applies to text only")
         if "editable" in f and f.get("type") != "choice":

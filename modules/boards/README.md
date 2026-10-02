@@ -20,7 +20,7 @@ Declare your own board with `/new-view` in `tanka dev <workspace>` ([`builder/sk
 | Key | What it is |
 | --- | --- |
 | `title`, `description` | The board's name, and what one row is in your words (the tool's description quotes it) |
-| `fields` | At most 6, each `{label, type, hint}`: `text` (`long` for several lines), `number` (`min`, `max`), `choice` (`choices`, `editable` to change it on the page), `date` |
+| `fields` | At most 6, each `{label, type, hint}`: `text` (`long` for several lines), `number` (`min`, `max`), `choice` (`choices`, `editable` to change it on the page, `tones` to colour its values: info, warn, good, accent, bad, dev, neutral), `date` |
 | `key` | 1-4 fields that say which row it is: recording the same key again updates that row |
 | `group_by`, `columns` | How the page groups the rows, and which fields its table shows |
 | `actions` | At most 4 buttons, `{label, says, when}`: `says` is the message, with `{field}` filled from the row; `when` shows it only for some choices |

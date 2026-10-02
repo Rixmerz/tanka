@@ -1,35 +1,39 @@
 // WhatsApp on the page: the People tab, with this workspace's roles and contacts and each person's record
 // (docs/page.md). What changes here is contacts.json, by the user's hand; nothing here opens WhatsApp.
+// It shares the look of the boards: a card per role, a clean row per person, everything else under the row.
 (() => {
   const { el, api, icon } = Tanka;
   const T = {
-    tab: "People", filter: "Filter by name, number, field…", people: n => `${n} contact(s)`, loading: "Loading…",
+    tab: "People", filter: "Filter…", people: n => `${n} contact${n === 1 ? "" : "s"}`, loading: "Loading…", all: "All",
+    sub: "WhatsApp contacts whose role belongs to this workspace, with what the assistant keeps about each. Changes here edit contacts.json; WhatsApp is never opened.",
     noRegistry: why => `${why} It holds the WhatsApp roles and contacts; tanka install whatsapp creates an example.`,
     noRoles: (s, p) => `No WhatsApp role belongs to ${s} yet. Give one "workspace": "${s}" in ${p}.`,
-    noPeople: "No contact has one of these roles yet. Add one above.", noMatch: "No contact matches.",
-    read: "Read", reply: "Reply", auto: "Auto-reply", instructions: "has instructions",
+    noPeople: "No contact has one of these roles yet. Add one.", noMatch: "No contact matches.",
+    read: "Read", reply: "Reply", auto: "Auto-reply", instructions: "Has instructions the assistant reads with these chats.", rolesTitle: "Roles",
     flagTitle: { read: "The assistant may read these chats", reply: "The assistant may answer, after you approve",
                  auto_reply: "The assistant may answer on its own, when you are not there" },
     autoNeedsReply: "Turn Reply on first",
-    autoConfirm: role => `Turn on auto-reply for ${role}: the assistant will answer these people without asking you.`,
+    autoConfirm: role => `Auto-reply for ${role}: the assistant will answer these people without asking you.`,
     turnOn: "Turn on", cancel: "Cancel",
-    number: "Number, with country code", name: "Name", role: "Role", add: "Add contact",
-    cols: { name: "Name", number: "Number", last: "Last note", acts: "" },
-    readChat: "Read chat", readChatTitle: "Puts a request in the chat box; nothing is sent until you send it",
+    addOpen: "Add contact", number: "Number, with country code", name: "Name", role: "Role", add: "Add", none: "—",
+    cols: { name: "Name", number: "Number", last: "Last note" },
+    readChat: "Read chat", readChatTitle: "Writes the request in the chat box; nothing is sent until you send it",
     ask: (name, num) => `Read my WhatsApp chat with ${name} (${num}) and tell me what is pending.`,
-    remove: "Remove contact", confirmRemove: "Remove", rename: "Rename", save: "Save",
-    record: "Record", noRecord: p => `No record yet (${p}).`, notes: n => `${n} note(s)`,
+    open: "Show details", close: "Hide details",
+    remove: "Remove contact", confirmRemove: "Confirm remove", rename: "Name", save: "Save",
+    record: "What the assistant keeps", noRecord: p => `No record yet (${p}).`, notes: n => `${n} note${n === 1 ? "" : "s"}`,
     using: name => /whatsapp_reply/.test(name) ? "writing on WhatsApp…" : /whatsapp_/.test(name) ? "reading WhatsApp…" : null,
   };
   const FLAGS = [["read", T.read], ["reply", T.reply], ["auto_reply", T.auto]];
-  const ws = { filter: "", open: null, people: {}, person: {}, loading: false, err: "", confirmAuto: null, confirmRemove: null,
-               form: { number: "", name: "", role: "" }, renameTo: "" };
+  const TONES = ["info", "good", "accent", "warn", "dev", "bad", "neutral"];
+  const ws = { filter: "", role: null, open: null, people: {}, person: {}, loading: false, err: "", confirmAuto: null, armed: null,
+               adding: false, form: { number: "", name: "", role: "" }, renameTo: "" };
   const text = v => v == null ? "" : String(v);
   const rolesOf = mod => (mod && mod.roles) || [];
   const q = (sc, extra) => `scope=${encodeURIComponent(sc.scope)}${extra || ""}`;
-
   // The number as WhatsApp knows it: "+" and its digits. Grouping them would mean guessing the country's format.
   const fmt = num => "+" + text(num).replace(/\D/g, "");
+  const toneOf = (roles, name) => TONES[Math.max(0, roles.findIndex(r => r.name === name)) % TONES.length];
 
   async function load(sc) {
     if (ws.loading) return;
@@ -50,40 +54,38 @@
     await Tanka.refresh();
   }
 
-  function roleLine(sc, r) {
-    const flag = ([f, label]) => {
+  function roleCard(sc, r, roles) {
+    const toggle = ([f, label]) => {
       const blocked = f === "auto_reply" && !r.reply && !r.auto_reply;
-      return el("button", { type: "button", class: "ghost", "aria-pressed": String(!!r[f]), disabled: blocked,
+      return el("button", { type: "button", class: "toggle", "aria-pressed": String(!!r[f]), disabled: blocked,
         title: blocked ? T.autoNeedsReply : T.flagTitle[f], on: { click: () => {
           if (f === "auto_reply" && !r.auto_reply) { ws.confirmAuto = r.name; Tanka.render(); return; }
           change(sc, "role_flags", { role: r.name, [f]: !r[f] });
         } } }, r[f] ? icon("check") : null, label);
     };
-    return el("div", { class: "row" },
-      el("span", { class: "chip on" }, `${r.name} · ${r.count}`),
-      FLAGS.map(flag),
-      r.instructions ? el("span", { class: "meta" }, T.instructions) : null,
-      ws.confirmAuto === r.name ? [
-        el("span", { class: "warning" }, T.autoConfirm(r.name)),
-        el("button", { type: "button", class: "btn primary", on: { click: () => { ws.confirmAuto = null;
+    return el("div", { class: "rcard" },
+      el("div", { class: "rcard-h" }, el("span", { class: "pill tone-" + toneOf(roles, r.name) }, el("span", { class: "tdot" }), r.name),
+        el("span", { class: "n" }, T.people(r.count))),
+      el("div", { class: "toggles" }, FLAGS.map(toggle)),
+      r.instructions ? el("p", { class: "rcard-note" }, T.instructions) : null,
+      ws.confirmAuto === r.name ? el("div", { class: "confirm-line" }, T.autoConfirm(r.name),
+        el("button", { type: "button", class: "btn small danger armed", on: { click: () => { ws.confirmAuto = null;
           change(sc, "role_flags", { role: r.name, auto_reply: true, confirm: true }); } } }, T.turnOn),
-        el("button", { type: "button", class: "ghost", on: { click: () => { ws.confirmAuto = null; Tanka.render(); } } }, T.cancel),
-      ] : null);
+        el("button", { type: "button", class: "btn small", on: { click: () => { ws.confirmAuto = null; Tanka.render(); } } }, T.cancel)) : null);
   }
 
   function addForm(sc, roles) {
     if (!roles.some(r => r.name === ws.form.role)) ws.form.role = roles[0].name;
-    const input = (id, key, label, attrs) => el("input", { class: "filter", id, value: ws.form[key], placeholder: label, "aria-label": label,
-      ...attrs, on: { input: e => { ws.form[key] = e.target.value; }, keydown: e => { if (e.key === "Enter") submit(); } } });
-    const submit = () => change(sc, "add", { ...ws.form }, () => { ws.form.number = ""; ws.form.name = ""; });
-    return el("div", { class: "board-h" },
+    const submit = () => change(sc, "add", { ...ws.form }, () => { ws.form.number = ""; ws.form.name = ""; ws.adding = false; });
+    const input = (id, key, label, attrs) => el("input", { id, value: ws.form[key], placeholder: label, "aria-label": label, ...attrs,
+      on: { input: e => { ws.form[key] = e.target.value; }, keydown: e => { if (e.key === "Enter") submit(); } } });
+    return el("div", { class: "rform" },
       input("wa-add-number", "number", T.number, { inputmode: "tel", autocomplete: "off" }),
       input("wa-add-name", "name", T.name, { maxlength: "60", autocomplete: "off" }),
-      roles.length > 1
-        ? el("select", { "aria-label": T.role, on: { change: e => { ws.form.role = e.target.value; } } },
-            roles.map(r => el("option", { value: r.name, selected: r.name === ws.form.role }, r.name)))
-        : el("span", { class: "chip" }, roles[0].name),
-      el("button", { type: "button", class: "btn", on: { click: submit } }, T.add));
+      el("select", { "aria-label": T.role, on: { change: e => { ws.form.role = e.target.value; } } },
+        roles.map(r => el("option", { value: r.name, selected: r.name === ws.form.role }, r.name))),
+      el("button", { type: "button", class: "btn primary", on: { click: submit } }, T.add),
+      el("button", { type: "button", class: "btn", on: { click: () => { ws.adding = false; Tanka.render(); } } }, T.cancel));
   }
 
   // "3 quoted · 1 won": sale_status when the group has it, else the most common field with few values.
@@ -98,53 +100,71 @@
     return [...n.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([v, c]) => `${c} ${v}`).join(" · ");
   }
 
-  function detail(sc, p, span) {
-    const rec = ws.person[`${sc.scope}/${p.number}`];
-    const kids = [
-      el("div", { class: "row" },
-        el("input", { class: "filter", id: "wa-rename", value: ws.renameTo, maxlength: "60", "aria-label": T.rename,
-          on: { input: e => { ws.renameTo = e.target.value; },
-                keydown: e => { if (e.key === "Enter") change(sc, "rename", { number: p.number, name: ws.renameTo }); } } }),
-        el("button", { type: "button", class: "btn", on: { click: () => change(sc, "rename", { number: p.number, name: ws.renameTo }) } }, T.rename)),
-    ];
-    if (!rec) kids.push(el("p", { class: "meta" }, T.loading));
-    else if (!Object.keys(rec.fields).length && !rec.notes) kids.push(el("p", { class: "meta" }, T.noRecord(rec.path)));
-    else {
-      kids.push(el("span", { class: "k" }, `${T.record} · ${rec.path}`));
-      for (const [k, v] of Object.entries(rec.fields)) kids.push(el("div", {}, el("span", { class: "meta" }, `${k}: `), v));
-      if (rec.notes) kids.push(el("pre", { class: "section" }, rec.notes));
-    }
-    return el("tr", { class: "detail" }, el("td", { colspan: String(span) }, kids));
+  function toggleRow(sc, p) {
+    const open = ws.open === p.number;
+    ws.open = open ? null : p.number; ws.renameTo = p.name; ws.armed = null;
+    Tanka.render();
+    if (!open) loadPerson(sc, p.number);
   }
 
-  function table(sc, roles, cols, rows) {
+  function detail(sc, p, span, roles) {
+    const rec = ws.person[`${sc.scope}/${p.number}`], armed = ws.armed === p.number;
+    const saveName = () => change(sc, "rename", { number: p.number, name: ws.renameTo });
+    const left = [el("span", { class: "rlabel" }, T.record)];
+    if (!rec) left.push(el("p", { class: "meta" }, T.loading));
+    else if (!Object.keys(rec.fields).length && !rec.notes) left.push(el("p", { class: "rlong rmuted" }, T.noRecord(rec.path)));
+    else {
+      if (Object.keys(rec.fields).length) left.push(el("dl", { class: "kv" }, Object.entries(rec.fields).map(([k, v]) => [el("dt", {}, k.replace(/_/g, " ")), el("dd", {}, v)])));
+      if (rec.notes) left.push(el("p", { class: "rlong" }, rec.notes));
+    }
+    return el("tr", { class: "rdetail" }, el("td", { colspan: String(span) }, el("div", { class: "rdetail-grid" },
+      el("div", {}, left),
+      el("div", {},
+        el("dl", { class: "kv" },
+          el("dt", {}, T.cols.number), el("dd", {}, el("span", { class: "mono" }, fmt(p.number))),
+          el("dt", {}, T.role), el("dd", {}, roles.length > 1
+            ? el("select", { "aria-label": T.role, on: { change: e => change(sc, "set_role", { number: p.number, role: e.target.value }) } },
+                roles.map(r => el("option", { value: r.name, selected: r.name === p.role }, r.name)))
+            : p.role),
+          el("dt", {}, T.rename), el("dd", {}, el("div", { class: "inline-edit" },
+            el("input", { id: "wa-rename", value: ws.renameTo, maxlength: "60", "aria-label": T.rename,
+              on: { input: e => { ws.renameTo = e.target.value; }, keydown: e => { if (e.key === "Enter") saveName(); } } }),
+            el("button", { type: "button", class: "btn small", on: { click: saveName } }, T.save)))),
+        el("div", { class: "ractions" },
+          el("button", { type: "button", class: "btn danger" + (armed ? " armed" : ""), on: { click: () => {
+            if (!armed) { ws.armed = p.number; Tanka.render(); setTimeout(() => { if (ws.armed === p.number) { ws.armed = null; Tanka.render(); } }, 4000); return; }
+            ws.armed = null; ws.open = null;
+            change(sc, "remove", { number: p.number });
+          } } }, armed ? T.confirmRemove : T.remove))))));
+  }
+
+  function groupCard(sc, role, roles, cols, rows, fields) {
+    const span = 4 + cols.length, tally = counts(fields, rows);
     const body = [];
     for (const p of rows) {
-      const role = roles.find(r => r.name === p.role) || {};
-      const open = ws.open === p.number;
-      body.push(el("tr", { class: open ? "row-open" : "" },
-        el("td", {}, el("button", { type: "button", class: "link", "aria-expanded": String(open), on: { click: () => {
-          ws.open = open ? null : p.number; ws.renameTo = p.name; ws.confirmRemove = null;
-          Tanka.render(); if (!open) loadPerson(sc, p.number); } } }, p.name || "—")),
+      const open = ws.open === p.number, preview = fields.map(k => p.fields[k]).find(Boolean);
+      body.push(el("tr", { class: "r" + (open ? " open" : "") },
+        el("td", {}, el("div", { class: "rname" },
+          el("button", { type: "button", class: "link", "aria-expanded": String(open), on: { click: () => toggleRow(sc, p) } }, p.name || fmt(p.number)),
+          preview && !open && !cols.length ? el("span", { class: "pv" }, text(preview)) : null)),
         el("td", {}, el("span", { class: "mono" }, fmt(p.number))),
-        cols.map(k => el("td", { class: "long", title: text(p.fields[k]) }, text(p.fields[k]) || "—")),
-        el("td", { class: "num", title: T.notes(p.notes) }, p.last_note || "—"),
-        el("td", { class: "acts" },
-          roles.length > 1 ? el("select", { "aria-label": T.role, on: { change: e => change(sc, "set_role", { number: p.number, role: e.target.value }) } },
-            roles.map(r => el("option", { value: r.name, selected: r.name === p.role }, r.name))) : null,
-          role.read ? el("button", { type: "button", class: "btn", title: T.readChatTitle,
-            on: { click: () => Tanka.compose(T.ask(p.name || fmt(p.number), p.number)) } }, T.readChat) : null,
-          ws.confirmRemove === p.number
-            ? el("button", { type: "button", class: "btn", on: { click: () => { ws.confirmRemove = null; ws.open = null;
-                change(sc, "remove", { number: p.number }); } } }, T.confirmRemove)
-            : el("button", { type: "button", class: "ghost", title: T.remove, "aria-label": T.remove,
-                on: { click: () => { ws.confirmRemove = p.number; Tanka.render(); } } }, icon("x")))));
-      if (open) body.push(detail(sc, p, cols.length + 4));
+        cols.map(k => el("td", {}, p.fields[k] ? text(p.fields[k]) : el("span", { class: "rmuted" }, T.none))),
+        el("td", { class: "rmuted", title: T.notes(p.notes) }, p.last_note || T.none),
+        el("td", { class: "end" },
+          role.read ? el("button", { type: "button", class: "btn small", title: T.readChatTitle,
+            on: { click: () => Tanka.compose(T.ask(p.name || fmt(p.number), fmt(p.number))) } }, T.readChat) : null,
+          el("button", { type: "button", class: "expand", "aria-expanded": String(open), "aria-label": open ? T.close : T.open,
+            title: open ? T.close : T.open, on: { click: () => toggleRow(sc, p) } }, icon("chevron")))));
+      if (open) body.push(detail(sc, p, span, roles));
     }
-    return el("div", { class: "tablewrap" }, el("table", { class: "board" },
-      el("thead", {}, el("tr", {}, el("th", {}, T.cols.name), el("th", {}, T.cols.number), cols.map(k => el("th", {}, k.replace(/_/g, " "))),
-        el("th", {}, T.cols.last), el("th", {}, T.cols.acts))),
-      el("tbody", {}, body)));
+    return el("section", { class: "gcard" },
+      el("div", { class: "gcard-h" },
+        el("span", { class: "pill tone-" + toneOf(roles, role.name) }, el("span", { class: "tdot" }), role.name),
+        el("span", { class: "n" }, [T.people(rows.length), tally].filter(Boolean).join(" · "))),
+      el("div", { class: "rtable-wrap" }, el("table", { class: "rtable" },
+        el("thead", {}, el("tr", {}, el("th", {}, T.cols.name), el("th", {}, T.cols.number),
+          cols.map(k => el("th", {}, k.replace(/_/g, " "))), el("th", {}, T.cols.last), el("th", {}, ""))),
+        el("tbody", {}, body))));
   }
 
   function render(sc, mod) {
@@ -159,37 +179,43 @@
     const roles = rolesOf(mod);
     if (!roles.length) return [el("p", { class: "empty" }, T.noRoles(sc.scope, reg))];
     const data = ws.people[sc.scope];
-    const out = [
-      el("div", { class: "board-h" }, el("h2", {}, T.tab),
-        el("input", { class: "filter", id: "wa-filter", type: "search", placeholder: T.filter, value: ws.filter, "aria-label": T.filter,
-          on: { input: e => { ws.filter = e.target.value; Tanka.render(); } } }),
-        data ? el("span", { class: "meta" }, T.people(data.people.length)) : null),
-      ...roles.map(r => roleLine(sc, r)),
-      addForm(sc, roles),
+    const head = el("div", { class: "rec-h" }, el("h2", {}, T.tab),
+      data ? el("span", { class: "count" }, T.people(data.people.length)) : null,
+      el("span", { class: "grow" }),
+      el("input", { class: "rec-search", id: "wa-filter", type: "search", placeholder: T.filter, value: ws.filter, "aria-label": T.filter,
+        on: { input: e => { ws.filter = e.target.value; Tanka.render(); } } }),
+      ws.adding ? null : el("button", { type: "button", class: "btn primary", on: { click: () => { ws.adding = true; Tanka.render();
+        setTimeout(() => { const i = document.getElementById("wa-add-number"); if (i) i.focus(); }, 0); } } }, T.addOpen));
+    const out = [head, el("p", { class: "rec-sub" }, T.sub),
+      ws.adding ? addForm(sc, roles) : null,
       ws.err ? el("p", { class: "problem" }, ws.err) : null,
-    ];
+      el("span", { class: "rlabel" }, T.rolesTitle),
+      el("div", { class: "rcards" }, roles.map(r => roleCard(sc, r, roles)))];
     if (!data) { load(sc).then(() => Tanka.render()); return [...out, el("p", { class: "meta" }, T.loading)]; }
     if (!data.people.length) return [...out, el("p", { class: "empty" }, T.noPeople)];
     const needle = ws.filter.trim().toLowerCase();
-    const shown = needle ? data.people.filter(p => [p.name, p.number, fmt(p.number), p.role, ...Object.values(p.fields)]
+    const matching = needle ? data.people.filter(p => [p.name, p.number, fmt(p.number), p.role, ...Object.values(p.fields)]
       .some(x => text(x).toLowerCase().includes(needle))) : data.people;
+    if (ws.role && !roles.some(r => r.name === ws.role)) ws.role = null;
+    const facet = (val, label, n, tone) => el("button", { type: "button", class: "facet" + (tone ? " tone-" + tone : ""),
+      "aria-pressed": String(ws.role === val), on: { click: () => { ws.role = val; Tanka.render(); } } },
+      tone ? el("span", { class: "tdot" }) : null, label, el("span", { class: "n" }, String(n)));
+    if (roles.length > 1) out.push(el("div", { class: "facets" }, facet(null, T.all, matching.length),
+      roles.map(r => [r, matching.filter(p => p.role === r.name).length]).filter(([, n]) => n).map(([r, n]) => facet(r.name, r.name, n, toneOf(roles, r.name)))));
+    const shown = ws.role ? matching.filter(p => p.role === ws.role) : matching;
     if (!shown.length) return [...out, el("p", { class: "empty" }, T.noMatch)];
-    const cols = data.fields.slice(0, 4);
+    const cols = data.fields.slice(0, 3);
     for (const r of roles) {
       const rows = shown.filter(p => p.role === r.name);
-      if (!rows.length) continue;
-      const tally = counts(data.fields, rows);
-      out.push(el("section", { class: "group" },
-        el("div", { class: "group-h" }, el("span", {}, r.name), el("span", { class: "meta" }, tally ? `${rows.length} · ${tally}` : String(rows.length))),
-        table(sc, roles, cols, rows)));
+      if (rows.length) out.push(groupCard(sc, r, roles, cols, rows, data.fields));
     }
     return out;
   }
 
   Tanka.module("whatsapp", {
     tabs: [{ wide: true, id: "people", label: T.tab, render,
-             sig: (sc, mod) => [mod, ws.filter, ws.open, ws.people[sc.scope], ws.open && ws.person[`${sc.scope}/${ws.open}`],
-                                ws.err, ws.confirmAuto, ws.confirmRemove] }],
+             sig: (sc, mod) => [mod, ws.filter, ws.role, ws.open, ws.people[sc.scope], ws.open && ws.person[`${sc.scope}/${ws.open}`],
+                                ws.err, ws.confirmAuto, ws.armed, ws.adding] }],
     using: T.using,
     refresh: async (sc) => { if (Tanka.ui.tab === "people") await load(sc); },
   });
