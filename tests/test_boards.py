@@ -164,6 +164,79 @@ class TestPagePart(BoardCase):
         self.assertIn("boards_rows", self.chat.hint("duck"))
 
 
+class TestPageOnly(WorkspaceCase):
+    """A view without the boards skill: the page shows it and the workspace's own tools fill it."""
+
+    def setUp(self):
+        super().setUp()
+        import tanka_chat as chat
+        self.chat = chat
+        b.views_dir(self.ws).mkdir(parents=True)
+        (b.views_dir(self.ws) / "grades.json").write_text(json.dumps(GRADES))
+
+    def test_a_view_alone_puts_the_board_on_the_page(self):
+        self.assertFalse(b.installed(self.ws))
+        self.assertIn("boards", dict(self.chat.installed("duck")))
+        (b.views_dir(self.ws) / "grades.json").unlink()
+        self.assertNotIn("boards", dict(self.chat.installed("duck")))
+
+    def test_the_hint_says_nothing_without_the_skill(self):
+        hooks = dict(self.chat.installed("duck"))
+        self.assertEqual(hooks["boards"].hint("duck", self.ws), "")
+        self.assertNotIn("boards_rows", self.chat.hint("duck"))
+
+    def test_another_tool_records_without_the_skill(self):
+        row, changed = b.record("duck", "grades", {"course": "P1", "student": "Ana", "evaluation": "EVA1", "grade": 6})
+        self.assertEqual(changed, ["course", "student", "evaluation", "grade"])
+        self.assertEqual(b.live_rows("duck", "grades")[0]["id"], row["id"])
+        import tanka_page as page
+        (view,) = page.scope_state("duck")["modules"]["boards"]["views"]  # what the page serves
+        self.assertEqual((view["name"], view["count"], view["problems"]), ("grades", 1, []))
+
+    def test_try_record_writes_or_says_why_and_never_raises(self):
+        ok = {"course": "P1", "student": "Ana", "evaluation": "EVA1"}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertTrue(b.try_record("duck", "grades", dict(ok, grade=6, feedback=None)))  # None is left out
+            self.assertFalse(b.try_record("duck", "grades", dict(ok, grade=9)))               # off the scale
+            self.assertFalse(b.try_record("duck", "grades", dict(ok, status="done")))          # not a choice
+            self.assertFalse(b.try_record("duck", "grades", {"course": "P1", "grade": 5}))     # no key
+            self.assertFalse(b.try_record("duck", "nope", ok))                                  # no such view
+            (b.views_dir(self.ws) / "grades.json").write_text("{not json")
+            self.assertFalse(b.try_record("duck", "grades", dict(ok, grade=5)))                # broken view
+        self.assertEqual(err.getvalue().count("boards: "), 5)
+        self.assertIn("grade goes from 1 to 7", err.getvalue())
+        (row,) = b.live_rows("duck", "grades")
+        self.assertEqual(row["fields"], dict(ok, grade=6))
+
+    def test_try_record_survives_an_unexpected_error(self):
+        def boom(*a, **k):
+            raise OSError("disk full")
+        self.patch(b, "record", boom)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertFalse(b.try_record("duck", "grades", {"course": "P1", "student": "Ana", "evaluation": "EVA1"}))
+        self.assertIn("disk full", err.getvalue())
+
+    def test_check_works_and_build_says_it_needs_the_skill(self):
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(cli.main(["check", "duck"]), 0)
+            self.assertEqual(cli.main(["build", "duck"]), 1)
+        self.assertIn("no boards skill", out.getvalue())
+        self.assertIn("tanka install boards duck", err.getvalue())
+
+    def test_a_symlinked_workspace_keeps_its_rows_under_its_name(self):
+        (self.wsdir / "alias").symlink_to(self.ws)
+        b.record("alias", "grades", {"course": "P1", "student": "Ana", "evaluation": "EVA1", "grade": 6})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["show", "alias", "grades"]), 0)
+            self.assertEqual(cli.main(["check", "alias"]), 0)
+            self.assertEqual(cli.main(["show", "alias"]), 0)
+        self.assertIn("P1 · Ana · EVA1 | grade=6", out.getvalue())
+        self.assertIn("1 row(s). Key: course + student + evaluation", out.getvalue())
+        self.assertIn("Filled by the workspace's own tools.", out.getvalue())  # no boards_record_grades to name
+        self.assertIn("alias: ok", out.getvalue())
+
+
 class TestInstall(WorkspaceCase):
     def test_module_passes_its_rules(self):
         self.assertEqual(tm.check("boards"), [])

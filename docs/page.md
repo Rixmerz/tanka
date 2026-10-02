@@ -8,7 +8,8 @@ modules plug into it.
 | Module | What it adds to the page |
 | --- | --- |
 | [`desk`](../modules/desk/README.md) | **Your day**: reminders and pending checks beside the chat, fired reminders and the daily brief in it |
-| [`boards`](../modules/boards/README.md) | **Boards**: tables the assistant fills (a course's grades, a client pipeline), declared in `.claude/views/` |
+| [`boards`](../modules/boards/README.md) | **Boards**: tables the assistant or the workspace's own tools fill (a course's grades, a client pipeline), declared in `.claude/views/` |
+| [`whatsapp`](../modules/whatsapp/README.md) | **People**: the contacts of the workspace's roles, grouped, with what the assistant keeps about each, and their roles and permissions |
 | [`codepanion`](../modules/codepanion/README.md) | **Notes**, **Sessions** and **Lenses**: what it noticed in your coding sessions, and their timelines |
 
 A workspace with none of them still has the chat.
@@ -62,6 +63,59 @@ a browser or another program is built with `tanka dev <workspace>` in a terminal
 New tools reach open terminal sessions too: the Tanka MCP server tells Claude Code when the tools change
 (`tools/list_changed`), so no `/mcp` reconnect is needed. A **new** skill needs `/reload-skills` in an
 open session, which no hook can run: the next prompt shows a line saying so.
+
+## The Workspace tab
+
+Every workspace has a **Workspace** tab, after the modules' tabs and before Health. It is part of the
+page, not a module, and loads its data on its own while it is open (`GET /api/workspace`), so
+`/api/state` stays small.
+
+**The persona.** Its picture, its name and its language (read-only). The name is saved into
+`<workspace>/.tanka/persona.json` (1 to 40 characters, one line), keeping every other key there. The
+picture is uploaded as base64 (`POST /api/persona/avatar`) and kept by what its bytes are, whatever the
+upload claims: PNG, JPEG or WebP, at most 512 KB; SVG, GIF and anything else are refused, and a body over
+800 000 bytes is refused with 413 before it is read (every other route reads at most 10 000 bytes). It is
+stored at `~/.tanka/shared/page/avatars/<workspace>.<png|jpg|webp>` (`TANKA_PAGE_HOME`), outside every
+workspace, so the assistant cannot change its own face. `/api/state` carries only its version
+(`avatar_v`, the file's mtime); the page fetches the picture once per version
+(`GET /api/persona/avatar` returns a `data:` URL, the only images the CSP allows) and shows it wherever
+the persona appears: its messages, the typing indicator, the greeting of an empty chat and the workspace
+switcher. `POST /api/persona/avatar-remove` goes back to the initial.
+
+**The tools and skills.** A bar with the tools in use out of 15, and every skill in
+`.claude/skills/` (on) and `.claude/skills.off/` (off), with its tools and where it came from: a
+module's (its directory carries the `.module.json` mark `tanka install` leaves, or, for an older install,
+it has the module's name and every tool file the module ships) or the workspace's own. An own skill has a
+switch that moves its directory between the two folders; turning one on is refused when it would take
+the workspace past 15 tools. The page never deletes an own skill, and a module's skill is not switched:
+the module is installed or removed.
+
+**The modules.** Every module in `modules/`, with its description, its tools, whether it is installed,
+what it needs, what installed module needs it, the programs missing on this machine, and its setup
+command (`tanka <module>`) when its `cli.py` has commands of its own. **Install** runs
+`tanka install` (what it needs first, never past 15 tools) and shows what it printed, the module's
+`post-install` included. **Remove** runs `tanka uninstall`. Both ask once more before they act.
+
+**What Remove does.** It removes the module's skill, that is its tools, from the workspace, and nothing
+else: its settings there (`.claude/<module>.json`, lenses, views) and its data in `~/.tanka/shared/`
+stay, so installing it again picks up where it was. A module's panel on the page follows its own
+`installed()` rule, so it may keep showing while it has data. Remove is refused while another installed
+module needs it ("codepanion needs desk: remove codepanion first"), and for a skill that is not the
+module's. A module's `cli.py post-remove <workspace> <scope>` runs when it has one.
+
+After a change the tab says when it takes effect: the assistant sees it on its next message; open
+terminal sessions update their tools by themselves, and a new skill needs `/reload-skills` there.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/workspace?scope=` | the persona, `tools_used`/`tools_max`, `skills`, `modules` |
+| `POST /api/workspace/install` `{scope, module}` | install a module (and what it needs) |
+| `POST /api/workspace/uninstall` `{scope, module}` | remove a module's skill |
+| `POST /api/workspace/skill` `{scope, skill, enabled}` | turn an own skill on or off |
+| `POST /api/persona/name` `{scope, name}` | rename the persona |
+| `POST /api/persona/avatar` `{scope, type, data}` | set the picture |
+| `POST /api/persona/avatar-remove` `{scope}` | remove the picture |
+| `GET /api/persona/avatar?scope=` | `{"data": "data:image/…;base64,…"}` or `{"data": null}` |
 
 ## How a module plugs in
 

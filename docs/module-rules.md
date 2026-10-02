@@ -27,6 +27,7 @@ modules/<name>/
 - **[checked]** The directory name, `module.json`'s `name` and the skill's name are the same, lowercase, and not a `tanka` command. The tools' prefix follows from it (`whatsapp` → `whatsapp_*`).
 - `requires` lists programs on PATH; **[checked]** `needs` lists other modules this one cannot work without (the codepanion needs the desk). `tanka install` installs those first, if the workspace lacks them, and counts their tools toward the 15.
 - `events` (`{"poll_seconds", "description", "always"}`) makes the automation daemon run `cli.py events` at that pace; each line it prints is a JSON event a trigger can listen to (`--on <name>:<value>`). `"always": true` polls it even with no trigger, for a poll that does work of its own (the desk fires reminders there). The poll runs every few seconds for every user: it must be fast, need no model, and never write the user's settings.
+- `tanka install` writes `.module.json` into the copied skill, which is how the page and `tanka uninstall` tell a module's skill from one the user made. `tanka uninstall` removes the skill (its tools) and nothing else; a `cli.py` that handles `post-remove <ws> <scope>` is called afterwards. A module's page panel follows its `installed()` rule, which may look at data rather than at the skill.
 - **[checked]** The skill passes `tanka tools check` in an empty workspace, within the same budget as any skill: at most 6 tools. Fewer is better: a module competes for the 15 slots of every workspace it is installed in.
 
 ## 3. Scope

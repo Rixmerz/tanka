@@ -11,7 +11,7 @@ DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
 # Named workspaces live here, as directories or as symlinks to a workspace kept elsewhere.
 WORKSPACES_DIR="${TANKA_WORKSPACES:-$HOME/.tanka/workspaces}"
 # Names that are commands cannot be workspace names.
-RESERVED="init start resume run doctor test tools dev help modules install routine trigger automation ui"
+RESERVED="init start resume run doctor test tools dev help modules install uninstall routine trigger automation ui"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
@@ -41,6 +41,7 @@ Usage:
   tanka modules [check <module>]   List the reusable modules, or validate one
   tanka install <module> <name> [--scope S]
                                    Add a module's skill to a workspace
+  tanka uninstall <module> <name>  Remove a module's skill (its tools); its settings and data stay
   tanka <module> <command>         A module's own commands (e.g. tanka whatsapp link)
   tanka routine add <name|dir> <routine> --every 5m "task"
                                    Run the assistant on a clock, unattended
@@ -321,6 +322,10 @@ case "${1:-}" in
     ws="$(resolve_ws "$2")"; require_ws "$ws"
     scope="$(basename "$2")"; [[ "${3:-}" == --scope && -n "${4:-}" ]] && scope="$4"
     exec python3 "$PLUGIN_DIR/scripts/tanka_modules.py" install "$module" "$ws" "$scope";;
+  uninstall) shift
+    module="${1:-}"; [[ -z "$module" || -z "${2:-}" ]] && { echo "x Usage: tanka uninstall <module> <workspace>" >&2; exit 1; }
+    ws="$(resolve_ws "$2")"; require_ws "$ws"
+    exec python3 "$PLUGIN_DIR/scripts/tanka_modules.py" uninstall "$module" "$ws" "$(basename "$2")";;
   -h|--help|help|"") usage;;
   -*) echo "x Unknown option: $1" >&2; usage; exit 1;;
   *) if is_module "$1" && [[ -f "$TANKA_REPO/modules/$1/cli.py" ]]; then

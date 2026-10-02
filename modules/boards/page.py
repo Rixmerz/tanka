@@ -8,7 +8,8 @@ import boards as b
 
 
 def installed(ws: Path) -> bool:
-    return b.installed(ws)
+    # A view alone is enough: its rows may come from the workspace's own tools (boards.record).
+    return b.installed(ws) or b.has_views(ws)
 
 
 def state(scope: str, ws: Path) -> dict:
@@ -23,7 +24,7 @@ def state(scope: str, ws: Path) -> dict:
                         columns=spec.get("columns") or [k for k in fields if k != spec.get("group_by")],
                         fields=fields, actions=spec.get("actions", []), count=len(b.live_rows(scope, name)))
         out.append(view)
-    return {"views": out}
+    return {"views": out, "tools": b.installed(ws)}
 
 
 def rows(scope: str, ws: Path, q: dict) -> dict:
@@ -50,6 +51,8 @@ def effects(scope: str, ws: Path, spans: list[tuple[float, float]]) -> list[list
 
 
 def hint(scope: str, ws: Path) -> str:
+    if not b.installed(ws):
+        return ""  # no boards_rows or boards_record_* to name: the board is filled by other tools
     return ("The user's boards show on their page; boards_rows lists them and their rows, and each board has its own "
             "tool to record a row (boards_record_<board>). A message that names one row of a board comes from a button "
             "the user pressed on it: do it for that row and record the result on the board.")

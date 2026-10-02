@@ -37,14 +37,43 @@ Six fields because each one becomes a param of the view's tool, and a tool takes
 | Rows | `<TANKA_BOARDS_HOME>/<workspace>/<view>.json`, outside every workspace: the assistant reaches them only through its tools. At most 2000 rows a view. |
 | The page | `page.py` and `page.js` ([`docs/page.md`](../../docs/page.md)): the Boards tab, a filter, a select on editable choices, archiving a row, and chips under an answer for the rows it recorded. |
 
+## A board without tools
+
+A workspace can have a board without the boards skill: a view in `.claude/views/` is enough for the page to show it, and the workspace's own tools fill it as they work. A workspace with all 15 tool slots taken still gets its board this way, at no slot cost: the grading tools of a course workspace write each student's grade when they set it, and the comment when they publish it.
+
+A tool script writes a row with `boards.try_record`, after its real action succeeded:
+
+```python
+import os, sys
+from pathlib import Path
+
+try:
+    sys.path.insert(0, str(Path(os.environ["TANKA_PLUGIN_DIR"]).parent / "modules" / "boards"))
+    import boards
+    boards.try_record("myworkspace", "grades", {"course": "Programming I", "student": "Ana Pérez",
+                                                "evaluation": "EVA2", "grade": 6.2, "status": "published"})
+except Exception:  # the board never changes what the tool did or says
+    pass
+```
+
+| Function | What it does |
+| --- | --- |
+| `boards.record(scope, view, args, by="assistant")` | Adds or updates the row, as `boards_record_<view>` does; raises `ToolError` with what is wrong (a missing key field, a value off the view's scale, no such view). Returns `(row, changed)` |
+| `boards.try_record(scope, view, args, by="assistant")` | The same, but it never raises: it returns `False` and says why on stderr, which the harness ignores when the tool exits 0. `None` values are left out, so a tool passes what it has |
+
+- `scope` is the workspace's name as Tanka knows it (`tanka ui <name>`), not its directory's: a workspace that is a symlink keeps its rows under the name.
+- Pass `by` other than `"assistant"` from work that runs in the background (a worker that outlives the tool call): the page puts a chip under an answer for the rows `"assistant"` changed while it ran.
+- Without the skill the assistant has no `boards_rows` and no `boards_record_<view>`, so the chat's system prompt does not mention boards. A view's buttons must then ask for what the workspace's own tools do.
+- `tanka boards check` works without the skill; `tanka boards build` needs it, because it writes tools.
+
 Text from a row reaches the chat only through a button you press, and then as a message you can read and edit before it is sent: a row's values were written by a model from what it read (a submission, an email).
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `tanka boards check <ws>` | Whether every view can become a tool and a board |
-| `tanka boards build <ws>` | Writes the tools and the list in the skill; run it after any view change. A tool whose view is gone is removed |
+| `tanka boards check <ws>` | Whether every view can become a tool and a board; works without the skill |
+| `tanka boards build <ws>` | Writes the tools and the list in the skill; run it after any view change. A tool whose view is gone is removed. Needs the skill |
 | `tanka boards show <ws> [view] [match]` | What `boards_rows` shows |
 | `tanka boards example <ws>` | Copies the grades view |
 

@@ -107,6 +107,84 @@ class TestInstall(ModulesCase):
         self.assertEqual(tm.install("demo", self.ws, "../evil"), 1)
 
 
+class TestMarker(ModulesCase):
+    def test_install_marks_the_copy_and_the_checks_ignore_the_mark(self):
+        self.assertEqual(tm.install("demo", self.ws, "shop"), 0)
+        marker = json.loads((tt.skills_dir(self.ws) / "demo" / tm.MARKER).read_text())
+        self.assertEqual(marker["module"], "demo")
+        self.assertIsInstance(marker["installed"], int)
+        tools, problems = tt.scan(self.ws)
+        self.assertEqual((list(tools), problems, tt.skill_warnings(self.ws)), (["demo_tool0"], [], []))
+        self.assertEqual(tm.check("demo"), [])
+        self.assertEqual(tm.module_of(tt.skills_dir(self.ws) / "demo"), "demo")
+
+    def test_a_copy_without_the_mark_counts_when_it_has_every_shipped_tool(self):
+        tm.copy_skill(tm.load("demo"), self.ws, "shop")
+        sdir = tt.skills_dir(self.ws) / "demo"
+        self.assertEqual(tm.module_of(sdir), "demo")
+        (sdir / "tools" / "demo_extra.json").write_text("{}")  # more than it ships (boards adds one per view): still the module's
+        self.assertEqual(tm.module_of(sdir), "demo")
+        (sdir / "tools" / "demo_tool0.json").unlink()
+        self.assertIsNone(tm.module_of(sdir))
+
+
+class TestUninstall(ModulesCase):
+    def needs(self, name, needs):
+        mj = tm.MODULES / name / "module.json"
+        mj.write_text(json.dumps(dict(json.loads(mj.read_text()), needs=needs)))
+
+    def test_removes_the_skill_and_nothing_else(self):
+        tm.install("demo", self.ws, "shop")
+        (self.ws / ".claude" / "demo.json").write_text("{}")
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 0)
+        self.assertFalse((tt.skills_dir(self.ws) / "demo").exists())
+        self.assertTrue((self.ws / ".claude" / "demo.json").is_file())
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 1)  # not installed any more
+        self.assertEqual(tm.uninstall("nope", self.ws, "shop"), 1)
+
+    def test_refuses_a_module_another_one_needs(self):
+        self.make("top")
+        self.needs("top", ["demo"])
+        tm.install("top", self.ws, "shop")
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 1)
+        self.assertTrue((tt.skills_dir(self.ws) / "demo").is_dir())
+        self.assertEqual(tm.uninstall("top", self.ws, "shop"), 0)
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 0)
+
+    def test_refuses_a_skill_of_the_workspace_own(self):
+        own = tt.skills_dir(self.ws) / "demo"
+        own.mkdir()
+        (own / "SKILL.md").write_text("---\nname: demo\ndescription: mine.\n---\n")
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 1)
+        self.assertTrue(own.is_dir())
+
+    def test_runs_post_remove_when_the_module_has_one(self):
+        tm.install("demo", self.ws, "shop")
+        out = self.tmp / "removed.txt"
+        (tm.MODULES / "demo" / "cli.py").write_text(
+            "import sys, pathlib\n"
+            "if sys.argv[1] == 'post-remove':\n"
+            f"    pathlib.Path({str(out)!r}).write_text(sys.argv[3])\n")
+        self.assertEqual(tm.uninstall("demo", self.ws, "shop"), 0)
+        self.assertEqual(out.read_text(), "shop")
+
+    def test_skills_turn_off_and_on_within_the_budget(self):
+        tm.install("demo", self.ws, "shop")
+        own = tt.skills_dir(self.ws) / "notes"
+        (own / "tools").mkdir(parents=True)
+        (own / "SKILL.md").write_text("---\nname: notes\ndescription: mine.\n---\n")
+        tm.set_enabled(self.ws, "notes", False)
+        self.assertTrue((tm.off_dir(self.ws) / "notes").is_dir())
+        self.assertEqual([(s["name"], s["enabled"], s["origin"]) for s in tm.skills(self.ws)],
+                         [("demo", True, "module"), ("notes", False, "own")])
+        tm.set_enabled(self.ws, "notes", True)
+        self.assertTrue(own.is_dir())
+        with self.assertRaises(ValueError):
+            tm.set_enabled(self.ws, "demo", False)
+        with self.assertRaises(ValueError):
+            tm.set_enabled(self.ws, "../demo", False)
+
+
 class TestLauncher(unittest.TestCase):
     def test_modules_list_and_shipped_modules_are_valid(self):
         p = subprocess.run([str(REPO / "bin" / "tanka"), "modules"], capture_output=True, text=True)
@@ -121,6 +199,13 @@ class TestLauncher(unittest.TestCase):
         p = subprocess.run([str(REPO / "bin" / "tanka"), "init", "whatsapp"], capture_output=True, text=True, env=env)
         self.assertEqual(p.returncode, 1)
         self.assertIn("is a tanka command or module", p.stderr)
+        p = subprocess.run([str(REPO / "bin" / "tanka"), "init", "uninstall"], capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 1)
+
+    def test_uninstall_needs_a_module_and_a_workspace(self):
+        p = subprocess.run([str(REPO / "bin" / "tanka"), "uninstall", "desk"], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("Usage: tanka uninstall <module> <workspace>", p.stderr)
 
 
 if __name__ == "__main__":

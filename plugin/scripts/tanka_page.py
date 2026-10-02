@@ -15,13 +15,17 @@ Standard library only.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
 import hmac
+import io
 import json
 import os
 import secrets
 import signal
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,11 +37,18 @@ import tanka_automation as ta  # noqa: E402
 import tanka_chat as chat  # noqa: E402
 import tanka_common as tc  # noqa: E402
 import tanka_kit as kit  # noqa: E402
+import tanka_modules as tm  # noqa: E402
 from tanka_kit import ToolError  # noqa: E402
 
 PAGE = kit.REPO / "plugin" / "page" / "page.html"
 DAEMON_FRESH_SECONDS = 60
 MODULES_MARK = "/*__MODULES__*/"
+BODY_MAX = 10_000
+AVATAR_BODY_MAX = 800_000      # a 512 KB picture in base64, inside JSON
+AVATAR_MAX = 512 * 1024
+AVATAR_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
+NAME_MAX = 40
+_manage = threading.Lock()  # one install or removal at a time, and its output captured apart
 
 
 def ui_file() -> Path:
@@ -68,9 +79,141 @@ def health() -> dict:
             "rows": rows}
 
 
+# ---------------------------------------------------------------- the Workspace tab: persona and modules
+
+def persona_file(ws: Path) -> Path:
+    return ws / ".tanka" / "persona.json"
+
+
+def read_persona(ws: Path) -> dict:
+    """persona.json as a dict ({} when missing); raises ToolError when it is there but not an object."""
+    data = kit.read_json(persona_file(ws), {})
+    if not isinstance(data, dict):
+        raise ToolError(f"{persona_file(ws)} is not a JSON object; fix it by hand.")
+    return data
+
+
+def set_name(scope: str, name) -> str:
+    """Change the persona's name in persona.json, keeping every other key."""
+    name = str(name or "").strip()
+    if not 1 <= len(name) <= NAME_MAX:
+        raise ToolError(f"The name must have 1 to {NAME_MAX} characters.")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+        raise ToolError("The name must be one line of text.")
+    ws = kit.ws_dir(known_scope(scope))
+    persona = read_persona(ws)
+    persona["name"] = name
+    kit.write_json(persona_file(ws), persona)
+    return name
+
+
+# The picture lives with the page, outside every workspace, so the assistant cannot change its own face.
+def avatar_files(scope: str) -> list[Path]:
+    root = kit.PAGE_HOME / "avatars"
+    return [root / f"{kit.safe_id(scope)}.{ext}" for ext in AVATAR_TYPES]
+
+
+def avatar_file(scope: str) -> Path | None:
+    return next((f for f in avatar_files(scope) if f.is_file()), None)
+
+
+def avatar_version(scope: str) -> int | None:
+    f = avatar_file(scope)
+    try:
+        return f.stat().st_mtime_ns // 1_000_000 if f else None  # milliseconds: exact as a JavaScript number
+    except OSError:
+        return None
+
+
+def image_kind(data: bytes) -> str | None:
+    """What the bytes are, by their first bytes, whatever the upload said: PNG, JPEG or WebP, else None."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def set_avatar(scope: str, data) -> int | None:
+    known_scope(scope)
+    text = str(data or "")
+    if text.startswith("data:") and "," in text:
+        text = text.split(",", 1)[1]
+    raw = base64.b64decode(text, validate=True)
+    if len(raw) > AVATAR_MAX:
+        raise ToolError(f"The picture is larger than {AVATAR_MAX // 1024} KB. Use a smaller one.")
+    kind = image_kind(raw)
+    if kind is None:
+        raise ToolError("Use a PNG, JPEG or WebP picture.")
+    dest = kit.PAGE_HOME / "avatars" / f"{kit.safe_id(scope)}.{kind}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(dest)
+    for f in avatar_files(scope):
+        if f != dest:
+            f.unlink(missing_ok=True)
+    return avatar_version(scope)
+
+
+def remove_avatar(scope: str) -> None:
+    known_scope(scope)
+    for f in avatar_files(scope):
+        f.unlink(missing_ok=True)
+
+
+def avatar_data(scope: str) -> str | None:
+    f = avatar_file(known_scope(scope))
+    if f is None:
+        return None
+    return f"data:{AVATAR_TYPES[f.suffix[1:]]};base64,{base64.b64encode(f.read_bytes()).decode()}"
+
+
+def workspace_report(scope: str) -> dict:
+    ws = kit.ws_dir(known_scope(scope))
+    try:
+        language, problem = str(read_persona(ws).get("language") or ""), ""
+    except ToolError as e:  # the tab still shows; the persona card says what is wrong
+        language, problem = "", str(e)
+    return dict(tm.report(ws), scope=scope,
+                persona={"name": kit.persona_name(ws), "language": language, "problem": problem})
+
+
+def manage(fn, *args) -> dict:
+    """Run tanka_modules.install or uninstall, with what it prints as the answer's message."""
+    out = io.StringIO()
+    with _manage, contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+        try:
+            code = fn(*args)
+        except (ValueError, OSError) as e:
+            print(f"x {e}")
+            code = 1
+    message = out.getvalue().strip()
+    if code != 0:
+        raise ToolError(message or "It did not work.")
+    return {"ok": True, "message": message}
+
+
+def workspace_action(action: str, body: dict) -> dict:
+    scope = known_scope(str(body.get("scope", "")))
+    ws = kit.ws_dir(scope)
+    if action == "install":
+        return manage(tm.install, str(body.get("module", "")), ws, scope)
+    if action == "uninstall":
+        return manage(tm.uninstall, str(body.get("module", "")), ws, scope)
+    if action == "skill":
+        try:
+            return {"ok": True, "message": tm.set_enabled(ws, str(body.get("skill", "")), body.get("enabled") is True)}
+        except OSError as e:
+            raise ToolError(f"Could not move the skill: {e}") from e
+    raise LookupError(action)
+
+
 def scope_state(scope: str) -> dict:
     ws = kit.ws_dir(scope)
-    return {"scope": scope, "name": kit.persona_name(ws), "workspace": str(ws),
+    return {"scope": scope, "name": kit.persona_name(ws), "workspace": str(ws), "avatar_v": avatar_version(scope),
             "modules": dict(chat.each(scope, "state")), "chat": chat.stream(scope), "busy": chat.busy(scope),
             "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope),
             "chat_left": chat.MAX_PER_DAY - chat.sent_today(scope),
@@ -151,6 +294,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/api/state":
                 return self.json(200, {"health": health(), "scopes": [scope_state(s) for s in kit.scopes()]})
+            if url.path == "/api/workspace":
+                return self.json(200, workspace_report(q.get("scope", "")))
+            if url.path == "/api/persona/avatar":
+                return self.json(200, {"data": avatar_data(q.get("scope", ""))})
             if url.path.startswith("/api/m/"):
                 return self.json(200, module_call("GETS", url.path, q.get("scope", ""), q))
         except (ToolError, ValueError) as e:
@@ -165,9 +312,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.json(415, {"error": "send JSON"})
         try:
-            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 10_000)) or b"{}")
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self.json(400, {"error": "bad Content-Length"})
+        if self.path == "/api/persona/avatar" and length > AVATAR_BODY_MAX:
+            self.close_connection = True  # the body is never read
+            return self.json(413, {"error": f"The picture is larger than {AVATAR_MAX // 1024} KB. Use a smaller one."})
+        cap = AVATAR_BODY_MAX if self.path == "/api/persona/avatar" else BODY_MAX
+        try:
+            body = json.loads(self.rfile.read(min(length, cap)) or b"{}")
             if not isinstance(body, dict):
                 raise ValueError("send a JSON object")
+            if self.path == "/api/persona/avatar":
+                return self.json(200, {"avatar_v": set_avatar(str(body.get("scope", "")), body.get("data"))})
+            if self.path == "/api/persona/avatar-remove":
+                remove_avatar(str(body.get("scope", "")))
+                return self.json(200, {"avatar_v": None})
+            if self.path == "/api/persona/name":
+                return self.json(200, {"name": set_name(str(body.get("scope", "")), body.get("name"))})
+            if self.path.startswith("/api/workspace/"):
+                return self.json(200, workspace_action(self.path[len("/api/workspace/"):], body))
             if self.path == "/api/chat":
                 scope = known_scope(str(body.get("scope", "")))
                 return self.json(200, {"message": chat.send(scope, str(body.get("text", "")), mode=str(body.get("mode") or "tanka"))})

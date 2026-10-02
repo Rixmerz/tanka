@@ -87,6 +87,7 @@ def hooks() -> dict[str, object]:
             try:
                 spec = importlib.util.spec_from_file_location(f"page_{f.parent.name}", f)
                 mod = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = mod  # so the page knows it runs this file, and restarts when it changes
                 spec.loader.exec_module(mod)
             except Exception as e:  # noqa: BLE001 - one broken module must not take the page down
                 print(f"! {f} did not load: {e}", file=sys.stderr)

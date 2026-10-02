@@ -5,7 +5,8 @@
     tab: "Boards", board: "Board", filter: "Filter by name, course…", rows: n => `${n} row(s)`,
     empty: s => `No boards yet. Declare one with /new-view in tanka dev ${s}, or start from the example: tanka boards example ${s} && tanka boards build ${s}`,
     broken: (v, p) => `${v} is not ready: ${p}. Check it with: tanka boards check`,
-    noRows: "Nothing recorded yet. Ask the assistant to fill it.", noMatch: "No row matches.",
+    noRows: "Nothing recorded yet. Ask the assistant to fill it.", noRowsTools: "Nothing recorded yet. Rows appear as the workspace's own tools write them.",
+    noMatch: "No row matches.",
     loading: "Loading…", archive: "Archive row", archived: "Archived", updated: (t, by) => `updated ${when(t)}${by === "user" ? " by you" : ""}`,
     chip: { created: "Recorded", updated: "Updated" },
     using: name => /boards_record_/.test(name) ? "recording on the board…" : /boards_rows/.test(name) ? "reading the board…" : null,
@@ -97,7 +98,7 @@
     if (v.problems.length) return [head, el("p", { class: "problem" }, T.broken(v.title, v.problems[0]))];
     const all = bs.rows[rowsKey(sc, v)];
     if (!all) { load(sc, mod).then(() => Tanka.render()); return [head, el("p", { class: "meta" }, T.loading)]; }
-    if (!all.length) return [head, el("p", { class: "meta" }, v.description), el("p", { class: "empty" }, T.noRows)];
+    if (!all.length) return [head, el("p", { class: "meta" }, v.description), el("p", { class: "empty" }, mod && mod.tools ? T.noRows : T.noRowsTools)];
     const q = bs.filter.trim().toLowerCase();
     const rows = q ? all.filter(r => Object.values(r.fields).some(x => text(x).toLowerCase().includes(q))) : all;
     const g = v.group_by, groups = new Map();
@@ -127,7 +128,7 @@
              sig: (sc, mod) => { const v = currentView(mod); return [mod, bs.view, bs.filter, bs.open, v ? bs.rows[rowsKey(sc, v)] : null]; } }],
     chips: chip,
     using: T.using,
-    hello: () => T.hello,
+    hello: (sc, mod) => mod && mod.tools ? T.hello : "",
     refresh: async (sc, mod) => { if (Tanka.ui.tab === "boards") await load(sc, mod); },
   });
 })();

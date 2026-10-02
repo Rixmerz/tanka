@@ -75,7 +75,7 @@ select, option { background-color: var(--raised); color: var(--ink); }
 .wsmenu .cap { padding: 6px 9px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
 .wsopt { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 10px; cursor: pointer; outline: none; }
 .wsopt:hover, .wsopt.hot { background: var(--bubble); }
-.wsopt[aria-selected="true"] .ini { background: var(--accent); color: var(--accent-ink); }
+.wsopt[aria-selected="true"] .ini:not(.pic) { background: var(--accent); color: var(--accent-ink); }
 .wsopt .txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .wsopt .end { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--accent); }
 .wsopt .end svg { width: 16px; height: 16px; }
@@ -256,6 +256,9 @@ details.donehist summary { cursor: pointer; font-size: 13px; color: var(--muted)
 .chip.ok { border-color: var(--good); color: var(--good); }
 .chip.no { border-color: var(--bad); color: var(--bad); }
 .card .text { margin: 6px 0; font-size: 16px; white-space: pre-wrap; }
+.link { border: 0; background: none; padding: 0; color: var(--ink); font-weight: 600; cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+.mono { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
 .evidence { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
 .btn { border: 1px solid var(--line); background: var(--raised); border-radius: 9px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
 .btn:hover { border-color: var(--accent); }
@@ -277,6 +280,43 @@ pre.section { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap
 dl.health { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0; }
 dl.health dt { color: var(--muted); }
 dl.health dd { margin: 0; }
+
+/* ---------- the persona's picture, wherever its face shows */
+.pic { background: none !important; overflow: hidden; }
+img.face { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+
+/* ---------- the workspace tab */
+.card h2 { margin: 0 0 10px; font-size: 16px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 10px; }
+.card h2 .meta { font-weight: 500; }
+.persona { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.face-lg { width: 76px; height: 76px; flex: none; border-radius: 22px; background: var(--accent-soft); display: grid; place-items: center; font-weight: 750; font-size: 32px; }
+.persona .fields { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 10px; }
+.field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.field label, .field .k { color: var(--muted); font-size: 13px; min-width: 70px; }
+.field input { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 9px; padding: 3px 10px; min-width: 0; flex: 1; max-width: 280px; }
+.field input:focus { border-color: var(--accent); outline: none; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 650; }
+.budget { height: 8px; border-radius: 99px; background: var(--bubble); overflow: hidden; margin: 2px 0 4px; }
+.budget > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width .2s; }
+.budget.full > span { background: var(--warn); }
+.items > .item + .item { border-top: 1px solid var(--line); }
+.item { padding: 10px 0; }
+.item:first-child { padding-top: 2px; }
+.item .row strong { font-weight: 650; }
+.item .end { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.item p { margin: 4px 0 0; }
+.item .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.item code { font-family: var(--mono); font-size: 12.5px; background: var(--bubble); padding: 1px 6px; border-radius: 5px; }
+.item.off strong { color: var(--muted); }
+.switch { position: relative; width: 38px; height: 22px; flex: none; border: 0; border-radius: 99px; background: var(--line); cursor: pointer; padding: 0; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--raised); box-shadow: var(--shadow-sm); transition: transform .15s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); }
+.switch:disabled { opacity: .5; cursor: default; }
+pre.out { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; }
+p.problem, p.warning { margin: 6px 0 0; white-space: pre-wrap; }
 
 /* ---------- boards */
 .board-h { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-bottom: 10px; }
@@ -336,11 +376,11 @@ tr.detail .k { color: var(--muted); font-size: 12px; font-weight: 650; text-tran
     <button class="btn daytoggle" id="daytoggle" type="button"></button>
     <div class="scrollwrap">
       <div class="scroll" id="scroll">
-        <div class="lane welcome" id="welcome" hidden><div class="big"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></div><h2 id="helloT"></h2><p id="helloP"></p></div>
+        <div class="lane welcome" id="welcome" hidden><div class="big" data-face><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></div><h2 id="helloT"></h2><p id="helloP"></p></div>
         <div class="lane log" id="log" role="log"></div>
         <div class="lane" id="typing" hidden>
           <div class="msg them first">
-            <span class="avatar"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></span>
+            <span class="avatar" data-face><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></span>
             <div class="col"><div class="who"><strong id="typingName">tanka</strong><span id="thinkingLbl"></span></div><div class="bubble drafting" id="draft" hidden></div><div class="bubble dots-b" id="dotsB"><span class="dots"><i></i><i></i><i></i></span></div></div>
           </div>
         </div>
@@ -399,6 +439,26 @@ const T = {
   daemonNo: "not running: tanka automation service install", noModules: "none: tanka install desk <workspace>",
   runs: (n, usd) => `${n} run(s), ${usd.toFixed(2)} USD spent`,
 };
+// The Workspace tab's strings.
+const TW = {
+  persona: "Persona", upload: "Upload picture", removePic: "Remove picture",
+  picHint: "PNG, JPEG or WebP, up to 512 KB. It is kept with the page, outside the workspace, so the assistant cannot change it.",
+  tooBig: "The picture is larger than 512 KB. Use a smaller one.",
+  name: "Name", save: "Save", language: "Language", noLanguage: "not set yet: the first session asks",
+  tools: "Tools", budget: (n, max) => `${n}/${max} tools`,
+  budgetHint: max => `Every installed skill's tools count toward the ${max} the assistant can hold.`,
+  skills: "Skills", noSkills: "No skills yet. Install a module below, or build one with tanka dev.",
+  fromModule: m => `module · ${m}`, own: "own", off: "off", turnOn: n => `Turn on ${n}`, turnOff: n => `Turn off ${n}`,
+  moduleSkill: "Installed and removed with its module below.", noTools: "no tools",
+  modules: "Modules", install: "Install", remove: "Remove", confirmInstall: "Confirm install", confirmRemove: "Confirm remove",
+  removeSays: "Removes its tools from this workspace. Its settings and data stay, and its panel shows while it has data.",
+  installSays: (n, deps) => `Adds ${plural(n, "tool", "tools")} to this workspace` + (deps.length ? `, with ${deps.join(", ")}, which it needs` : "")
+    + ". Its setup may also write its own settings.",
+  installed: "installed", needs: list => `needs ${list}`, neededBy: list => `${list} needs it: remove ${list} first`,
+  missing: list => `not on this machine yet: ${list}`, setup: "set up with", toolsN: n => plural(n, "tool", "tools"),
+  after: "The assistant sees it on its next message. Open terminal sessions update their tools by themselves; a new skill needs /reload-skills.",
+  working: "Working…",
+};
 const nameOf = sc => (sc && sc.name) || "tanka";
 const ui = { tab: "chat", mode: "tanka", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
              rows: null, nodes: [], logScope: null, stick: true, sideSig: "", wsSig: "", tabSig: "", suggestSig: "",
@@ -416,7 +476,7 @@ function el(tag, props, ...kids) {
     else if (k === "on") for (const [ev, fn] of Object.entries(v)) n.addEventListener(ev, fn);
     else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : String(v));
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
   return n;
 }
 function svg(d, cls) {
@@ -450,6 +510,9 @@ const ICON = {
   retry: "M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5",
   zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
   down: "M12 5v14M5.5 12.5L12 19l6.5-6.5",
+  upload: "M12 15V4M7.5 8.5L12 4l4.5 4.5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4",
+  trash: "M4 7h16M10 11v6M14 11v6M9 7V4.5h6V7M6 7l1 13h10l1-13",
+  plus: "M12 5v14M5 12h14",
 };
 // An icon in text: sized to the line, coloured like it; "flip" turns it upside down (a thumb down).
 const icon = (name, cls) => svg(ICON[name], "ico" + (cls ? " " + cls : ""));
@@ -550,8 +613,40 @@ const Tanka = {
 };
 /*__MODULES__*/
 
+// ------------------------------------------------------------ the persona's picture
+// Fetched once per (workspace, version) and kept as a data: URL, the only images the CSP allows. A holder
+// (.ini, .avatar, the welcome's .big) shows the picture, or what it showed before when there is none.
+const FACES = {}, facing = new Set();
+const faceKey = s => s && s.avatar_v ? `${s.scope}|${s.avatar_v}` : "";
+function faceUrl(s) {
+  const k = faceKey(s);
+  if (!k) return null;
+  if (k in FACES) return FACES[k];
+  if (!facing.has(k)) {
+    facing.add(k);
+    api(`/api/persona/avatar?scope=${encodeURIComponent(s.scope)}`)
+      .then(r => { FACES[k] = typeof r.data === "string" && /^data:image\/(png|jpeg|webp);base64,/.test(r.data) ? r.data : null; })
+      .catch(() => { FACES[k] = null; })  // a new version asks again
+      .finally(() => { facing.delete(k); ui.wsSig = ""; render(); });
+  }
+  return null;
+}
+function paintFace(holder, s, fallback) {
+  const url = faceUrl(s);
+  holder.classList.toggle("pic", !!url);
+  holder.replaceChildren(url ? el("img", { src: url, alt: "", class: "face" }) : fallback());
+  return holder;
+}
+// The chat's faces already on screen follow a new picture in place, so no message is rebuilt.
+function faces(sc) {
+  const sig = faceKey(sc) + "|" + !!faceUrl(sc);
+  if (sig === ui.faceSig) return;
+  ui.faceSig = sig;
+  for (const n of $("chatwrap").querySelectorAll("[data-face]")) paintFace(n, sc, mark);
+}
+
 // ------------------------------------------------------------ the chat
-const avatar = () => el("span", { class: "avatar" }, mark());
+const avatar = sc => paintFace(el("span", { class: "avatar", "data-face": true }), sc, mark);
 
 function reportEvent(m) {
   return el("div", { class: "event" + (m.failed ? " bad" : " quiet") },
@@ -582,7 +677,7 @@ function message(sc, m, first) {
   }
   const chips = (m.effects || []).map(f => chip(sc, f)).filter(Boolean), dev = m.who === "dev";
   return el("div", { class: "msg them" + (dev ? " dev" : "") + (first ? " first" : "") },
-    first ? (dev ? el("span", { class: "avatar dev", "aria-hidden": "true" }, icon("wrench")) : avatar()) : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
+    first ? (dev ? el("span", { class: "avatar dev", "aria-hidden": "true" }, icon("wrench")) : avatar(sc)) : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
     el("div", { class: "col" },
       first ? el("div", { class: "who" }, el("strong", {}, dev ? T.devName : nameOf(sc)), hm(m.t)) : null,
       el("div", { class: "bubble", title: hm(m.t) }, rich(m.text)),
@@ -648,6 +743,7 @@ function sidePanel(sc) {
 function chatView(sc) {
   const near = nearEnd();
   syncLog(sc);
+  faces(sc);
   $("welcome").hidden = (sc.chat || []).length > 0;
   $("typing").hidden = !sc.busy;
   const draft = sc.busy && sc.draft && sc.draft.text ? sc.draft.text : "";
@@ -766,10 +862,182 @@ function healthView(sc) {
     (h.rows || []).flatMap(r => [el("dt", {}, r.label), el("dd", {}, r.ok == null ? r.text : yes(r.ok, r.text, r.text))])))];
 }
 
+// ------------------------------------------------------------ the workspace tab (docs/page.md)
+// The persona (picture, name, language), the tool budget, the skills and the modules. Loaded on its own
+// while the tab is open (GET /api/workspace), never carried by /api/state.
+const wsv = { data: null, ver: 0, loading: false, err: "", msg: "", out: "", after: false, confirm: null, timer: 0, busy: false,
+              name: null, scope: null, focus: null };
+
+async function loadWorkspace(sc) {
+  if (!sc || wsv.loading) return;
+  wsv.loading = true;
+  try {
+    const d = await api(`/api/workspace?scope=${encodeURIComponent(sc.scope)}`);
+    if (JSON.stringify(d) !== JSON.stringify(wsv.data)) { wsv.data = d; wsv.ver++; }
+    wsv.err = "";
+  } catch (e) { wsv.err = e.message; }
+  wsv.loading = false;
+}
+
+// What the tab shows; the name being typed is left out, so the field keeps its focus and text between polls.
+function workspaceSig(sc) {
+  if (wsv.scope !== sc.scope) return null;
+  return [wsv.ver, wsv.err, wsv.msg, wsv.out, wsv.after, wsv.confirm, wsv.busy, sc.name, faceKey(sc), !!faceUrl(sc)];
+}
+
+// Every change goes through here: one at a time, then the tab and the state load again.
+async function wsDo(path, body, after) {
+  wsv.busy = true; wsv.msg = ""; wsv.out = "";
+  render();
+  let ok = false;
+  try {
+    const r = await api(path, body);
+    wsv.out = r.message || "";
+    if (after) wsv.after = true;
+    ok = true;
+  } catch (e) { wsv.msg = e.message; }
+  wsv.busy = false; wsv.confirm = null; clearTimeout(wsv.timer);
+  const sc = current();
+  if (sc) await loadWorkspace(sc);
+  await refresh();
+  render();
+  return ok;
+}
+
+function pickPicture(sc) {
+  const input = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp" });
+  input.addEventListener("change", () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    if (f.size > 512 * 1024) { wsv.msg = TW.tooBig; render(); return; }
+    const r = new FileReader();
+    r.addEventListener("load", () => {
+      const url = String(r.result);
+      wsDo("/api/persona/avatar", { scope: sc.scope, type: f.type, data: url.slice(url.indexOf(",") + 1) });
+    });
+    r.readAsDataURL(f);
+  });
+  input.click();
+}
+
+function personaCard(sc, d) {
+  const saveName = () => {
+    const name = (wsv.name == null ? nameOf(sc) : wsv.name).trim();
+    wsDo("/api/persona/name", { scope: sc.scope, name }).then(ok => { if (ok) { wsv.name = null; render(); } });
+  };
+  const lang = d.persona && d.persona.language;
+  return el("section", { class: "card" }, el("h2", {}, TW.persona),
+    el("div", { class: "persona" },
+      paintFace(el("span", { class: "face-lg", "aria-hidden": "true" }), sc, () => initial(sc)),
+      el("div", { class: "fields" },
+        el("div", { class: "field" },
+          el("label", { for: "persona-name" }, TW.name),
+          el("input", { id: "persona-name", maxlength: "40", value: wsv.name == null ? nameOf(sc) : wsv.name, autocomplete: "off",
+            on: { input: e => { wsv.name = e.target.value; }, keydown: e => { if (e.key === "Enter") { e.preventDefault(); saveName(); } } } }),
+          el("button", { type: "button", class: "btn", disabled: wsv.busy, on: { click: saveName } }, TW.save)),
+        el("div", { class: "field" }, el("span", { class: "k" }, TW.language), el("span", {}, lang || TW.noLanguage)),
+        el("div", { class: "field" },
+          el("button", { type: "button", class: "btn", disabled: wsv.busy, on: { click: () => pickPicture(sc) } }, icon("upload"), TW.upload),
+          sc.avatar_v ? el("button", { type: "button", class: "ghost", disabled: wsv.busy,
+            on: { click: () => wsDo("/api/persona/avatar-remove", { scope: sc.scope }) } }, icon("x"), TW.removePic) : null),
+        el("p", { class: "meta" }, TW.picHint),
+        d.persona && d.persona.problem ? el("p", { class: "problem" }, d.persona.problem) : null)));
+}
+
+function skillItem(sc, s) {
+  const own = s.origin === "own";
+  return el("div", { class: "item" + (s.enabled ? "" : " off") },
+    el("div", { class: "row" }, el("strong", {}, s.name),
+      el("span", { class: "chip" + (own ? "" : " on") }, own ? TW.own : TW.fromModule(s.module)),
+      s.enabled ? null : el("span", { class: "chip no" }, TW.off),
+      el("span", { class: "end" }, own ? el("button", { type: "button", class: "switch", role: "switch", "aria-checked": String(s.enabled),
+        "aria-label": s.enabled ? TW.turnOff(s.name) : TW.turnOn(s.name), title: s.enabled ? TW.turnOff(s.name) : TW.turnOn(s.name),
+        disabled: wsv.busy, on: { click: () => wsDo("/api/workspace/skill", { scope: sc.scope, skill: s.name, enabled: !s.enabled }, true) } }) : null)),
+    el("div", { class: "tags" }, s.tools.length ? s.tools.map(t => el("span", { class: "tag", title: t.effect }, `${t.name} · ${t.effect}`))
+      : el("span", { class: "meta" }, TW.noTools)),
+    own ? null : el("p", { class: "meta" }, TW.moduleSkill));
+}
+
+function moduleItem(sc, m, all) {
+  const action = m.installed ? "uninstall" : "install";
+  const armed = !!wsv.confirm && wsv.confirm.module === m.name && wsv.confirm.action === action;
+  const deps = m.installed ? [] : m.needs.filter(n => !(all.find(x => x.name === n) || {}).installed);
+  const adds = m.tools + deps.reduce((a, n) => a + ((all.find(x => x.name === n) || {}).tools || 0), 0);
+  const blocked = m.installed && m.needed_by.length > 0;
+  const id = "wsmod-" + m.name;
+  const click = () => {
+    if (!armed) {
+      wsv.confirm = { module: m.name, action }; wsv.focus = id;
+      clearTimeout(wsv.timer);
+      wsv.timer = setTimeout(() => {
+        wsv.confirm = null; wsv.focus = document.activeElement && document.activeElement.id === id ? id : null; render();
+      }, 4000);
+      render();
+      return;
+    }
+    clearTimeout(wsv.timer);
+    wsDo("/api/workspace/" + action, { scope: sc.scope, module: m.name }, true);
+  };
+  const label = m.installed ? (armed ? TW.confirmRemove : TW.remove) : (armed ? TW.confirmInstall : TW.install);
+  const facts = [
+    m.needs.length ? TW.needs(m.needs.join(", ")) : null,
+    m.setup ? el("span", {}, TW.setup, " ", el("code", {}, m.setup)) : null,
+  ].filter(Boolean);
+  return el("div", { class: "item" },
+    el("div", { class: "row" }, el("strong", {}, m.name),
+      m.installed ? el("span", { class: "chip ok" }, TW.installed) : null,
+      el("span", { class: "meta" }, TW.toolsN(m.tools)),
+      el("span", { class: "end" }, el("button", { type: "button", id, class: "btn" + (armed ? (m.installed ? " danger" : " primary") : ""),
+        disabled: wsv.busy || blocked, title: blocked ? TW.neededBy(m.needed_by.join(", ")) : false, on: { click } },
+        icon(m.installed ? "trash" : "plus"), label))),
+    el("p", { class: "meta" }, m.description),
+    facts.length ? el("p", { class: "meta" }, facts.flatMap((f, i) => i ? [" · ", f] : [f])) : null,
+    blocked ? el("p", { class: "meta" }, TW.neededBy(m.needed_by.join(", "))) : null,
+    m.missing_programs.length ? el("p", { class: "warning" }, TW.missing(m.missing_programs.join(", "))) : null,
+    armed ? el("p", { class: m.installed ? "warning" : "meta" }, m.installed ? TW.removeSays : TW.installSays(adds, deps)) : null);
+}
+
+function workspaceView(sc) {
+  if (wsv.scope !== sc.scope) {
+    Object.assign(wsv, { scope: sc.scope, data: null, err: "", msg: "", out: "", after: false, confirm: null, name: null, focus: null });
+    clearTimeout(wsv.timer);
+  }
+  const d = wsv.data && wsv.data.scope === sc.scope ? wsv.data : null;
+  if (!d) {
+    if (!wsv.loading) loadWorkspace(sc).then(() => render());
+    return [wsv.err ? el("p", { class: "problem" }, wsv.err) : el("p", { class: "empty" }, T.loading)];
+  }
+  const keep = wsv.focus;  // the button just armed keeps the keyboard's focus across this rebuild, once
+  wsv.focus = null;
+  if (keep) setTimeout(() => { const b = $(keep); if (b) b.focus(); }, 0);
+  const full = d.tools_used >= d.tools_max;
+  const bar = el("span");
+  bar.style.width = Math.min(100, Math.round(100 * d.tools_used / Math.max(d.tools_max, 1))) + "%";
+  const status = [
+    wsv.busy ? el("p", { class: "meta" }, TW.working) : null,
+    wsv.msg ? el("p", { class: "problem", role: "alert" }, wsv.msg) : null,
+    wsv.out ? el("pre", { class: "out" }, wsv.out) : null,
+    wsv.after ? el("div", { class: "note-banner" }, TW.after) : null,
+  ].filter(Boolean);
+  return [
+    personaCard(sc, d),
+    status.length ? el("div", { "aria-live": "polite" }, status) : null,
+    el("section", { class: "card" },
+      el("h2", {}, TW.tools, el("span", { class: "meta" }, TW.budget(d.tools_used, d.tools_max))),
+      el("div", { class: "budget" + (full ? " full" : ""), role: "img", "aria-label": TW.budget(d.tools_used, d.tools_max) }, bar),
+      el("p", { class: "meta" }, TW.budgetHint(d.tools_max))),
+    el("section", { class: "card" }, el("h2", {}, TW.skills),
+      d.skills.length ? el("div", { class: "items" }, d.skills.map(s => skillItem(sc, s))) : el("p", { class: "meta" }, TW.noSkills)),
+    el("section", { class: "card" }, el("h2", {}, TW.modules),
+      el("div", { class: "items" }, d.modules.map(m => moduleItem(sc, m, d.modules)))),
+  ].filter(Boolean);
+}
+
 // ------------------------------------------------------------ frame
 function tabsOf(sc) {
   const tabs = [{ id: "chat", label: T.chat }];
   for (const [name, spec] of active(sc)) for (const t of spec.tabs || []) tabs.push({ ...t, module: name });
+  tabs.push({ id: "workspace", label: T.workspace, render: workspaceView, sig: workspaceSig });
   tabs.push({ id: "health", label: T.health });
   return tabs;
 }
@@ -798,7 +1066,7 @@ function wsMenu(scopes, sc) {
     return el("li", { role: "option", class: "wsopt", id: "wsopt-" + i, tabindex: "-1", "data-scope": s.scope,
       "aria-selected": String(!!sc && s.scope === sc.scope),
       on: { click: () => pick(s.scope), mousemove: e => hot(e.currentTarget) } },
-      el("span", { class: "ini", "aria-hidden": "true" }, initial(s)),
+      paintFace(el("span", { class: "ini", "aria-hidden": "true" }), s, () => initial(s)),
       el("span", { class: "txt" }, el("span", { class: "nm" }, nameOf(s)), same ? el("span", { class: "sub" }, s.scope) : null),
       el("span", { class: "end" }, n ? el("span", { class: "badge" }, String(n)) : null,
         sc && s.scope === sc.scope ? svg(ICON.check) : null));
@@ -842,7 +1110,7 @@ function wsSwitcher(scopes, sc) {
     "aria-haspopup": many ? "listbox" : false, "aria-expanded": many ? String(!!ui.wsOpen) : false, "aria-controls": many ? "wsmenu" : false,
     on: { click: () => { if (many) (ui.wsOpen ? closeWs(true) : openWs()); },
           keydown: e => { if (many && !ui.wsOpen && ["ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); openWs(); } } } },
-    el("span", { class: "ini", "aria-hidden": "true" }, initial(sc)),
+    paintFace(el("span", { class: "ini", "aria-hidden": "true" }), sc, () => initial(sc)),
     el("span", { class: "nm" }, nameOf(sc)),
     sc.name && sc.name !== sc.scope ? el("span", { class: "sub" }, sc.scope) : null,
     many ? el("span", { class: "chev" }, svg(ICON_CHEV)) : null);
@@ -851,8 +1119,8 @@ function wsSwitcher(scopes, sc) {
 
 function header(sc) {
   const scopes = ui.state ? ui.state.scopes : [];
-  // Rebuilt when the list, the names or what waits changes; never while it is open under the pointer.
-  const wsSig = JSON.stringify([scopes.map(s => [s.scope, s.name, waiting(s)]), sc ? sc.scope : "", !!ui.wsOpen]);
+  // Rebuilt when the list, the names, the pictures or what waits changes; never while it is open under the pointer.
+  const wsSig = JSON.stringify([scopes.map(s => [s.scope, s.name, waiting(s), s.avatar_v || null, !!faceUrl(s)]), sc ? sc.scope : "", !!ui.wsOpen]);
   if (wsSig !== ui.wsSig && !(ui.wsOpen && ui.wsSig)) {
     ui.wsSig = wsSig;
     $("ws").hidden = !sc;
@@ -921,6 +1189,7 @@ async function refresh() {
     ui.state = await api("/api/state");
     const sc = current();
     for (const [, spec, mod] of active(sc)) if (spec.refresh) await spec.refresh(sc, mod);
+    if (ui.tab === "workspace") await loadWorkspace(sc);
     ui.error = "";
     ui.lastOk = Date.now();
   } catch (e) { ui.error = e.message; }

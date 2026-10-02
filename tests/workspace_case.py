@@ -18,6 +18,8 @@ REPO = Path(__file__).resolve().parents[1]
 for sub in ("modules/boards", "modules/desk", "modules/codepanion", "plugin/scripts"):
     sys.path.insert(0, str(REPO / sub))
 import boards as b  # noqa: E402
+sys.path.insert(0, str(REPO / "modules" / "whatsapp"))
+import wa  # noqa: E402
 import codepanion as c  # noqa: E402
 import desk as d  # noqa: E402
 import tanka_kit as kit  # noqa: E402
@@ -65,6 +67,9 @@ class WorkspaceCase(unittest.TestCase):
         self.patch(c, "CLAUDE_HOME", self.tmp / "claude")
         self.patch(d, "HOME", self.tmp / "desk")
         self.patch(b, "HOME", self.tmp / "boards")
+        # The page loads every module's page.py; WhatsApp's reads contacts.json, never the user's.
+        self.patch(wa, "HOME", self.tmp / "whatsapp")
+        self.patch(wa, "REGISTRY", self.tmp / "whatsapp" / "contacts.json")
         self.patch(kit, "WORKSPACES", self.wsdir)
         self.patch(kit, "PAGE_HOME", self.tmp / "page")
         # A subprocess a test starts (a module's post-install, the tap) must see the same homes, never the user's.

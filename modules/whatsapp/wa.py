@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -63,6 +64,61 @@ def registry() -> dict:
     except json.JSONDecodeError as e:
         raise ToolError(f"{REGISTRY} is not valid JSON (line {e.lineno}). Tell the user; WhatsApp cannot be read until they fix it.")
     return {"roles": data.get("roles", {}), "contacts": {digits(k): v for k, v in data.get("contacts", {}).items()}}
+
+
+def registry_lock_path() -> Path:
+    """The lock that serialises writes to contacts.json. Not LOCK, which is held for a whole browser call."""
+    return REGISTRY.with_name(".contacts.lock")
+
+
+def registry_raw() -> dict:
+    """contacts.json exactly as stored (keys unnormalised, unknown keys kept), for a write to change and save."""
+    if not REGISTRY.is_file():
+        raise ToolError(f"{REGISTRY} does not exist yet.")
+    try:
+        data = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ToolError(f"{REGISTRY} is not valid JSON (line {e.lineno}); fix it by hand first.")
+    if not isinstance(data, dict):
+        raise ToolError(f"{REGISTRY} must hold a JSON object.")
+    for key in ("roles", "contacts"):
+        if not isinstance(data.setdefault(key, {}), dict):
+            raise ToolError(f"\"{key}\" in {REGISTRY} must be an object.")
+    return data
+
+
+def registry_update(change):
+    """Apply change(data) to contacts.json under an exclusive lock and save it atomically.
+
+    `change` edits the stored dict in place, so every key it does not touch is kept, and returns what
+    the caller gets back. If it raises, nothing is written. The automation daemon reads the file
+    without the lock; the atomic replace means it sees the old file or the new one, never half of one.
+    """
+    REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    with registry_lock_path().open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        data = registry_raw()
+        result = change(data)
+        mode = REGISTRY.stat().st_mode & 0o777
+        fd, tmp = tempfile.mkstemp(dir=REGISTRY.parent, prefix=".contacts.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                json.dump(data, out, ensure_ascii=False, indent=2)
+                out.write("\n")
+                out.flush()
+                os.fsync(out.fileno())
+            os.chmod(tmp, mode)
+            os.replace(tmp, REGISTRY)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
+    return result
+
+
+def contact_keys(contacts: dict, num: str) -> list[str]:
+    """The stored keys of one number, however each was typed ("+1 555 123 4567", "15551234567")."""
+    return [k for k in contacts if digits(k) == num]
 
 
 def scope(workspace_name: str) -> tuple[dict, dict]:
@@ -266,9 +322,9 @@ def workspace() -> Path:
     return Path(ws)
 
 
-def person_record(num: str) -> tuple[dict, str]:
+def person_record(num: str, ws: Path | None = None) -> tuple[dict, str]:
     """Fields and free text of <PEOPLE_DIR>/<num>.md, the assistant's own record of a person."""
-    path = workspace() / PEOPLE_DIR / f"{num}.md"
+    path = (ws or workspace()) / PEOPLE_DIR / f"{num}.md"
     if not path.is_file():
         return {}, ""
     text = path.read_text(encoding="utf-8")

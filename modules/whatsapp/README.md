@@ -24,7 +24,7 @@ Requirements: Rastro, a Chromium-based browser, `openssl`, Python 3.10+.
 
 ## Who each assistant can see
 
-`contacts.json`, in `TANKA_WHATSAPP_HOME`, is the only place roles live, and the user edits it by hand. It sits outside every workspace because an assistant can only write inside its own: a message saying "add me as a client" cannot change it.
+`contacts.json`, in `TANKA_WHATSAPP_HOME`, is the only place roles live, and the user edits it by hand or on the page's People tab (below). It sits outside every workspace because an assistant can only write inside its own: a message saying "add me as a client" cannot change it.
 
 ```json
 {
@@ -46,6 +46,17 @@ Role names are yours. A role's `workspace` is the scope of the assistant that ma
 
 Its own record lives in the workspace, in `notes/people/<number>.md`: a `key: value` header with any fields (`sale_status`, `company`, …) and dated notes below. The assistant writes it; the role never goes there. The header is shown above every conversation with that person, and `whatsapp_people` filters across people by any field.
 
+## On the page
+
+`tanka ui` shows a **People** tab in every workspace that has the whatsapp skill or that a role in `contacts.json` names. It lists that workspace's contacts grouped by role, each with the fields of their record, how many dated notes it has and the date of the last one, and the counts of the most common values (`3 quoted · 1 won`). A filter narrows the list; a name opens the whole record.
+
+From the tab the user changes, by hand, only `contacts.json`:
+
+- **contacts**: add one (number with country code, name, role), rename it, move it to another of the workspace's roles, or remove it. A number that already holds another workspace's role is refused.
+- **roles**: switch `read`, `reply` and `auto_reply` of the workspace's roles. Turning `auto_reply` on asks for a second click, because the assistant will then answer those people without asking; turning `reply` off turns `auto_reply` off too.
+
+Each change is written under a lock of its own (`.contacts.lock`, not the session's) and saved atomically, keeping every key it does not touch, so the automation daemon never reads half a file. The tab only sees its own workspace's roles and contacts. It never opens WhatsApp: it neither reads nor sends a message. **Read chat** puts a request in the chat box for the user to send to the assistant, which then reads through its tools under the same rules as always.
+
 ## Media
 
 With `attachments`, a thread's images and documents are downloaded into `<workspace>/whatsapp/<number>/`:
@@ -61,7 +72,7 @@ Every setting has a default; override it in the environment Tanka runs in.
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
-| `TANKA_WHATSAPP_HOME` | `~/.tanka/shared/whatsapp` | Where `contacts.json` and the session lock live |
+| `TANKA_WHATSAPP_HOME` | `~/.tanka/shared/whatsapp` | Where `contacts.json`, its write lock and the session lock live |
 | `TANKA_WHATSAPP_SESSION` | `whatsapp` | The Rastro session name |
 | `TANKA_BROWSER` | first found: Chromium, Chrome, Brave, Edge | The browser binary behind the headless wrapper (shared by every module) |
 | `TANKA_WHATSAPP_PEOPLE_DIR` | `notes/people` | Person records, relative to the workspace (set it before `install`: the skill's text names it) |
@@ -73,11 +84,12 @@ Every setting has a default; override it in the environment Tanka runs in.
 
 | File | What it does |
 | --- | --- |
-| `wa.py` | Registry and scoping, the session, reading chats and threads, replying, person records |
+| `wa.py` | Registry (reading, and locked atomic writes) and scoping, the session, reading chats and threads, replying, person records |
 | `media.py` | Download and decryption |
 | `module.json` | Name, description and required programs, read by `tanka modules` |
 | `cli.py` | `tanka whatsapp link\|status`, and `post-install` |
+| `page.py`, `page.js` | The People tab of `tanka ui` ([docs/page.md](../../docs/page.md)) |
 | `../common/` | The browser wrapper and Office-to-text, shared with other modules |
 | `skill/` | The skill `install` copies: `SKILL.md` and four tools whose scripts import `wa` and set their `SCOPE` |
 
-Tests: `tests/test_whatsapp.py`.
+Tests: `tests/test_whatsapp.py` and `tests/test_whatsapp_page.py`.

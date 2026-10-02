@@ -12,8 +12,9 @@ The workspace is `$TANKA_WORKSPACE`; its name is the directory's name. All comma
 
 ## 0. Is it ready?
 
-- `.claude/skills/boards` must exist in the workspace. If not: `bin/tanka install boards <name>`.
-- Each board costs one tool, plus one for `boards_rows`, out of the workspace's 15. Run `bin/tanka tools check <name>` and tell the user how many are left before you add one. If there is no room, say which skills hold the tools and let them choose what to merge or drop; never drop one yourself.
+- A board can live without tools: with only the view, it shows on the page and the workspace's own tools fill it through `boards.try_record` (`modules/boards/README.md`, "A board without tools"). Choose with the user:
+  - **the assistant records rows itself**: install the boards skill (`bin/tanka install boards <name>`). Each board then costs one tool, plus one for `boards_rows`, out of the workspace's 15. Run `bin/tanka tools check <name>` and say how many are left; if there is no room, say which skills hold the tools and let them choose what to merge or drop, never drop one yourself;
+  - **existing tools fill it** (a workspace at 15/15): no install; add a `boards.try_record` call to those tools after their real action succeeds, and never run a tool that acts on a real system to test it.
 - Read `.tanka/persona.json`: its `language` is the language of the labels, choices and button messages, because the user reads them on the page and in the chat box.
 
 ## 1. Ask, one question at a time
@@ -35,7 +36,7 @@ The workspace is `$TANKA_WORKSPACE`; its name is the directory's name. All comma
 ## 3. Check and build
 
 1. `bin/tanka boards check <name>` → ok. Fix every problem it names; do not weaken the view to pass it.
-2. `bin/tanka boards build <name>`. It writes `boards_record_<view>` and lists the board in the skill. Never edit those generated files: change the view and build again.
+2. With the boards skill: `bin/tanka boards build <name>`. It writes `boards_record_<view>` and lists the board in the skill. Never edit those generated files: change the view and build again. Without it, skip steps 2-4's tool calls and check the rows with `bin/tanka boards show <name> <view>` after the filling tool runs.
 3. `bin/tanka tools check <name>` → the new tool loads, with no problem.
 4. `bin/tanka tools test boards_record_<view> '<the example row>' <name>`, then `bin/tanka boards show <name> <view>`: the row is there. Run the same call again with one field changed: the row is updated, not doubled.
 

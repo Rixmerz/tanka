@@ -53,7 +53,13 @@ def views_dir(ws: Path) -> Path:
 
 
 def installed(ws: Path) -> bool:
+    """Whether the boards skill (boards_rows and the boards_record_<view> tools) is in the workspace."""
     return (ws / ".claude" / "skills" / "boards").is_dir()
+
+
+def has_views(ws: Path) -> bool:
+    """Whether the workspace declares a board: enough for the page, even without the skill."""
+    return views_dir(ws).is_dir() and any(views_dir(ws).glob("*.json"))
 
 
 def load_views(ws: Path) -> dict[str, dict]:
@@ -305,6 +311,18 @@ def record(scope: str, view: str, args: dict, by: str = "assistant") -> tuple[di
         return dict(row), changed
 
 
+def try_record(scope: str, view: str, args: dict, by: str = "assistant") -> bool:
+    """`record` for another tool that notes its outcome on a board: it never raises, so the tool's own
+    work never fails because of the board. Returns whether the row was written; on failure says why on
+    stderr, which the harness ignores when the tool exits 0. Needs only the view, not the boards skill."""
+    try:
+        record(scope, view, {k: v for k, v in args.items() if v is not None}, by=by)
+        return True
+    except Exception as e:  # noqa: BLE001 - a board is a side note: nothing about it may stop the caller
+        print(f"boards: {view} row not recorded: {e}", file=sys.stderr)
+        return False
+
+
 def set_field(scope: str, view: str, rid: str, field: str, value: str) -> dict:
     """The page's select on an editable choice field."""
     spec = view_spec(scope, view)
@@ -357,7 +375,8 @@ def rows_tool(scope: str, view: str | None, match: str | None) -> None:
             fields = fields_of(spec)
             desc = "; ".join(f"{k} ({describe_field(f)})" for k, f in fields.items())
             print(f"{name}: {spec['title']}. {spec['description']} {len(live_rows(scope, name))} row(s). "
-                  f"Key: {' + '.join(spec['key'])}. Fields: {desc}. Record with {TOOL_PREFIX}{name}.")
+                  f"Key: {' + '.join(spec['key'])}. Fields: {desc}. "
+                  + (f"Record with {TOOL_PREFIX}{name}." if installed(ws) else "Filled by the workspace's own tools."))
         return
     spec = view_spec(scope, view)
     rows = live_rows(scope, view)
@@ -467,7 +486,9 @@ def build(ws: Path, scope: str) -> list[str]:
     import tanka_tools as tt
     tools = ws / ".claude" / "skills" / "boards" / "tools"
     if not tools.is_dir():
-        raise ToolError(f"the boards module is not installed in {ws}: tanka install boards {scope}")
+        raise ToolError(f"build makes one boards_record_<view> tool per view, and those need the boards skill: "
+                        f"tanka install boards {scope}. Without it the page still shows the views, filled by tools "
+                        "that call boards.record (README: A board without tools).")
     views = load_views(ws)
     before, _ = tt.scan(ws)
     mine = {f.stem for f in tools.glob(f"{TOOL_PREFIX}*.json")}
