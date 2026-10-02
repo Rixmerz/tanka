@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Codepanion</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e09a12'/%3E%3Cpath fill='%23fff' d='M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z'/%3E%3Cpath fill='%23e09a12' d='M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z'/%3E%3C/svg%3E">
+<style nonce="__NONCE__">
+:root {
+  --bg: #f5f2ea; --panel: #fbf9f4; --raised: #ffffff; --bubble: #ece7db; --ink: #1f1d1a; --muted: #6b665c; --faint: #9a9488;
+  --line: #e4ded0; --accent: #e09a12; --accent-ink: #251900; --accent-soft: #fbedc9;
+  --good: #2f7d4a; --bad: #b3372b; --warn: #a65f00;
+  --shadow-sm: 0 1px 2px rgb(40 30 10 / .06); --shadow: 0 2px 6px rgb(40 30 10 / .06), 0 10px 30px rgb(40 30 10 / .06);
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #131216; --panel: #18171c; --raised: #211f26; --bubble: #26242c; --ink: #ece9e2; --muted: #a39e94; --faint: #757068;
+    --line: #2d2b33; --accent: #f2b52b; --accent-ink: #1d1503; --accent-soft: #3a2f12;
+    --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .3); --shadow: 0 2px 8px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .25);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #131216; --panel: #18171c; --raised: #211f26; --bubble: #26242c; --ink: #ece9e2; --muted: #a39e94; --faint: #757068;
+  --line: #2d2b33; --accent: #f2b52b; --accent-ink: #1d1503; --accent-soft: #3a2f12;
+  --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .3); --shadow: 0 2px 8px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .25);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* ---------- header */
+.top { flex: none; display: flex; align-items: center; gap: 14px; padding: 9px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.logo { width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); display: grid; place-items: center; font-size: 18px; flex: none; }
+.mark { width: 70%; height: 70%; display: block; }
+.mark .b { fill: var(--accent); }
+.mark .s { fill: var(--raised); }
+.event .head .mark { width: 16px; height: 16px; flex: none; }
+.brand h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.ws { font-size: 13px; color: var(--muted); padding: 2px 9px; border: 1px solid var(--line); border-radius: 99px; white-space: nowrap; }
+.ws select { font: inherit; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; }
+.tabs { display: flex; gap: 2px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 11px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.tabs button { border: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { background: var(--raised); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+.badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; line-height: 1; }
+.badge.soft { background: var(--accent-soft); color: var(--ink); }
+.spacer { flex: 1; }
+.live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); border: 0; background: none; cursor: pointer; padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
+.live:hover { background: var(--bubble); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+.dot.off { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent); }
+.banner { flex: none; margin: 10px 16px 0; background: color-mix(in srgb, var(--bad) 10%, var(--raised)); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); border-radius: 12px; padding: 9px 14px; font-size: 14px; }
+
+/* ---------- chat layout */
+#chatwrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.chat { display: flex; flex-direction: column; min-height: 0; position: relative; }
+.scrollwrap { flex: 1; min-height: 0; position: relative; display: flex; }
+.scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 8px; }
+.lane { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+.log { display: flex; flex-direction: column; padding-top: 12px; }
+.sep { display: flex; align-items: center; gap: 12px; margin: 22px 0 4px; color: var(--faint); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.sep::before, .sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.msg { display: flex; gap: 10px; margin-top: 3px; align-items: flex-start; }
+.msg.first { margin-top: 16px; }
+.avatar { width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--accent-soft); display: grid; place-items: center; font-size: 16px; }
+.avatar.ghost { visibility: hidden; height: 1px; }
+.avatar.err { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); font-weight: 800; font-size: 14px; }
+.col { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; max-width: min(640px, 86%); }
+.who { font-size: 12.5px; color: var(--faint); margin: 0 4px 3px; }
+.who strong { color: var(--muted); font-weight: 650; margin-right: 6px; }
+.bubble { padding: 9px 14px; border-radius: 18px; background: var(--bubble); overflow-wrap: anywhere; }
+.them.first .bubble { border-top-left-radius: 6px; }
+.you { justify-content: flex-end; }
+.you .col { align-items: flex-end; }
+.you .bubble { background: var(--accent); color: var(--accent-ink); white-space: pre-wrap; }
+.you.first .bubble { border-top-right-radius: 6px; }
+.bubble p { margin: 0; white-space: pre-wrap; }
+.bubble > * + * { margin-top: 8px; }
+.bubble ul, .bubble ol { margin: 0; padding-left: 20px; }
+.bubble li + li { margin-top: 3px; }
+.bubble code { font-family: var(--mono); font-size: .88em; background: color-mix(in srgb, var(--ink) 9%, transparent); padding: 1px 5px; border-radius: 5px; }
+.bubble .h { font-weight: 650; }
+.bubble.error { background: color-mix(in srgb, var(--bad) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.bubble.dots-b { padding: 0; }
+.fxs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fx { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 11px 4px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--raised); cursor: pointer; max-width: 100%; box-shadow: var(--shadow-sm); }
+.fx:hover:not(:disabled) { border-color: var(--accent); }
+.fx .k { color: var(--muted); white-space: nowrap; }
+.fx .x { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fx:disabled { opacity: .5; cursor: default; }
+.fx.done .x { text-decoration: line-through; color: var(--muted); }
+.event .sub { margin: 9px 0 4px; font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.event .fxs { margin-top: 0; }
+.event .topics { margin: 2px 0 0; font-size: 14.5px; }
+.event.bad::before { background: var(--bad); }
+.bubble.drafting { white-space: pre-wrap; }
+.event { margin: 18px 0 2px 40px; max-width: min(600px, calc(100% - 40px)); background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 10px 16px; box-shadow: var(--shadow-sm); position: relative; }
+.event::before { content: ""; position: absolute; left: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--accent); }
+.event.done::before { background: var(--good); }
+.event.quiet::before { background: var(--faint); }
+.event .head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.event .head .label { font-weight: 650; color: var(--ink); }
+.event .text { margin: 4px 0 0; font-size: 15px; white-space: pre-wrap; }
+.event.done .text { color: var(--muted); }
+.event .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.state { font-size: 13px; color: var(--muted); margin-top: 5px; }
+.state.ok { color: var(--good); }
+details.ev { margin-top: 6px; font-size: 13px; }
+details.ev summary { cursor: pointer; color: var(--muted); width: max-content; }
+details.ev pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--muted); background: var(--bg); border-radius: 8px; padding: 8px 10px; }
+.welcome { text-align: center; padding-top: 9vh; }
+.welcome .big { width: 64px; height: 64px; margin: 0 auto; border-radius: 20px; background: var(--accent-soft); display: grid; place-items: center; font-size: 34px; }
+.welcome h2 { margin: 14px 0 6px; font-size: 21px; letter-spacing: -.01em; }
+.welcome p { color: var(--muted); max-width: 470px; margin: 0 auto; }
+.jump { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 5px 14px; font-size: 13px; cursor: pointer; box-shadow: var(--shadow); }
+.dots { display: inline-flex; gap: 4px; padding: 14px 16px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+.dots i:nth-child(2) { animation-delay: .2s; }
+.dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+
+/* ---------- composer */
+.composer { flex: none; padding: 6px 24px 16px; }
+.composer .lane { padding: 0; }
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.suggest button { border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+.suggest button:hover { border-color: var(--accent); }
+.box { display: flex; align-items: flex-end; gap: 8px; background: var(--raised); border: 1px solid var(--line); border-radius: 22px; padding: 6px 6px 6px 18px; box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+.box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow); }
+.box textarea { flex: 1; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; line-height: 1.45; resize: none; padding: 7px 0; max-height: 168px; }
+.box textarea::placeholder { color: var(--faint); }
+.send { width: 38px; height: 38px; flex: none; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer; transition: opacity .15s, transform .1s; }
+.send:disabled { opacity: .28; cursor: default; }
+.send:not(:disabled):active { transform: scale(.93); }
+.send svg { width: 18px; height: 18px; }
+.hint { margin-top: 7px; font-size: 12px; color: var(--faint); text-align: center; }
+.hint kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+.hint .err { color: var(--bad); }
+
+/* ---------- your day */
+.day { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 18px 20px 28px; }
+.day-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.day-h h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+.day-h .date { color: var(--muted); font-size: 13px; }
+.summary { margin: 2px 0 6px; font-size: 13px; color: var(--muted); }
+.summary b { color: var(--warn); font-weight: 650; }
+.sec { margin: 20px 0 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.rem { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 10px; border-radius: 12px; margin: 0 -10px; }
+.rem:hover { background: var(--bubble); }
+.rem.due { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.rem .time { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 15px; line-height: 1.25; }
+.rem .time small { display: block; font-weight: 500; font-size: 11.5px; color: var(--muted); margin-top: 1px; white-space: nowrap; }
+.rem.due .time small { color: var(--warn); font-weight: 650; }
+.rem.done .time, .rem.done .t { color: var(--faint); }
+.rem.done .t { text-decoration: line-through; }
+.rem .t { font-size: 14px; line-height: 1.4; }
+.rem .m { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
+.rem .m:empty { display: none; }
+.acts-side { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.rem:hover .acts-side, .rem:focus-within .acts-side, .rem.due .acts-side { opacity: 1; }
+.icon { min-width: 28px; height: 28px; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 650; display: inline-grid; place-items: center; padding: 0 5px; }
+.icon:hover { background: var(--raised); color: var(--ink); box-shadow: var(--shadow-sm); }
+.icon.ok:hover { color: var(--good); }
+.icon svg { width: 16px; height: 16px; }
+.topic { margin: 0 -10px 4px; padding: 7px 10px; border-radius: 12px; }
+.topic-h { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14px; min-height: 28px; }
+.topic-h .n { font-size: 12px; color: var(--muted); font-weight: 500; }
+.topic-h .icon { margin-left: auto; opacity: 0; }
+.topic:hover .topic-h .icon, .topic:focus-within .topic-h .icon { opacity: 1; }
+.checks { list-style: none; margin: 2px 0 0; padding: 0; }
+.checks li { border-radius: 8px; }
+.checks label { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; cursor: pointer; font-size: 14px; line-height: 1.4; }
+.checks input { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; flex: none; margin: 1px 0 0; border: 1.5px solid var(--faint); border-radius: 6px; display: grid; place-items: center; cursor: pointer; background: var(--raised); transition: background .15s, border-color .15s; }
+.checks input::after { content: "✓"; font-size: 12px; font-weight: 800; color: var(--accent-ink); transform: scale(0); transition: transform .12s; }
+.checks input:checked { background: var(--accent); border-color: var(--accent); }
+.checks input:checked::after { transform: scale(1); }
+.checks li.done label > span { color: var(--faint); text-decoration: line-through; }
+.tag { font-size: 11.5px; padding: 0 7px; border-radius: 99px; background: var(--bubble); color: var(--muted); white-space: nowrap; font-weight: 500; }
+.rem:hover .tag { background: var(--raised); }
+.tag.found { background: var(--accent-soft); color: var(--ink); }
+details.donehist { margin-top: 14px; }
+details.donehist summary { cursor: pointer; font-size: 13px; color: var(--muted); width: max-content; }
+.side-empty { text-align: center; color: var(--muted); padding: 36px 6px; font-size: 14px; }
+.side-empty .big { font-size: 30px; }
+.side-empty strong { display: block; color: var(--ink); margin: 8px 0 2px; font-size: 15px; }
+.flash { animation: flash 1.8s ease-out; }
+@keyframes flash { 0%, 35% { background: color-mix(in srgb, var(--accent) 32%, transparent); } 100% { background: transparent; } }
+.daytoggle, .scrim { display: none; }
+@media (hover: none) { .acts-side, .topic-h .icon { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dots i, .flash { animation: none; } }
+
+/* ---------- other tabs */
+#view { flex: 1; overflow-y: auto; }
+.page { max-width: 960px; margin: 0 auto; padding: 20px 16px 40px; }
+.card { background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; overflow-wrap: anywhere; box-shadow: var(--shadow-sm); }
+.card.unseen { border-left: 3px solid var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.meta { color: var(--muted); font-size: 13px; }
+.chip { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.chip.on { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+.chip.ok { border-color: var(--good); color: var(--good); }
+.chip.no { border-color: var(--bad); color: var(--bad); }
+.card .text { margin: 6px 0; font-size: 16px; white-space: pre-wrap; }
+.evidence { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+.btn { border: 1px solid var(--line); background: var(--raised); border-radius: 9px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
+.ghost { border: 1px solid transparent; background: none; color: var(--muted); padding: 3px 9px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.ghost:hover { background: var(--bubble); color: var(--ink); }
+.ghost[aria-pressed="true"] { color: var(--ink); background: var(--accent-soft); border-color: var(--accent); }
+.empty { color: var(--muted); padding: 24px 4px; }
+.problem { color: var(--bad); }
+.warning { color: var(--warn); }
+.note-banner { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; }
+.timeline { list-style: none; margin: 8px 0 0; padding: 0; font-family: var(--mono); font-size: 12.5px; }
+.timeline li { padding: 3px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; }
+.timeline li.fail { color: var(--bad); }
+.timeline li.prompt { color: var(--ink); font-weight: 600; }
+.timeline li.fire { color: var(--accent); font-weight: 600; }
+details summary { cursor: pointer; color: var(--muted); }
+pre.section { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; }
+dl.health { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0; }
+dl.health dt { color: var(--muted); }
+dl.health dd { margin: 0; }
+
+/* ---------- narrow screens: "your day" becomes a sheet */
+@media (max-width: 860px) {
+  #chatwrap { grid-template-columns: 1fr; }
+  .day { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); z-index: 6; transform: translateX(105%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: var(--shadow); }
+  .day.open { transform: none; visibility: visible; }
+  .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .35); z-index: 5; border: 0; }
+  .scrim.open { display: block; }
+  .daytoggle { display: inline-flex; flex: none; align-self: flex-end; margin: 8px 12px 0; align-items: center; gap: 6px; }
+  .lane { padding: 0 14px; }
+  .composer { padding: 6px 12px 12px; }
+  .event { margin-left: 0; max-width: 100%; }
+  .brand h1, .live .lbl { display: none; }
+  .top { gap: 10px; padding: 8px 12px; }
+}
+@media (max-width: 560px) {
+  /* the five tabs get a row of their own, so none hides past the edge */
+  .top { flex-wrap: wrap; row-gap: 8px; }
+  .tabs { order: 5; flex: 1 1 100%; }
+  .tabs button { flex: 1; justify-content: center; padding: 5px 4px; font-size: 13px; gap: 4px; }
+  .suggest { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .suggest button { flex: none; white-space: nowrap; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></span><h1>Codepanion</h1></div>
+  <span class="ws" id="ws"></span>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <span class="spacer"></span>
+  <button class="live" id="live" type="button"><span class="dot" id="dot"></span><span class="lbl" id="liveLbl"></span></button>
+</header>
+<div class="banner" id="banner" role="alert" hidden></div>
+<div id="chatwrap" hidden>
+  <section class="chat" id="chat">
+    <button class="btn daytoggle" id="daytoggle" type="button"></button>
+    <div class="scrollwrap">
+      <div class="scroll" id="scroll">
+        <div class="lane welcome" id="welcome" hidden><div class="big"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></div><h2 id="helloT"></h2><p id="helloP"></p></div>
+        <div class="lane log" id="log" role="log"></div>
+        <div class="lane" id="typing" hidden>
+          <div class="msg them first">
+            <span class="avatar"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></span>
+            <div class="col"><div class="who"><strong id="typingName">tanka</strong><span id="thinkingLbl"></span></div><div class="bubble drafting" id="draft" hidden></div><div class="bubble dots-b" id="dotsB"><span class="dots"><i></i><i></i><i></i></span></div></div>
+          </div>
+        </div>
+      </div>
+      <button class="jump" id="jump" type="button" hidden></button>
+    </div>
+    <div class="composer">
+      <div class="lane">
+        <div class="suggest" id="suggest"></div>
+        <div class="box">
+          <textarea id="say" rows="1" maxlength="1000"></textarea>
+          <button class="send" id="send" type="button" disabled></button>
+        </div>
+        <div class="hint" id="hint"></div>
+      </div>
+    </div>
+  </section>
+  <button class="scrim" id="scrim" type="button" tabindex="-1" aria-hidden="true"></button>
+  <aside class="day" id="day"></aside>
+</div>
+<main id="view"></main>
+<script nonce="__NONCE__">
+"use strict";
+// Every text below comes from the feed, the notes or a model's answer, which can carry markup the coding
+// session read. It is only ever set as textContent (rich() builds elements, it never parses HTML).
+const TOKEN = "__TOKEN__";
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const T = {
+  tabs: { chat: "Chat", notes: "Notes", sessions: "Sessions", lenses: "Lenses", health: "Health" },
+  live: "Live", liveNoDaemon: "Reminders won't notify", liveOff: "Offline", loading: "Loading…",
+  liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The daemon is not polling: a reminder that comes due will not notify. Open Health.",
+  workspace: "Workspace",
+  placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
+  hint: ["Enter", " sends · ", "Shift+Enter", " new line · each message is one Haiku run (at most US$0.30)"],
+  left: n => ` · ${n} left today`,
+  suggest: [["What's pending today?", true], ["Remind me in 15 min to ", false], ["I still have to ", false], ["I finished ", false]],
+  thinking: s => `thinking · ${s} s`, newMessages: "↓ New messages",
+  using: name => /codepanion_card/.test(name) ? "updating your cards…" : /codepanion_pending/.test(name) ? "checking your cards…" : "using a tool…",
+  brief: "Your day", briefToday: "Due today", briefTodo: "To do", briefStale: "Stalled", nothingLeft: "All of it is done or archived now.",
+  report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
+  hello: n => `Hi, I'm ${n}`,
+  helloText: "Tell me what is pending or what to remind you of, and I keep the cards in Your day. I also speak here on my own when a reminder comes due or one of my lenses sees something in your sessions.",
+  today: "Today", yesterday: "Yesterday",
+  fx: { reminder: "Reminder", check: "To do", done: "Done" },
+  reminder: "Reminder", noted: l => `Noticed on my own · ${l}`,
+  evidence: "Show evidence", useful: "Useful", notUseful: "Not useful",
+  doneAt: t => `✓ Done at ${t}`, snoozedTo: t => `Snoozed to ${t}`, gone: "Archived",
+  done: "Done", s10: "+10 min", s60: "+1 h", retry: "Retry",
+  err: { noanswer: d => `It did not answer (${d}). Try again.`, timeout: d => `It took more than ${d} min and was stopped. Try something shorter.`, nostart: d => `Could not start tanka: ${d}` },
+  dayTitle: "Your day",
+  nDue: n => `${n} due`, nNext: n => `${n} upcoming`, nOpen: n => `${n} to do`, allClear: "All clear",
+  secReminders: "Reminders", secChecks: "To do", doneToday: n => `Done today (${n})`,
+  now: "now", ago: s => `${s} ago`, inSpan: s => `in ${s}`, days: n => plural(n, "day", "days"),
+  found: "A lens found it in your session", project: "project",
+  sideEmpty: "Nothing pending", sideEmptyText: n => `Tell ${n} what you have to do and it shows up here.`,
+  archive: "Archive", archiveTopic: "Archive this topic and its items", markDone: "Mark done",
+  snooze10: "Snooze 10 minutes", snooze60: "Snooze 1 hour",
+  unreachable: e => `Could not reach the codepanion (${e}). Is tanka codepanion ui still running?`,
+  noScope: "No workspace has the codepanion. Start with: tanka install codepanion <workspace>",
+  notInstalled: s => `${s} is watched but has no codepanion: tanka install codepanion ${s}`,
+  notesCount: (n, u) => `${plural(n, "note", "notes")} · ${u} new`, markSeen: "Mark all seen",
+  notesEmpty: "It has not said anything yet. It speaks only when a signal wakes one of its lenses.",
+  session: "session", silent: p => `It stays silent: ${p}`, more: n => ` (and ${n} more, see Lenses)`, evidenceLbl: "evidence: ",
+  noSessions: p => `No session in the last 24 h in ${p}.`,
+  noWatch: s => `This workspace watches no project yet: tanka codepanion watch add <path> ${s}`,
+  noPrompt: "(no prompt yet)", hide: "Hide", timeline: "Timeline",
+  sessionStats: s => `${s.prompts} prompt(s) · ${s.tools} tool call(s) · ${s.failures} failed`,
+  showingLast: (n, o) => `Showing the last ${n} events; ${o} earlier ones are left out.`,
+  firings: n => `${n} signal(s) crossed (⚡). Whether one woke a lens depends on the lenses, the budget and quiet hours.`,
+  noFirings: "No signal crossed in this session.",
+  sessionStart: (src, br) => `session start (${src || "new"})${br ? " on " + br : ""}`, turnEnd: "— turn end", sessionEnd: r => "session end " + (r || ""),
+  checkFails: "check fails, so this codepanion does not run:",
+  proactivity: v => "proactivity " + v, notifyOn: "notify on", notifyOff: "notify off", quiet: v => "quiet " + (v || "none"),
+  budget: b => `budget ${b.runs_per_hour} runs, ${b.notes_per_hour} notes / h`, thresholds: "thresholds: ",
+  changeHint: s => `To change any of this, run /new-codepanion in tanka dev ${s}: it checks and backtests the change.`,
+  noLenses: s => `No lenses yet. Build them with /new-codepanion in tanka dev ${s}.`,
+  active: "active", inactive: "inactive", speaks: v => "speaks " + (v || "?"), wakesOn: v => "wakes on " + v,
+  problems: n => plural(n, "problem", "problems"), checkOk: "check ok",
+  lensStats: l => `${plural(l.notes, "note", "notes")} · 👍 ${l.good} · 👎 ${l.bad}`, rubric: "Rubric and examples",
+  hTap: "Tap", hDaemon: "Daemon", hWatched: "Watched", hWs: "This workspace", hRuns: "Runs today", hNotes: "New notes", hDue: "Reminders due",
+  tapOk: "installed (6 hooks)", tapPartial: x => "partial: " + x, tapNo: "not installed: tanka codepanion tap install",
+  daemonOk: (p, s) => `running (pid ${p}), polled ${s}s ago`, daemonStale: p => `running (pid ${p}), not polling the codepanion yet`,
+  daemonNo: "not running: tanka automation daemon --detach", watchNo: "nothing: tanka codepanion watch add <path> <workspace>",
+  wsOk: "check ok", wsBad: "check fails (see Lenses)", wsNo: "module not installed",
+  runs: (n, usd) => `${n} run(s), ${usd.toFixed(2)} USD spent`,
+  tune: l => `Two 👎 in a row for ${l}. Should it speak less?`, tuneStricter: "Wake less often", tunePause: "Pause it",
+  tuneDone: { stricter: "Made stricter", pause: "Paused", resume: "Resumed" }, dueNoDaemon: " (no desktop notification while the daemon is not polling)",
+};
+const TAB_KEYS = ["chat", "notes", "sessions", "lenses", "health"];
+// The codepanion is called by its workspace's persona name (persona.json), not by the program's.
+const nameOf = sc => (sc && sc.name) || "tanka";
+const ui = { tab: "chat", scope: null, state: null, open: null, detail: null, error: "", lastOk: 0, sending: false, fetching: false,
+             rows: null, nodes: [], logScope: null, stick: true, sideSig: "", wsSig: "", flash: null, showDay: false, doneOpen: false, seenSent: "" };
+try {
+  ui.tab = localStorage.getItem("codepanion.tab") || "chat";
+  ui.scope = localStorage.getItem("codepanion.scope");
+} catch (e) { /* storage blocked: defaults */ }
+if (!TAB_KEYS.includes(ui.tab)) ui.tab = "chat";
+
+const $ = id => document.getElementById(id);
+function el(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") n.className = v;
+    else if (k === "on") for (const [ev, fn] of Object.entries(v)) n.addEventListener(ev, fn);
+    else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return n;
+}
+function svg(d) {
+  const NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg"), p = document.createElementNS(NS, "path");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true");
+  for (const [k, v] of [["d", d], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2.2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) p.setAttribute(k, v);
+  s.append(p);
+  return s;
+}
+function mark() {
+  const NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", "0 0 32 32"); s.setAttribute("aria-hidden", "true"); s.setAttribute("class", "mark");
+  for (const [cls, d] of [["b", "M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"], ["s", "M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"]]) {
+    const p = document.createElementNS(NS, "path"); p.setAttribute("class", cls); p.setAttribute("d", d); s.append(p);
+  }
+  return s;
+}
+const ICON = { send: "M12 19V5M5.5 11.5L12 5l6.5 6.5", check: "M5 12.5l4.5 4.5L19 7.5", archive: "M3.5 6.5h17v4h-17zM5.5 10.5v8h13v-8M10 14h4" };
+const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
+
+async function api(path, body) {
+  const opt = { headers: { "X-Codepanion-Token": TOKEN }, cache: "no-store" };
+  if (body) { opt.method = "POST"; opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+function current() {
+  const s = ui.state && ui.state.scopes || [];
+  return s.find(x => x.scope === ui.scope) || s[0] || null;
+}
+async function act(p) { try { await p; } catch (e) { ui.error = e.message; } await refresh(); }
+const cardAct = (sc, id, action, minutes) => act(api("/api/card-action", { scope: sc.scope, id, action, minutes }));
+
+// ------------------------------------------------------------ time
+const LOCALE = "en-GB";  // English, with a 24-hour clock
+const HM = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const hm = t => t ? new Date(t * 1000).toLocaleTimeString(LOCALE, HM) : "";
+const when = t => t ? new Date(t * 1000).toLocaleString(LOCALE, { month: "short", day: "numeric", ...HM }) : "";
+const clock = t => t ? new Date(t * 1000).toLocaleTimeString(LOCALE, { ...HM, second: "2-digit" }) : "";
+const dayKey = ms => { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+const isToday = t => dayKey(t * 1000) === dayKey(Date.now());
+const shortDay = t => new Date(t * 1000).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric" });
+function dayLabel(t) {
+  if (isToday(t)) return T.today;
+  if (dayKey(t * 1000) === dayKey(Date.now() - 864e5)) return T.yesterday;
+  return new Date(t * 1000).toLocaleDateString(LOCALE, { weekday: "long", day: "numeric", month: "long" });
+}
+// Short on purpose: it sits under the time in a narrow column ("in 2 h", not "in 2 h 05").
+function span(mins) {
+  if (mins < 60) return `${mins} min`;
+  if (mins < 1440) return `${Math.round(mins / 60)} h`;
+  return T.days(Math.round(mins / 1440));
+}
+function relOf(at) {
+  const ms = at * 1000 - Date.now();
+  if (ms <= 0) return { due: true, text: -ms < 60000 ? T.now : T.ago(span(Math.floor(-ms / 60000))) };
+  return { due: false, text: T.inSpan(span(Math.ceil(ms / 60000))) };
+}
+
+// ------------------------------------------------------------ the answer's text
+// The model may answer in Markdown. Lists, **bold**, `code` and headings become elements; nothing else is
+// interpreted, and no text is ever parsed as HTML.
+function inline(s) {
+  return s.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).filter(Boolean).map(part =>
+    part.length > 4 && part.startsWith("**") && part.endsWith("**") ? el("strong", {}, part.slice(2, -2))
+      : part.length > 2 && part.startsWith("`") && part.endsWith("`") ? el("code", {}, part.slice(1, -1)) : part);
+}
+function rich(text) {
+  const out = [];
+  let para = [], list = null;
+  const flush = () => { if (para.length) out.push(el("p", {}, inline(para.join("\n")))); para = []; };
+  for (const raw of String(text || "").split("\n")) {
+    const line = raw.trimEnd();
+    const li = /^\s*([-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (li) {
+      flush();
+      const tag = /\d/.test(li[1]) ? "ol" : "ul";
+      if (!list || list.tagName.toLowerCase() !== tag) { list = el(tag); out.push(list); }
+      list.append(el("li", {}, inline(li[2])));
+      continue;
+    }
+    list = null;
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
+    if (h) { flush(); out.push(el("p", { class: "h" }, inline(h[1]))); }
+    else if (line.trim()) para.push(line);
+    else flush();
+  }
+  flush();
+  return out;
+}
+
+// ------------------------------------------------------------ the chat
+const avatar = () => el("span", { class: "avatar" }, mark());
+const rateBtn = (n, v) => el("button", { type: "button", class: "ghost", "aria-pressed": String(n.verdict === v),
+  on: { click: () => act(api("/api/rate", { id: n.id, verdict: v })) } }, v === "good" ? "👍 " + T.useful : "👎 " + T.notUseful);
+
+function fxChip(f) {
+  const ico = { reminder: "⏰", check: "☐", done: "✓" }[f.type] || "•";
+  const detail = f.type === "reminder" && f.at ? hm(f.at) + (isToday(f.at) ? "" : " · " + shortDay(f.at)) : (f.topic && f.topic !== "general" ? f.topic : "");
+  return el("button", { type: "button", class: "fx", disabled: !!f.gone, title: f.text, on: { click: () => focusCard(f.id) } },
+    el("span", { "aria-hidden": "true" }, ico), el("span", { class: "k" }, T.fx[f.type] + (detail ? " · " + detail : "")), el("span", { class: "x" }, f.text));
+}
+
+function reminderEvent(sc, m) {
+  const st = m.state;
+  return el("div", { class: "event" + (st === "done" ? " done" : st === "due" ? "" : " quiet") },
+    el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "⏰"), el("span", { class: "label" }, T.reminder),
+      m.topic && m.topic !== "general" ? el("span", { class: "tag" }, m.topic) : null, el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    m.text ? el("p", { class: "text" }, m.text) : null,
+    st === "due"
+      ? el("div", { class: "acts" },
+          el("button", { type: "button", class: "btn primary", on: { click: () => cardAct(sc, m.id, "done") } }, "✓ " + T.done),
+          el("button", { type: "button", class: "btn", title: T.snooze10, on: { click: () => cardAct(sc, m.id, "snooze", 10) } }, T.s10),
+          el("button", { type: "button", class: "btn", title: T.snooze60, on: { click: () => cardAct(sc, m.id, "snooze", 60) } }, T.s60))
+      : el("div", { class: "state" + (st === "done" ? " ok" : "") }, st === "done" ? T.doneAt(hm(m.done_at)) : st === "snoozed" ? T.snoozedTo(hm(m.at)) : T.gone));
+}
+
+function briefChip(x, ico, detail) {
+  return el("button", { type: "button", class: "fx" + (x.done ? " done" : ""), disabled: !!x.gone, title: x.text || "", on: { click: () => focusCard(x.id) } },
+    el("span", { "aria-hidden": "true" }, x.done ? "✓" : ico), el("span", { class: "k" }, detail), el("span", { class: "x" }, x.text || "—"));
+}
+
+function briefEvent(m) {
+  const rem = m.reminders || [], stale = m.stale || [], topics = Object.entries(m.topics || {});
+  const open = rem.concat(stale).some(x => !x.done && !x.gone);
+  return el("div", { class: "event" + (open ? "" : " quiet") },
+    el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "☀"), el("span", { class: "label" }, T.brief),
+      el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    rem.length ? el("div", { class: "sub" }, T.briefToday) : null,
+    rem.length ? el("div", { class: "fxs" }, rem.map(r => briefChip(r, "⏰", r.at ? hm(r.at) : ""))) : null,
+    topics.length ? el("div", { class: "sub" }, T.briefTodo) : null,
+    topics.length ? el("p", { class: "topics" }, topics.map(([t, n]) => `${t} ${n}`).join(" · ")) : null,
+    stale.length ? el("div", { class: "sub" }, T.briefStale) : null,
+    stale.length ? el("div", { class: "fxs" }, stale.map(i => briefChip(i, "☐", i.topic && i.topic !== "general" ? i.topic : ""))) : null,
+    open ? null : el("div", { class: "state ok" }, T.nothingLeft));
+}
+
+function reportEvent(m) {
+  return el("div", { class: "event" + (m.failed ? " bad" : " quiet") },
+    el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "⚙"), el("span", { class: "label" }, T.report(m.kind, m.name || "?")),
+      m.failed ? el("span", { class: "tag" }, T.reportFailed) : null, el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    el("p", { class: "text" }, m.text));
+}
+
+// A 👎 streak on one lens: the user picks how it changes, or ignores it. The page never changes a lens on its own.
+function tuneEvent(sc, m) {
+  const btn = (action, label) => el("button", { type: "button", class: "btn",
+    on: { click: () => act(api("/api/lens-action", { scope: sc.scope, lens: m.lens, action })) } }, label);
+  return el("div", { class: "event" },
+    el("div", { class: "head" }, mark(), el("span", { class: "label" }, m.lens), el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    el("p", { class: "text" }, m.state === "open" ? T.tune(m.lens) : (m.done || T.tuneDone[m.state] || m.state)),
+    m.state === "open" ? el("div", { class: "acts" }, m.tunable && m.lens !== "guardian" ? btn("stricter", T.tuneStricter) : null,
+      btn("pause", T.tunePause)) : null);
+}
+
+function noteEvent(m) {
+  return el("div", { class: "event" },
+    el("div", { class: "head" }, mark(), el("span", { class: "label" }, T.noted(m.lens || "?")),
+      el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    el("p", { class: "text" }, m.text),
+    m.evidence ? el("details", { class: "ev" }, el("summary", {}, T.evidence), el("pre", {}, m.evidence)) : null,
+    el("div", { class: "acts" }, rateBtn(m, "good"), rateBtn(m, "bad")));
+}
+
+function message(sc, m, first) {
+  if (m.who === "reminder") return reminderEvent(sc, m);
+  if (m.who === "note") return noteEvent(m);
+  if (m.who === "tune") return tuneEvent(sc, m);
+  if (m.who === "brief") return briefEvent(m);
+  if (m.who === "report") return reportEvent(m);
+  if (m.who === "you") return el("div", { class: "msg you" + (first ? " first" : "") },
+    el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t)) : null, el("div", { class: "bubble", title: hm(m.t) }, m.text)));
+  if (m.who === "error") {
+    const txt = m.code && T.err[m.code] ? T.err[m.code](m.detail || "") : m.text;
+    return el("div", { class: "msg them first" }, el("span", { class: "avatar err", "aria-hidden": "true" }, "!"),
+      el("div", { class: "col" }, el("div", { class: "bubble error" }, el("p", {}, txt)),
+        m.retry ? el("div", { class: "fxs" }, el("button", { type: "button", class: "btn", on: { click: () => send(m.retry) } }, "↻ " + T.retry)) : null));
+  }
+  return el("div", { class: "msg them" + (first ? " first" : "") },
+    first ? avatar() : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
+    el("div", { class: "col" },
+      first ? el("div", { class: "who" }, el("strong", {}, nameOf(sc)), hm(m.t)) : null,
+      el("div", { class: "bubble", title: hm(m.t) }, rich(m.text)),
+      (m.effects || []).length ? el("div", { class: "fxs" }, m.effects.map(fxChip)) : null));
+}
+
+// One row per day separator and per message. A message heads its group (avatar, name, time) when the author
+// changes, after an event, or after five quiet minutes; that depends only on what came before, so new rows
+// are appended without touching the ones already on screen.
+function rowsOf(sc) {
+  const rows = [];
+  let day = "", prev = null;
+  for (const m of sc.chat || []) {
+    const d = dayKey(m.t * 1000);
+    if (d !== day) { rows.push({ key: "day:" + d, sig: d, build: () => el("div", { class: "sep" }, dayLabel(m.t)) }); day = d; prev = null; }
+    const side = m.who === "you" ? "you" : m.who === "tanka" ? "them" : "event";
+    const first = !prev || prev.side !== side || side === "event" || m.t - prev.t > 300;
+    const { seen, ...shown } = m;  // marking a note seen must not rebuild it (an open evidence would close)
+    rows.push({ key: `${m.who}:${m.t}:${m.id || ""}`, sig: JSON.stringify([shown, first]), build: () => message(sc, m, first) });
+    prev = { side, t: m.t };
+  }
+  return rows;
+}
+const scroller = () => $("scroll");
+const nearEnd = () => { const s = scroller(); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; };
+function scrollEnd() { const s = scroller(); s.scrollTop = s.scrollHeight; $("jump").hidden = true; }
+
+function syncLog(sc) {
+  const log = $("log"), rows = rowsOf(sc), prev = ui.rows, near = nearEnd(), switched = ui.logScope !== sc.scope;
+  const same = !switched && prev && prev.length <= rows.length && prev.every((r, i) => r.key === rows[i].key);
+  let added = 0;
+  if (!same) {
+    ui.nodes = rows.map(r => r.build());
+    log.replaceChildren(...ui.nodes);
+  } else {
+    rows.forEach((r, i) => {
+      if (i >= prev.length) { const n = r.build(); log.append(n); ui.nodes.push(n); added++; }
+      else if (r.sig !== prev[i].sig) { const n = r.build(); ui.nodes[i].replaceWith(n); ui.nodes[i] = n; }
+    });
+  }
+  ui.rows = rows.map(({ key, sig }) => ({ key, sig }));
+  ui.logScope = sc.scope;
+  if (switched || ui.stick || near) { scrollEnd(); ui.stick = false; }
+  else if (added) $("jump").hidden = false;
+}
+
+function chatView(sc) {
+  const near = nearEnd();
+  syncLog(sc);
+  $("welcome").hidden = (sc.chat || []).length > 0;
+  $("typing").hidden = !sc.busy;
+  const draft = sc.busy && sc.draft && sc.draft.text ? sc.draft.text : "";
+  if ($("draft").textContent !== draft) $("draft").textContent = draft;
+  $("draft").hidden = !draft;
+  $("dotsB").hidden = !!draft;
+  if (sc.busy && near) scrollEnd();
+  tick();
+  sidebar(sc);
+  updateComposer();
+  $("day").classList.toggle("open", ui.showDay);
+  $("scrim").classList.toggle("open", ui.showDay);
+  const unseen = (sc.chat || []).filter(m => m.who === "note" && !m.seen).map(m => m.id).join();
+  if (unseen && unseen !== ui.seenSent && !document.hidden) { ui.seenSent = unseen; api("/api/seen", { scope: sc.scope }).catch(() => {}); }
+}
+
+function tick() {
+  const sc = current();
+  if (sc && sc.busy) $("thinkingLbl").textContent = sc.draft && sc.draft.tool ? T.using(sc.draft.tool) : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - sc.busy)));
+}
+
+// ------------------------------------------------------------ the composer (built once, never re-rendered)
+const say = $("say"), sendBtn = $("send");
+function grow() { say.style.height = "auto"; say.style.height = Math.min(say.scrollHeight, 168) + "px"; }
+function updateComposer() {
+  const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
+  sendBtn.disabled = busy || !say.value.trim();
+  const name = nameOf(sc);
+  say.placeholder = busy ? T.placeholderBusy(name) : T.placeholder(name);
+  say.setAttribute("aria-label", T.placeholder(name));
+  $("helloT").textContent = T.hello(name);
+  $("typingName").textContent = name;
+  $("suggest").hidden = !!say.value.trim() || busy;
+  $("left").textContent = sc && sc.chat_left != null && sc.chat_left < 10 ? T.left(sc.chat_left) : "";
+}
+async function send(textArg) {
+  const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
+  if (!sc || !text || ui.sending || sc.busy) return;
+  ui.sending = true; ui.stick = true;
+  $("cmsg").textContent = "";
+  updateComposer();
+  try {
+    await api("/api/chat", { scope: sc.scope, text });
+    if (typed) { say.value = ""; grow(); }
+  } catch (e) { $("cmsg").textContent = " · " + e.message; }
+  ui.sending = false;
+  await refresh();
+  say.focus();
+}
+function setupComposer() {
+  sendBtn.append(svg(ICON.send));
+  sendBtn.setAttribute("aria-label", T.send);
+  sendBtn.title = T.send;
+  $("suggest").append(...T.suggest.map(([text, now]) => el("button", { type: "button", on: { click: () => {
+    say.value = text; grow(); updateComposer();
+    if (now) send(); else { say.focus(); say.setSelectionRange(text.length, text.length); }
+  } } }, text.trim())));
+  const [k1, t1, k2, t2] = T.hint;
+  $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, el("span", { id: "left" }), el("span", { class: "err", id: "cmsg" }));
+  say.addEventListener("input", () => { grow(); updateComposer(); });
+  say.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  sendBtn.addEventListener("click", send);
+  $("jump").textContent = T.newMessages;
+  $("jump").addEventListener("click", scrollEnd);
+  scroller().addEventListener("scroll", () => { if (nearEnd()) $("jump").hidden = true; });
+  $("helloP").textContent = T.helloText;
+  $("daytoggle").addEventListener("click", () => { ui.showDay = true; render(); });
+  $("scrim").addEventListener("click", () => { ui.showDay = false; render(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && ui.showDay) { ui.showDay = false; render(); } });
+}
+
+// ------------------------------------------------------------ your day
+const narrow = () => window.matchMedia("(max-width: 860px)").matches;
+const flashCls = id => ui.flash && ui.flash.id === id ? " flash" : "";
+const found = x => x.evidence ? el("span", { class: "tag found", title: T.found + ": " + x.evidence }, "🔎") : null;
+const topicTag = t => t && t !== "general" ? el("span", { class: "tag" }, t) : null;
+const iconBtn = (content, title, fn, cls) => el("button", { type: "button", class: "icon" + (cls ? " " + cls : ""), title, "aria-label": title, on: { click: fn } }, content);
+
+function focusCard(id) {
+  ui.flash = { id };
+  ui.sideSig = "";
+  if (narrow()) ui.showDay = true;
+  render();
+  const n = $("day").querySelector(`[data-card="${CSS.escape(id)}"]`);
+  if (n) { const d = n.closest("details"); if (d) d.open = ui.doneOpen = true; n.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  setTimeout(() => { if (ui.flash && ui.flash.id === id) { ui.flash = null; ui.sideSig = ""; render(); } }, 1900);
+}
+
+function remRow(sc, r) {
+  const rel = relOf(r.at), done = !!r.done_at, due = !done && rel.due;
+  return el("div", { class: "rem" + (due ? " due" : "") + (done ? " done" : "") + flashCls(r.id), "data-card": r.id },
+    el("div", { class: "time" }, hm(done ? r.done_at : r.at), el("small", {}, done ? T.done : due || isToday(r.at) ? rel.text : shortDay(r.at))),
+    el("div", {}, el("div", { class: "t" }, r.text), el("div", { class: "m" }, topicTag(r.topic), found(r))),
+    done
+      ? el("div", { class: "acts-side" }, iconBtn(svg(ICON.archive), T.archive, () => cardAct(sc, r.id, "archive")))
+      : el("div", { class: "acts-side" },
+          iconBtn(svg(ICON.check), T.markDone, () => cardAct(sc, r.id, "done"), "ok"),
+          iconBtn("+10", T.snooze10, () => cardAct(sc, r.id, "snooze", 10)),
+          iconBtn("+1h", T.snooze60, () => cardAct(sc, r.id, "snooze", 60))));
+}
+
+function topicBox(sc, cd) {
+  return el("div", { class: "topic" + flashCls(cd.id), "data-card": cd.id },
+    el("div", { class: "topic-h" }, el("span", {}, cd.topic), cd.project ? el("span", { class: "tag", title: cd.project }, T.project) : null,
+      el("span", { class: "n" }, cd.open ? String(cd.open) : "✓"),
+      iconBtn(svg(ICON.archive), T.archiveTopic, () => cardAct(sc, cd.id, "archive"))),
+    el("ul", { class: "checks" }, cd.items.map(i => el("li", { class: (i.done_at ? "done" : "") + flashCls(i.id), "data-card": i.id },
+      el("label", {},
+        el("input", { type: "checkbox", checked: !!i.done_at, on: { change: e => {
+          e.target.closest("li").classList.toggle("done", e.target.checked);
+          act(api("/api/item", { scope: sc.scope, id: i.id, done: e.target.checked }));
+        } } }),
+        el("span", {}, i.text), found(i))))));
+}
+
+function dayCounts(p) {
+  const open = p.reminders.filter(r => !r.done_at);
+  const due = open.filter(r => r.at * 1000 <= Date.now()).length;
+  return { open, due, next: open.length - due, items: p.checks.reduce((a, c) => a + c.open, 0) };
+}
+
+function sidebar(sc) {
+  const p = sc.pending || { reminders: [], checks: [] }, n = dayCounts(p);
+  $("daytoggle").replaceChildren(T.dayTitle, (n.due || n.next || n.items) ? el("span", { class: "badge" + (n.due ? "" : " soft") }, String(n.due + n.next + n.items)) : null);
+  // Rebuilt only when something on it changed (or the minute did, for "in 5 min"), so a click is never swallowed.
+  const sig = JSON.stringify([sc.scope, p.reminders, p.checks, Math.floor(Date.now() / 60000), ui.flash && ui.flash.id]);
+  if (sig === ui.sideSig) return;
+  ui.sideSig = sig;
+  const doneR = p.reminders.filter(r => r.done_at);
+  const parts = [n.due ? el("b", {}, T.nDue(n.due)) : null, n.next ? T.nNext(n.next) : null, n.items ? T.nOpen(n.items) : null].filter(Boolean);
+  const kids = [
+    el("div", { class: "day-h" }, el("h2", {}, T.dayTitle), el("span", { class: "date" }, new Date().toLocaleDateString(LOCALE, { weekday: "long", day: "numeric", month: "short" }))),
+    el("p", { class: "summary" }, parts.length ? parts.flatMap((x, i) => i ? [" · ", x] : [x]) : T.allClear)];
+  if (!n.open.length && !p.checks.length && !doneR.length)
+    kids.push(el("div", { class: "side-empty" }, el("div", { class: "big", "aria-hidden": "true" }, "☀️"), el("strong", {}, T.sideEmpty), T.sideEmptyText(nameOf(sc))));
+  if (n.open.length) kids.push(el("div", { class: "sec" }, T.secReminders), ...n.open.map(r => remRow(sc, r)));
+  if (p.checks.length) kids.push(el("div", { class: "sec" }, T.secChecks), ...p.checks.map(cd => topicBox(sc, cd)));
+  if (doneR.length) kids.push(el("details", { class: "donehist", open: ui.doneOpen, on: { toggle: e => { ui.doneOpen = e.target.open; } } },
+    el("summary", {}, T.doneToday(doneR.length)), doneR.map(r => remRow(sc, r))));
+  $("day").replaceChildren(...kids);
+}
+
+// ------------------------------------------------------------ the other tabs
+function notesView(sc) {
+  const notes = sc.notes || [], unseen = notes.filter(n => !n.seen).length;
+  const head = el("div", { class: "row" }, el("span", { class: "meta" }, T.notesCount(notes.length, unseen)), el("span", { class: "spacer" }),
+    unseen ? el("button", { class: "btn", on: { click: () => act(api("/api/seen", { scope: sc.scope })) } }, T.markSeen) : null);
+  if (!notes.length) return [head, el("p", { class: "empty" }, T.notesEmpty)];
+  return [head, ...notes.map(n => el("article", { class: "card" + (n.seen ? "" : " unseen") },
+    el("div", { class: "row" }, el("span", { class: "chip on" }, n.lens), el("span", { class: "meta" }, when(n.t)),
+      n.session ? el("span", { class: "meta" }, T.session + " " + String(n.session).slice(0, 8)) : null,
+      el("span", { class: "spacer" }), rateBtn(n, "good"), rateBtn(n, "bad")),
+    el("p", { class: "text" }, n.text),
+    el("div", { class: "evidence" }, T.evidenceLbl + n.evidence)))];
+}
+
+function sessionsView(sc) {
+  const list = sc.sessions || [];
+  if (!list.length) return [el("p", { class: "empty" }, (sc.projects || []).length ? T.noSessions(sc.projects.join(", ")) : T.noWatch(sc.scope))];
+  return list.map(s => {
+    const open = ui.open === s.id;
+    const card = el("article", { class: "card" },
+      el("div", { class: "row" },
+        el("span", { class: "chip " + (s.status === "active" ? "on" : "") }, s.status),
+        el("strong", {}, s.title || T.noPrompt), el("span", { class: "spacer" }),
+        el("button", { class: "btn", "aria-expanded": String(open), on: { click: () => toggle(s.id) } }, open ? T.hide : T.timeline)),
+      el("div", { class: "meta" }, `${s.project}${s.branch ? " · " + s.branch : ""} · ${when(s.start)} → ${clock(s.last)} · ${T.sessionStats(s)} · ${s.id.slice(0, 8)}`));
+    if (open) card.append(ui.detail && ui.detail.summary.id === s.id ? timeline(ui.detail) : el("p", { class: "meta" }, T.loading));
+    return card;
+  });
+}
+
+function timeline(d) {
+  const fires = {};
+  for (const f of d.firings) (fires[f.i - d.offset] = fires[f.i - d.offset] || []).push(f);
+  const items = [];
+  d.events.forEach((e, i) => {
+    let text, cls = "";
+    if (e.e === "prompt") { text = "› " + (e.text || ""); cls = "prompt"; }
+    else if (e.e === "tool") { text = `${e.tool} ${e.target || ""}${e.lines ? ` (+${e.lines})` : ""}${e.ok ? "" : "  ✗ " + (e.error || "")}`; cls = e.ok ? "" : "fail"; }
+    else if (e.e === "session_start") text = T.sessionStart(e.source, e.branch);
+    else if (e.e === "turn_end") text = T.turnEnd;
+    else if (e.e === "session_end") text = T.sessionEnd(e.reason);
+    else text = e.e;
+    items.push(el("li", { class: cls }, clock(e.t) + "  " + text));
+    for (const f of fires[i] || []) items.push(el("li", { class: "fire" }, clock(f.t) + "  ⚡ " + f.signal + ": " + f.evidence));
+  });
+  return el("div", {},
+    d.offset ? el("p", { class: "meta" }, T.showingLast(d.events.length, d.offset)) : null,
+    el("p", { class: "meta" }, d.firings.length ? T.firings(d.firings.length) : T.noFirings),
+    el("ul", { class: "timeline" }, items));
+}
+
+function lensesView(sc) {
+  const out = [];
+  if ((sc.problems || []).length) out.push(el("div", { class: "card" }, el("strong", { class: "problem" }, T.checkFails),
+    el("ul", {}, sc.problems.map(p => el("li", { class: "problem" }, p)))));
+  for (const w of sc.warnings || []) out.push(el("p", { class: "warning" }, "! " + w));
+  const cfg = sc.config || {};
+  out.push(el("div", { class: "card" },
+    el("div", { class: "row" },
+      el("span", { class: "chip" }, T.proactivity(cfg.proactivity)), el("span", { class: "chip" }, cfg.notify ? T.notifyOn : T.notifyOff),
+      el("span", { class: "chip" }, T.quiet(cfg.quiet_hours)), el("span", { class: "chip" }, T.budget(cfg.budget || {}))),
+    el("div", { class: "meta" }, T.thresholds + Object.entries(cfg.thresholds || {}).map(([k, v]) => k + " " + v).join(" · ")),
+    el("div", { class: "meta" }, T.changeHint(sc.scope))));
+  if (!(sc.lenses || []).length) out.push(el("p", { class: "empty" }, T.noLenses(sc.scope)));
+  for (const l of sc.lenses || []) out.push(el("article", { class: "card" },
+    el("div", { class: "row" },
+      el("strong", {}, l.name), el("span", { class: "chip " + (l.active ? "on" : "") }, l.active ? T.active : T.inactive),
+      el("span", { class: "chip" }, T.speaks(l.meta.speaks)), el("span", { class: "chip" }, T.wakesOn([].concat(l.meta.wakes_on || []).join(", "))),
+      el("span", { class: "chip " + (l.problems.length ? "no" : "ok") }, l.problems.length ? T.problems(l.problems.length) : T.checkOk),
+      el("span", { class: "spacer" }), el("span", { class: "meta" }, T.lensStats(l))),
+    l.problems.length ? el("ul", {}, l.problems.map(p => el("li", { class: "problem" }, p))) : null,
+    el("details", {}, el("summary", {}, T.rubric), Object.entries(l.sections).map(([k, v]) => [el("div", { class: "meta" }, k), el("pre", { class: "section" }, v)]))));
+  return out;
+}
+
+function healthView(sc) {
+  const h = ui.state.health, watch = Object.entries(h.watch);
+  const yes = (ok, a, b) => el("span", { class: "chip " + (ok ? "ok" : "no") }, ok ? a : b);
+  return [el("div", { class: "card" }, el("dl", { class: "health" },
+    el("dt", {}, T.hTap), el("dd", {}, yes(h.tap_ok, T.tapOk, h.tap.length ? T.tapPartial(h.tap.join(", ")) : T.tapNo)),
+    el("dt", {}, T.hDaemon), el("dd", {}, h.daemon_pid ? yes(h.daemon_ok, T.daemonOk(h.daemon_pid, h.daemon_seen), T.daemonStale(h.daemon_pid)) : yes(false, "", T.daemonNo)),
+    el("dt", {}, T.hWatched), el("dd", {}, watch.length ? watch.map(([p, w]) => el("div", {}, `${p} → ${w}`)) : yes(false, "", T.watchNo)),
+    el("dt", {}, T.hWs), el("dd", {}, sc.installed ? yes(!(sc.problems || []).length, T.wsOk, T.wsBad) : yes(false, "", T.wsNo)),
+    el("dt", {}, T.hRuns), el("dd", {}, sc.spent_today == null ? "—" : T.runs(sc.spent_today[1], sc.spent_today[0])),
+    el("dt", {}, T.hNotes), el("dd", {}, String(h.unseen)),
+    el("dt", {}, T.hDue), el("dd", {}, h.due ? `${h.due}${h.daemon_ok ? "" : T.dueNoDaemon}` : "0")))];
+}
+
+// ------------------------------------------------------------ frame
+function setupTabs() {
+  $("tabs").append(...TAB_KEYS.map(k => el("button", { role: "tab", type: "button", "data-tab": k,
+    on: { click: () => { ui.tab = k; ui.showDay = false; remember("codepanion.tab", k); render(); if (k === "chat") say.focus(); } } },
+    el("span", {}, T.tabs[k]), el("span", { class: "badge", hidden: true }))));
+  $("live").addEventListener("click", () => { ui.tab = "health"; remember("codepanion.tab", "health"); render(); });
+}
+
+function header(sc) {
+  const scopes = ui.state ? ui.state.scopes : [];
+  const wsSig = scopes.map(s => s.scope).join("|") + "#" + (sc ? sc.scope : "");
+  if (wsSig !== ui.wsSig) {  // rebuilt only when it changes, so an open dropdown is not closed under the pointer
+    ui.wsSig = wsSig;
+    $("ws").hidden = !sc;
+    $("ws").replaceChildren(scopes.length > 1
+      ? el("select", { "aria-label": T.workspace, on: { change: e => { ui.scope = e.target.value; ui.open = null; ui.sideSig = ""; remember("codepanion.scope", ui.scope); render(); } } },
+          scopes.map(s => el("option", { value: s.scope, selected: sc && s.scope === sc.scope }, s.scope)))
+      : (sc ? sc.scope : ""));
+  }
+  const due = sc && sc.pending ? dayCounts(sc.pending).due : 0, unseen = sc && sc.notes ? sc.notes.filter(n => !n.seen).length : 0;
+  for (const b of $("tabs").children) {
+    const k = b.dataset.tab, count = k === "chat" ? due : k === "notes" ? unseen : 0, badge = b.lastChild;
+    b.setAttribute("aria-selected", String(ui.tab === k));
+    badge.hidden = !count;
+    badge.textContent = String(count);
+  }
+  const h = ui.state && ui.state.health;
+  const [cls, label, title] = ui.error ? ["off", T.liveOff, ui.error]
+    : !h ? ["warn", T.loading, ""]
+    : !h.daemon_ok ? ["warn", T.liveNoDaemon, T.noDaemonTitle]
+    : ["", T.live, T.liveTitle(new Date(ui.lastOk).toLocaleTimeString(LOCALE, HM))];
+  $("dot").className = "dot " + cls;
+  $("liveLbl").textContent = label;
+  $("live").title = title;
+  $("banner").hidden = !ui.error;
+  $("banner").textContent = ui.error ? T.unreachable(ui.error) : "";
+  const total = (h ? h.unseen + h.due : 0);
+  document.title = total ? `(${total}) Codepanion` : "Codepanion";
+}
+
+function render() {
+  const sc = current();
+  header(sc);
+  const chatting = !!(ui.state && sc && sc.installed && ui.tab === "chat");
+  $("chatwrap").hidden = !chatting;
+  $("view").hidden = chatting;
+  if (chatting) { chatView(sc); return; }
+  const kids = [];
+  if (!ui.state) kids.push(el("p", { class: "empty" }, T.loading));
+  else if (!sc) kids.push(el("p", { class: "empty" }, T.noScope));
+  else if (!sc.installed && ui.tab !== "health") kids.push(el("p", { class: "empty" }, T.notInstalled(sc.scope)));
+  else {
+    if ((sc.problems || []).length && ui.tab === "notes") kids.push(el("div", { class: "note-banner" },
+      T.silent(sc.problems[0]) + (sc.problems.length > 1 ? T.more(sc.problems.length - 1) : "")));
+    kids.push(...{ chat: () => [], notes: notesView, sessions: sessionsView, lenses: lensesView, health: healthView }[ui.tab](sc));
+  }
+  $("view").replaceChildren(el("div", { class: "page" }, kids));
+}
+
+let lastFetch = 0;
+async function refresh() {
+  if (ui.fetching) return;
+  ui.fetching = true;
+  lastFetch = Date.now();
+  try {
+    ui.state = await api("/api/state");
+    if (ui.open && current()) ui.detail = await api(`/api/session?scope=${encodeURIComponent(current().scope)}&id=${encodeURIComponent(ui.open)}`);
+    ui.error = "";
+    ui.lastOk = Date.now();
+  } catch (e) { ui.error = e.message; }
+  ui.fetching = false;
+  render();
+}
+async function toggle(id) { ui.open = ui.open === id ? null : id; ui.detail = null; render(); if (ui.open) await refresh(); }
+
+// Every 5 s; every 1.5 s while it answers; every 15 s in a background tab, so the title still counts what is new.
+function pace() {
+  const sc = current();
+  if (document.hidden) return 15000;
+  return (sc && sc.busy) || ui.sending ? 700 : 5000;  // fast while it answers: the draft streams in
+}
+setupTabs();
+setupComposer();
+setInterval(() => { if (Date.now() - lastFetch >= pace()) refresh(); tick(); }, 250);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+refresh().then(() => { if (ui.tab === "chat" && window.matchMedia("(hover: hover)").matches) say.focus(); });
+</script>
+</body>
+</html>

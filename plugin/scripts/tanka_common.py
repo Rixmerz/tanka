@@ -686,3 +686,42 @@ def fmt_send_summary(summary: dict) -> str:
     if summary.get("external_recipients"):
         parts.append("WARNING external recipients: " + ", ".join(summary["external_recipients"]))
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------- what runs cost
+
+COSTS_FILE = "costs.jsonl"
+
+
+def record_cost(ws, kind: str, name: str, usd) -> None:
+    """Append one model run's cost (as Claude Code reported it) to the workspace's ledger."""
+    import time
+    try:
+        usd = round(float(usd), 6)
+    except (TypeError, ValueError):
+        return
+    path = Path(ws) / ".tanka" / COSTS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": round(time.time(), 3), "kind": kind, "name": name, "usd": usd}) + "\n")
+
+
+def spent_today(ws) -> tuple[float, int]:
+    """(USD, runs) the workspace's ledger shows since local midnight."""
+    from datetime import datetime
+    midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    total, runs = 0.0, 0
+    path = Path(ws) / ".tanka" / COSTS_FILE
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0.0, 0
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if r.get("t", 0) >= midnight:
+            total += float(r.get("usd") or 0)
+            runs += 1
+    return round(total, 4), runs

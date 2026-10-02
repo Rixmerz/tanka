@@ -175,8 +175,8 @@ class TestDaemon(AutomationCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertIsNone(ta.ensure())  # nothing to run
             (self.ws / ".claude").mkdir(parents=True, exist_ok=True)
-            (self.ws / ".claude" / "companion.json").write_text("{}")
-            self.assertEqual(ta.ensure(), 4242)  # a companion: its reminders need the poll
+            (self.ws / ".claude" / "codepanion.json").write_text("{}")
+            self.assertEqual(ta.ensure(), 4242)  # a codepanion: its reminders need the poll
             ta.daemon_pid = lambda: 4242
             self.assertIsNone(ta.ensure())  # one already runs
         self.assertEqual(started, [1])
@@ -197,6 +197,8 @@ class TestDaemon(AutomationCase):
         return cmds, run
 
     def test_the_service_is_a_launchd_agent_on_macos(self):
+        # Ask before service_on() fakes shutil.which, or Linux would think plutil exists.
+        have_plutil = shutil.which("plutil")
         cmds, run = self.service_on("darwin")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(ta.service("install", run), 0)
@@ -204,7 +206,7 @@ class TestDaemon(AutomationCase):
         self.assertEqual(plist["ProgramArguments"], [str(ta.TANKA), "automation", "daemon"])
         self.assertEqual((plist["RunAtLoad"], plist["KeepAlive"]), (True, {"SuccessfulExit": False}))
         self.assertEqual([c[:2] for c in cmds], [["launchctl", "bootout"], ["launchctl", "bootstrap"]])
-        if shutil.which("plutil"):
+        if have_plutil:
             self.assertEqual(subprocess.run(["plutil", "-lint", str(ta.PLIST_PATH)], capture_output=True).returncode, 0)
         with contextlib.redirect_stdout(io.StringIO()):
             ta.service("remove", run)
@@ -230,7 +232,7 @@ class TestDaemon(AutomationCase):
             setattr(ta, k, v)
             self.addCleanup(setattr, ta, k, old)
         (self.ws / ".claude").mkdir(parents=True, exist_ok=True)
-        (self.ws / ".claude" / "companion.json").write_text("{}")
+        (self.ws / ".claude" / "codepanion.json").write_text("{}")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(ta.main(["stop"]), 0)  # a SIGTERM would only make launchd restart it
             self.assertEqual(ta.ensure(), 5151)

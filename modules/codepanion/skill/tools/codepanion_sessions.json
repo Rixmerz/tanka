@@ -1,0 +1,14 @@
+{
+  "name": "codepanion_sessions",
+  "effect": "read",
+  "description": "Lists the user's Claude Code sessions in the projects this codepanion watches, from the last 24 hours, newest first, and your last notes to the user. Use it when the user asks what they have been working on, which sessions are open, or what you told them, and to find a session id for codepanion_digest or codepanion_diff. It does not show what happened inside a session (that is codepanion_digest). Returns one line per session: id | project | branch | start-end | prompts | tools and failures | active, idle or ended.",
+  "params": {},
+  "examples": [
+    {}
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "codepanion_sessions.py"
+  ]
+}

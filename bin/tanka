@@ -144,7 +144,7 @@ export TANKA_LAUNCHED=1
 # compact earlier than the default. TANKA_AUTOCOMPACT_PCT=100 keeps the default.
 export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
-# Reminders, the companion's brief and every routine and trigger run from the automation daemon, so an
+# Reminders, the codepanion's brief and every routine and trigger run from the automation daemon, so an
 # interactive launch starts it when there is work for it and none runs. TANKA_NO_DAEMON=1 skips this.
 ensure_daemon() {
   [[ -n "${TANKA_NO_DAEMON:-}" || -n "${TANKA_UNATTENDED:-}" ]] && return 0

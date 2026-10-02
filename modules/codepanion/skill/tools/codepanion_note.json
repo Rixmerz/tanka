@@ -1,0 +1,41 @@
+{
+  "name": "codepanion_note",
+  "effect": "draft",
+  "description": "Queues one remark for the user from one of your lenses: it appears in their status line and in their notes, and never interrupts the coding session. Use it only when every numbered criterion of that lens's rubric holds, once per lens per wake-up, written the way the lens says to speak. Do not use it to report that nothing happened: silence is the default. It refuses a lens that is not active, a note without evidence, a question lens whose text is not a question, anything already said, and notes over the hourly budget; a refusal means say nothing and end. Returns the note id.",
+  "params": {
+    "lens": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9-]{1,40}$",
+      "description": "The lens speaking, as the digest names it (e.g. stuck)."
+    },
+    "text": {
+      "type": "string",
+      "required": true,
+      "description": "The remark itself, one or two sentences in the user's language, as the lens says to write it (e.g. What do you expect the key to be when it fails?)."
+    },
+    "evidence": {
+      "type": "string",
+      "required": true,
+      "description": "What it is about, copied from the digest or the diff: an event time and tool, a file, a command (e.g. 14:02-14:09 Bash pytest failed 3 times: KeyError)."
+    },
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{4,64}$",
+      "description": "Session id or its first 8 characters, as codepanion_sessions or the signal shows it (e.g. 3f2a9c1e). Leave it out for the most recent session."
+    }
+  },
+  "examples": [
+    {
+      "lens": "stuck",
+      "text": "The same KeyError three times in a row: what do you expect the key to be when it fails?",
+      "evidence": "14:02-14:09 Bash pytest failed 3 times with KeyError",
+      "session": "3f2a9c1e"
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "codepanion_note.py"
+  ]
+}

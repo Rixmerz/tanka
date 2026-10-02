@@ -12,7 +12,7 @@ Write allowlist stops at `.tanka/` and `notes/`):
 One daemon (`tanka automation daemon`, usually a launchd agent on macOS or a systemd user service on
 Linux, `tanka automation service install`; a lock keeps it
 to one) polls the event sources that modules declare in module.json ("events"): the
-ones some trigger listens to, and the ones marked "always" (the companion's reminders
+ones some trigger listens to, and the ones marked "always" (the codepanion's reminders
 fire without any trigger). It keeps the
 routines' clock, and starts `tanka run` in the workspace. A run is unattended
 (TANKA_UNATTENDED=1, sends refused by the harness unless the objective allows
@@ -20,7 +20,7 @@ them, and every send tool checks the recipient was opted in with auto_reply).
 It ends with a `REPORT:` line; anything but `REPORT: -` reaches the user as a
 desktop notification, a WhatsApp to their own number if configured, and the
 workspace's `.tanka/automation.log`; a report worth telling is also kept in
-`.tanka/reports.jsonl`, where the companion's chat shows it.
+`.tanka/reports.jsonl`, where the codepanion's chat shows it.
 
 Standard library only.
 """
@@ -172,7 +172,7 @@ def log(ws: Path, line: str) -> None:
 
 
 def keep_report(ws: Path, kind: str, name: str, spec: dict, code: int, report: str) -> None:
-    """One JSON line per report worth telling, for whatever shows them (the companion's chat)."""
+    """One JSON line per report worth telling, for whatever shows them (the codepanion's chat)."""
     entry = {"t": round(time.time(), 3), "kind": kind, "name": name, "on": spec.get("on"), "exit": code, "report": report[:500]}
     with (ws / ".tanka" / "reports.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -191,8 +191,10 @@ def run_once(ws: Path, kind: str, name: str, spec: dict, woke: str, runner=None)
     """Run the assistant for one routine or trigger; returns its report ('-' when nothing to tell)."""
     scope = spec.get("scope") or name_of(ws)
     oid = objective(ws, name, scope)
+    # JSON output carries what the run cost; the answer is its "result".
     cmd = [str(TANKA), "run", prompt(spec["task"], woke), str(ws), "--objective", oid,
-           "--max-turns", str(spec.get("max_turns", 15)), "--budget", str(spec.get("budget", DEFAULT_BUDGET))]
+           "--max-turns", str(spec.get("max_turns", 15)), "--budget", str(spec.get("budget", DEFAULT_BUDGET)),
+           "--", "--output-format", "json"]
     runner = runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL))
     # `tanka run` activates its objective in the workspace's state, where the user's own sessions read it.
     # Put back whatever was there, so an automation never leaves the user's next session restricted.
@@ -205,8 +207,17 @@ def run_once(ws: Path, kind: str, name: str, spec: dict, woke: str, runner=None)
             active.unlink(missing_ok=True)
         else:
             active.write_text(before, encoding="utf-8")
-    found = REPORT_RE.findall(p.stdout or "")
-    report = found[-1].strip() if found else ("the run failed: " + (p.stderr or p.stdout or "").strip()[-200:] if p.returncode else "-")
+    answer = p.stdout or ""
+    try:
+        out = json.loads(answer)
+        if isinstance(out, dict):
+            answer = str(out.get("result") or "")
+            if out.get("total_cost_usd") is not None:
+                tc.record_cost(ws, kind, name, out["total_cost_usd"])
+    except json.JSONDecodeError:
+        pass  # a runner that answers in text (tests, an older Claude Code) still reports
+    found = REPORT_RE.findall(answer)
+    report = found[-1].strip() if found else ("the run failed: " + (p.stderr or answer or "").strip()[-200:] if p.returncode else "-")
     log(ws, f"{kind} {name} | {woke} | exit {p.returncode} | {report}")
     if report not in ("-", "—", ""):
         keep_report(ws, kind, name, spec, p.returncode, report)
@@ -466,7 +477,7 @@ def systemd_service(action: str, run) -> int:
         env = "".join(f"Environment={k}={v}\n" for k, v in service_env().items())
         UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)
         UNIT_PATH.write_text(f"""[Unit]
-Description=Tanka automation (routines, triggers, the companion's reminders and brief)
+Description=Tanka automation (routines, triggers, the codepanion's reminders and brief)
 
 [Service]
 ExecStart={TANKA} automation daemon
@@ -505,19 +516,19 @@ def listing(ws: Path) -> None:
 
 def ensure() -> int | None:
     """Run by an interactive `tanka start`/`dev`: start the daemon when none runs and there is work for
-    it (a routine, a trigger, or a companion whose reminders and brief need its poll). Returns the pid it
+    it (a routine, a trigger, or a codepanion whose reminders and brief need its poll). Returns the pid it
     started, or None. Silent when one already runs."""
     if daemon_pid():
         return None
-    jobs, companions = 0, 0
+    jobs, codepanions = 0, 0
     for ws in workspaces():
         try:
             cfg = load(ws)
         except ValueError:
             continue
         jobs += len(cfg["routines"]) + len(cfg["triggers"])
-        companions += (ws / ".claude" / "companion.json").is_file()
-    if not jobs and not companions:
+        codepanions += (ws / ".claude" / "codepanion.json").is_file()
+    if not jobs and not codepanions:
         return None
     if service_installed() and service_start():
         for _ in range(50):
@@ -527,7 +538,7 @@ def ensure() -> int | None:
         print(f"+ Started the automation service again (pid {pid}): it was stopped. Stop it with: tanka automation stop")
         return pid
     pid = start_detached()
-    print(f"+ Started the automation daemon (pid {pid}): reminders, the companion's brief and your {jobs} "
+    print(f"+ Started the automation daemon (pid {pid}): reminders, the codepanion's brief and your {jobs} "
           "routine(s) and trigger(s) run from it. Stop it with: tanka automation stop")
     return pid
 
