@@ -187,7 +187,7 @@
   }
 
   Tanka.module("whatsapp", {
-    tabs: [{ id: "people", label: T.tab, render,
+    tabs: [{ wide: true, id: "people", label: T.tab, render,
              sig: (sc, mod) => [mod, ws.filter, ws.open, ws.people[sc.scope], ws.open && ws.person[`${sc.scope}/${ws.open}`],
                                 ws.err, ws.confirmAuto, ws.confirmRemove] }],
     using: T.using,

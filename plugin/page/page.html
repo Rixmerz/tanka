@@ -333,7 +333,9 @@ table.board tr:last-child td { border-bottom: 0; }
 table.board tr.row-open td { background: var(--bubble); }
 table.board td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 table.board td.long { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); cursor: pointer; }
-table.board td.acts { white-space: nowrap; text-align: right; }
+table.board td.acts { width: 1%; }
+table.board td.acts .acts-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; min-width: 370px; margin-left: auto; }
+.page.wide { max-width: 1240px; }
 table.board select { font: inherit; font-size: 13px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 1px 4px; }
 tr.detail td { background: var(--bubble); white-space: pre-wrap; font-size: 14px; }
 tr.detail .k { color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; display: block; margin-top: 6px; }
@@ -1177,7 +1179,8 @@ function render() {
     if (t && t.render) kids.push(...[].concat(t.render(sc, modOf(sc, t.module))));
   }
   if (ui.tab === "health" || !kids.length) ui.viewSig = null;
-  $("view").replaceChildren(el("div", { class: "page" }, kids));
+  const tab = sc && tabsOf(sc).find(x => x.id === ui.tab);
+  $("view").replaceChildren(el("div", { class: "page" + (tab && tab.wide ? " wide" : "") }, kids));
 }
 
 let lastFetch = 0;

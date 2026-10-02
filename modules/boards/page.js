@@ -56,11 +56,11 @@
     for (const row of rows) {
       body.push(el("tr", { class: bs.open === row.id ? "row-open" : "" },
         cols.map(k => cell(sc, v, row, k)),
-        el("td", { class: "acts" },
+        el("td", { class: "acts" }, el("div", { class: "acts-row" },
           (v.actions || []).filter(a => shows(a, row)).map(a => el("button", { type: "button", class: "btn", title: says(a.says, row),
             on: { click: () => Tanka.compose(says(a.says, row)) } }, a.label)),
-          el("button", { type: "button", class: "ghost", title: T.archive,
-            on: { click: () => act(api("/api/m/boards/archive", { scope: sc.scope, view: v.name, id: row.id })) } }, icon("x")))));
+          el("button", { type: "button", class: "ghost", title: T.archive, "aria-label": T.archive,
+            on: { click: () => act(api("/api/m/boards/archive", { scope: sc.scope, view: v.name, id: row.id })) } }, icon("x"))))));
       if (bs.open === row.id)
         body.push(el("tr", { class: "detail" }, el("td", { colspan: String(cols.length + 1) },
           longs.map(k => [el("span", { class: "k" }, v.fields[k].label), text(row.fields[k]) || "—"]),
@@ -124,7 +124,7 @@
   }
 
   Tanka.module("boards", {
-    tabs: [{ id: "boards", label: T.tab, render,
+    tabs: [{ id: "boards", label: T.tab, render, wide: true,
              sig: (sc, mod) => { const v = currentView(mod); return [mod, bs.view, bs.filter, bs.open, v ? bs.rows[rowsKey(sc, v)] : null]; } }],
     chips: chip,
     using: T.using,
