@@ -1,0 +1,5 @@
+{
+  "name": "boards",
+  "description": "Tables your assistant fills and you read on the page: a course's grades with feedback, a client pipeline, anything with rows. You declare each board as a view; it gets its own typed tool.",
+  "requires": []
+}

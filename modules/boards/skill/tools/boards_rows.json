@@ -1,0 +1,29 @@
+{
+  "name": "boards_rows",
+  "effect": "read",
+  "description": "Lists the user's boards, or the rows of one. With no view it lists every board with what one row is, its key fields, its fields with their types and choices, how many rows it has and the tool that records on it. With a view it lists that board's rows, one line each: the key values, then every other field. Use it before recording when you do not know the boards, and whenever the user asks what a board holds, who is missing or how a row stands. It does not change anything. Returns one line per board or per row.",
+  "params": {
+    "view": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,23}$",
+      "description": "The board's name, as this tool lists it with no view (e.g. grades). Leave it out to list the boards."
+    },
+    "match": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,80}$",
+      "description": "Only rows whose key values contain this text, like a course or a name (e.g. Programación I). Leave it out for all."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "view": "grades",
+      "match": "Programación I"
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "boards_rows.py"
+  ]
+}

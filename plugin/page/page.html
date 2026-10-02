@@ -646,6 +646,15 @@ async function send(textArg) {
   say.focus();
 }
 Tanka.send = text => send(text);
+// A row's button writes its message here for the user to read, change and send: it never sends by itself,
+// because the row's values were written from what a model read.
+Tanka.compose = text => {
+  ui.tab = "chat"; ui.showDay = false; remember("tanka.tab", "chat");
+  render();
+  say.value = String(text).slice(0, 1000); grow(); updateComposer();
+  say.focus(); say.setSelectionRange(say.value.length, say.value.length);
+};
+Tanka.go = tab => { ui.tab = tab; ui.showDay = false; remember("tanka.tab", tab); render(); };
 function setupComposer() {
   sendBtn.append(svg(ICON.send));
   sendBtn.setAttribute("aria-label", T.send);
@@ -744,8 +753,13 @@ function render() {
   else if (ui.tab === "health") kids.push(...healthView(sc));
   else {
     const t = tabsOf(sc).find(x => x.id === ui.tab);
+    // A tab with a sig is rebuilt only when it changes, so an input on it keeps its focus between polls.
+    const sig = t && t.sig ? JSON.stringify([sc.scope, t.id, t.sig(sc, modOf(sc, t.module))]) : null;
+    if (sig && sig === ui.viewSig && !$("view").hidden) return;
+    ui.viewSig = sig;
     if (t && t.render) kids.push(...[].concat(t.render(sc, modOf(sc, t.module))));
   }
+  if (ui.tab === "health" || !kids.length) ui.viewSig = null;
   $("view").replaceChildren(el("div", { class: "page" }, kids));
 }
 

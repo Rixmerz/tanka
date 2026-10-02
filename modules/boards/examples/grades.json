@@ -1,0 +1,22 @@
+{
+  "title": "Grades",
+  "description": "One student's grade and feedback on one evaluation of a course.",
+  "key": ["course", "student", "evaluation"],
+  "group_by": "course",
+  "columns": ["student", "evaluation", "grade", "status", "feedback"],
+  "fields": {
+    "course": {"label": "Course", "type": "text", "hint": "The course as the user names it"},
+    "student": {"label": "Student", "type": "text", "hint": "The student's full name"},
+    "evaluation": {"label": "Evaluation", "type": "text", "hint": "Which evaluation, as the course calls it"},
+    "grade": {"label": "Grade", "type": "number", "min": 1, "max": 7, "hint": "The grade on the course's scale"},
+    "status": {"label": "Status", "type": "choice", "choices": ["pending", "reviewed", "re-review", "published"],
+               "editable": true, "hint": "Where the review stands"},
+    "feedback": {"label": "Feedback", "type": "text", "long": true, "hint": "The comment the student will read"}
+  },
+  "actions": [
+    {"label": "Re-review", "says": "Review again the {evaluation} of {student} in {course}: check the submission against the rubric and update the grade and feedback on the board."},
+    {"label": "Publish", "says": "Publish the grade and feedback of {student} for {evaluation} in {course}.", "when": {"status": "reviewed"}}
+  ],
+  "example": {"course": "Programming I", "student": "Ana Pérez", "evaluation": "EVA2", "grade": 6.2,
+              "status": "reviewed", "feedback": "Clear structure and tests; the input validation misses empty strings."}
+}
