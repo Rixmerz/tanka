@@ -4,6 +4,9 @@
   "requires": [
     "git"
   ],
+  "needs": [
+    "desk"
+  ],
   "events": {
     "poll_seconds": 10,
     "always": true,

@@ -82,6 +82,9 @@ def check(name: str) -> list[str]:
             problems.append(f"module.json needs a '{key}'")
     if m.get("name") != name:
         problems.append(f"module.json name must be '{name}' (the directory name)")
+    for need in m.get("needs", []):
+        if need == name or not (MODULES / str(need) / "module.json").is_file():
+            problems.append(f"needs names '{need}', which is not another module in {MODULES}")
     for required in ("README.md", "skill/SKILL.md"):
         if not (m["_dir"] / required).is_file():
             problems.append(f"missing {required}")
@@ -102,25 +105,49 @@ def check(name: str) -> list[str]:
     return problems
 
 
+def tool_count(m: dict) -> int:
+    return len(list((m["_dir"] / "skill" / "tools").glob("*.json")))
+
+
+def to_install(name: str, ws: Path, seen: tuple = ()) -> list[dict]:
+    """The modules `name` needs that the workspace lacks, dependencies first, then `name` itself."""
+    if name in seen:
+        raise ValueError(f"the modules {' → '.join(seen + (name,))} need each other")
+    m = load(name)
+    out = []
+    for need in m.get("needs", []):
+        if not (tt.skills_dir(ws) / need).exists():
+            out += [x for x in to_install(need, ws, seen + (name,)) if x["name"] not in {o["name"] for o in out}]
+    return out + [m]
+
+
 def install(name: str, ws: Path, scope: str) -> int:
     try:
-        m = load(name)
+        plan = to_install(name, ws)
     except ValueError as e:
         print(f"x {e}", file=sys.stderr)
         return 1
     if not SCOPE_RE.fullmatch(scope):
         print(f"x The scope must be letters, digits, - or _ (got {scope!r}).", file=sys.stderr)
         return 1
+    m = plan[-1]
     dest = tt.skills_dir(ws) / m["name"]
     if dest.exists():
         print(f"x {dest} already exists; remove it first to reinstall.", file=sys.stderr)
         return 1
     before, _ = tt.scan(ws)
-    adds = len(list((m["_dir"] / "skill" / "tools").glob("*.json")))
+    adds = sum(tool_count(x) for x in plan)
     if len(before) + adds > tt.MAX_TOOLS_TOTAL:
-        print(f"x {ws} has {len(before)} tools and {name} adds {adds}: over the {tt.MAX_TOOLS_TOTAL}-tool limit. "
+        also = f" (with {', '.join(x['name'] for x in plan[:-1])}, which it needs)" if len(plan) > 1 else ""
+        print(f"x {ws} has {len(before)} tools and {name}{also} adds {adds}: over the {tt.MAX_TOOLS_TOTAL}-tool limit. "
               "Merge or drop tools first (docs/tool-rules.md).", file=sys.stderr)
         return 1
+    for dep in plan[:-1]:
+        print(f"  {name} needs {dep['name']}: installing it first.")
+        if install(dep["name"], ws, scope) != 0:
+            return 1
+    before, _ = tt.scan(ws)
+    adds = tool_count(m)
     missing = missing_programs(m)
     copy_skill(m, ws, scope)
     print(f"+ {name} installed in {dest} (scope \"{scope}\", {adds} tools; the workspace now has {len(before) + adds}).")

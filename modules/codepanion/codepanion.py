@@ -19,8 +19,6 @@ Standard library only.
 """
 from __future__ import annotations
 
-import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -28,18 +26,21 @@ import re
 import secrets
 import subprocess
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
+sys.path.insert(0, str(REPO / "modules" / "desk"))
+import desk  # noqa: E402  (session close puts leftovers on the user's cards)
 import tanka_common as tc  # noqa: E402
+import tanka_kit as kit  # noqa: E402
+from tanka_kit import (SECRET_PATTERNS, ToolError, clip, day_time, hhmm, now, persona_name, read_json,  # noqa: E402,F401
+                       run, safe_id, scrub, tail_clip, today_start, write_json)
 
 # Every setting has a default and an environment variable; see README.md.
 HOME = Path(os.environ.get("TANKA_CODEPANION_HOME", Path.home() / ".tanka" / "shared" / "codepanion"))
-WORKSPACES = Path(os.environ.get("TANKA_WORKSPACES", Path.home() / ".tanka" / "workspaces"))
 CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
 FRESH_SECONDS = int(os.environ.get("TANKA_CODEPANION_FRESH_SECONDS", "600"))
 RECENT_HOURS = int(os.environ.get("TANKA_CODEPANION_RECENT_HOURS", "24"))
@@ -56,88 +57,10 @@ SIGNALS = {
 CLOSE_IDLE_HOURS = 3      # a session with no SessionEnd counts as closed after this long quiet
 DEFAULT_THRESHOLDS = {"turn_lines": 30, "turn_files": 3, "stuck": 3, "idle_minutes": 20}
 DEFAULT_BUDGET = {"runs_per_hour": 6, "notes_per_hour": 3}
-DEFAULT_BRIEF = "09:00"   # the daily brief in the chat; "" turns it off
-DEFAULT_STALE_DAYS = 3    # an open item this old is called out in the brief
-BRIEF_LATE_HOURS = 12     # a machine that wakes later than this after the brief time skips the day
 MAX_BUDGET = {"runs_per_hour": 12, "notes_per_hour": 6}
 SPEAKS = ("question", "finding", "reminder")
-CARD_KINDS = ("check", "reminder")
-CARD_CHARS, TOPIC_CHARS = 200, 40
-MAX_AHEAD_DAYS = 60
-GENERAL = "general"
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-# The harness's own secret patterns, plus the forms that show up in coding sessions.
-SECRET_PATTERNS = [re.compile(p) for p in tc.DEFAULT_POLICY["send_validation"]["secret_patterns"] + [
-    r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}",
-    r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-    r"\bAIza[0-9A-Za-z_-]{35}\b",
-    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
-    r"(?i)\b(api[_-]?key|secret|token|passwd|pwd)\b\s*[:=]\s*['\"]?[^\s'\"]{8,}",
-    r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",
-    r"https://hooks\.slack\.com/services/\S+",
-    r"\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}",
-]]
-
-
-class ToolError(Exception):
-    """A failure the model should relay: the message says what to do next."""
-
-
-def run(main) -> None:
-    """Entry point of every tool script: arguments as JSON on stdin, errors as one sentence."""
-    try:
-        main(json.load(sys.stdin))
-    except ToolError as e:
-        sys.exit(str(e))
-
-
-def scrub(text) -> str:
-    s = str(text or "")
-    for pat in SECRET_PATTERNS:
-        s = pat.sub("[secret]", s)
-    return s
-
-
-def clip(text, n: int) -> str:
-    s = " ".join(scrub(text).split())
-    return s if len(s) <= n else s[: n - 1] + "…"
-
-
-def tail_clip(text, n: int) -> str:
-    """Like clip, but keeps the end: an error's last lines say what went wrong."""
-    s = " ".join(scrub(text).split())
-    return s if len(s) <= n else "…" + s[-(n - 1):]
-
-
-def now() -> float:
-    return time.time()
-
-
-def hhmm(t: float) -> str:
-    return datetime.fromtimestamp(t).strftime("%H:%M")
-
-
-def day_time(t: float) -> str:
-    return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
-
-
-def read_json(path: Path, default):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return default
-    except json.JSONDecodeError as e:
-        raise ToolError(f"{path} is not valid JSON (line {e.lineno}). Tell the user; it must be fixed by hand.")
-
-
-def write_json(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
 
 # ---------------------------------------------------------------- scope: watch.json
 
@@ -192,10 +115,6 @@ def feed_dir() -> Path:
     return HOME / "feed"
 
 
-def safe_id(s) -> str:
-    return re.sub(r"[^A-Za-z0-9_-]", "", str(s or ""))[:64] or "unknown"
-
-
 def git_out(project: str, *args: str, timeout: int = 3) -> str:
     """Plain read of git metadata for the tap; never raises."""
     try:
@@ -223,10 +142,10 @@ def tool_event(inp: dict, ok: bool) -> dict:
         ev["file"] = clip(ti.get("file_path") or ti.get("notebook_path") or "", TARGET_CHARS)
     if name == "Bash":
         # The target is clipped, and a push or commit late in a long command would fall off its end:
-        # keep those git calls on their own so the guardian sees them.
-        calls = [m.group(0) for m in GIT_CALL_RE.finditer(str(ti.get("command") or ""))][:3]
-        if calls:
-            ev["git"] = [clip(x, TARGET_CHARS) for x in calls]
+        # keep those git calls on their own so the guardian sees them. Always set, so an empty list
+        # says "no git call here" rather than "an older feed line": then the target is not searched.
+        calls = [m.group(0) for m in GIT_CALL_RE.finditer(shell_code(str(ti.get("command") or "")))][:3]
+        ev["git"] = [clip(x, TARGET_CHARS) for x in calls]
     if name == "TodoWrite" and isinstance(ti.get("todos"), list):
         ev["todos"] = [{"text": clip(scrub(td.get("content") or ""), TARGET_CHARS), "status": str(td.get("status") or "")}
                        for td in ti["todos"][:20] if isinstance(td, dict) and td.get("content")]
@@ -386,7 +305,7 @@ def close_firings(events: list[dict], until: float | None = None) -> list[dict]:
 # ---------------------------------------------------------------- the user's codepanion: config and lenses
 
 def ws_dir(scope: str) -> Path:
-    return (WORKSPACES / scope).resolve()
+    return kit.ws_dir(scope)
 
 
 def config_file(ws: Path) -> Path:
@@ -403,7 +322,6 @@ def load_config(ws: Path) -> dict:
             "notify": bool(raw.get("notify", False)), "quiet_hours": str(raw.get("quiet_hours") or ""),
             "budget": {**DEFAULT_BUDGET, **(raw.get("budget") or {})},
             "thresholds": {**DEFAULT_THRESHOLDS, **(raw.get("thresholds") or {})},
-            "brief": str(raw.get("brief", DEFAULT_BRIEF) or ""), "stale_days": raw.get("stale_days", DEFAULT_STALE_DAYS),
             "guardian": bool(raw.get("guardian", True)), "session_close": bool(raw.get("session_close", True))}
 
 
@@ -494,10 +412,6 @@ def check(ws: Path) -> tuple[list[str], list[str]]:
         problems.append("proactivity must be 0 (off) or 1 (whisper)")
     if cfg["quiet_hours"] and not re.fullmatch(r"\d\d:\d\d-\d\d:\d\d", cfg["quiet_hours"]):
         problems.append("quiet_hours must look like 20:00-08:00")
-    if cfg["brief"] and brief_time(cfg["brief"]) is None:
-        problems.append("brief must be a time like 09:00, or empty to turn it off")
-    if not isinstance(cfg["stale_days"], int) or not 1 <= cfg["stale_days"] <= 60:
-        problems.append("stale_days must be an integer from 1 to 60")
     for k in DEFAULT_THRESHOLDS:
         if not isinstance(cfg["thresholds"].get(k), int) or cfg["thresholds"][k] < 1:
             problems.append(f"thresholds.{k} must be a positive integer")
@@ -531,6 +445,14 @@ PUSH_RE = re.compile(r"\bgit\b[^|;&]*?\bpush\b([^|;&]*)")
 FORCE_RE = re.compile(r"(?:^|\s)(?:-f|--force|--force-with-lease)(?:=\S*)?(?=\s|$)")
 COMMIT_RE = re.compile(r"\bgit\b[^|;&]*?\bcommit\b")
 GIT_CALL_RE = re.compile(r"\bgit\b[^|;&]*?\b(?:push|commit)\b[^|;&]*")
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2[ \t]*(?:\n|$)", re.S)
+QUOTED_RE = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+
+
+def shell_code(cmd: str) -> str:
+    """A command without its heredoc bodies and quoted strings: text a command carries (a file it
+    writes, a commit message) is not a command it runs."""
+    return QUOTED_RE.sub("''", HEREDOC_RE.sub("\n", cmd))
 PLACEHOLDER_RE = re.compile(r"[{}<>$%\[(]")  # a template, a lookup or a call: not a value
 ASSIGNED_RE = re.compile(r"[:=]\s*(['\"]?)(\S+)$")
 
@@ -565,14 +487,8 @@ SAYS = {
 }
 
 
-def persona_name(ws: Path) -> str:
-    """What the user calls this codepanion: its persona's name, or the workspace's."""
-    name = read_json(ws / ".tanka" / "persona.json", {}).get("name", "")
-    return str(name).strip()[:40] or ws.name
-
-
 def say(ws: Path, key: str, **kw) -> str:
-    lang = str(read_json(ws / ".tanka" / "persona.json", {}).get("language") or "en").split("-")[0].lower()
+    lang = kit.persona_language(ws)
     return SAYS.get(lang, SAYS["en"])[key].format(**kw)
 
 
@@ -602,7 +518,7 @@ def guardian_findings(evs: list[dict], start: int, repo: str, ws: Path) -> list[
         ev = evs[i]
         target = str(ev.get("target") or "")
         if ev.get("e") == "tool" and ev.get("tool") == "Bash" and ev.get("ok"):
-            calls = ev.get("git") or [target]
+            calls = ev["git"] if "git" in ev else [target]  # feed lines from before "git" was kept
             push = next((m for m in map(PUSH_RE.search, calls) if m and FORCE_RE.search(m.group(1))), None)
             if push:
                 cmd = re.sub(r"\s*\d*>+\s*$", "", push.group(0).strip())  # the cut of a `2>&1`
@@ -644,7 +560,7 @@ def guardian_findings(evs: list[dict], start: int, repo: str, ws: Path) -> list[
 def close_session(scope: str, ws: Path, sid: str, evs: list[dict]) -> int:
     """Put what the session left behind on the project's card; returns how many items were added."""
     repo, added = repo_of(evs), 0
-    project = Path(evs[0].get("project", "")).name or None
+    project = evs[0].get("project", "")
     todos = next((e["todos"] for e in reversed(evs) if e.get("e") == "tool" and e.get("todos") is not None), [])
     things = []
     try:
@@ -658,7 +574,8 @@ def close_session(scope: str, ws: Path, sid: str, evs: list[dict]) -> int:
         things.append((say(ws, "todo", sid=sid[:8], text=td["text"]), "the session's last TodoWrite"))
     for text, evidence in things:
         try:
-            add_card(scope, "check", project, clip(text, CARD_CHARS), by="codepanion-close", evidence=evidence)
+            desk.add_card(scope, "check", Path(project).name or None, clip(text, desk.CARD_CHARS), by="codepanion-close",
+                          evidence=evidence, project=project)
             added += 1
         except ToolError:
             continue
@@ -710,8 +627,6 @@ def dirty(project: str) -> bool:
 
 def events() -> list[dict]:
     """New signals that wake a lens, one dict per line for `tanka codepanion events`. No prompt text."""
-    fire_reminders()
-    daily_brief()
     st = read_json(state_file(), {})
     emitted, runs, out, t = st.setdefault("emitted", {}), st.setdefault("runs", {}), [], now()
     for scope in sorted(set(watch().values())):
@@ -1030,354 +945,6 @@ def verdicts() -> dict[str, str]:
 def unseen() -> int:
     d = HOME / "notes"
     return sum(not n.get("seen") for f in (d.glob("*.jsonl") if d.is_dir() else []) for n in read_feed(f))
-
-
-# ---------------------------------------------------------------- cards: checks and reminders
-
-# A workspace's cards live in cards/<workspace>.json. A **check** card holds the pending items of
-# one topic (a watched project, or any subject the user names); a **reminder** is one thing at one
-# time. Both are written by the user (the page) and by the assistant (codepanion_card), never deleted
-# by the assistant: it can add and tick, the user archives.
-
-def cards_file(scope: str) -> Path:
-    return HOME / "cards" / f"{safe_id(scope)}.json"
-
-
-@contextlib.contextmanager
-def card_store(scope: str, write: bool = False):
-    """The scope's cards under an exclusive lock: the page, the tools and the daemon all write here."""
-    f = cards_file(scope)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f.with_suffix(".lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        data = read_json(f, {"cards": []})
-        yield data["cards"]
-        if write:
-            write_json(f, data)
-
-
-def card_scopes() -> list[str]:
-    """Every workspace with a codepanion, watched or not: reminders work without lenses."""
-    found = set(watch().values())
-    if WORKSPACES.is_dir():
-        found |= {d.name for d in WORKSPACES.iterdir() if (d / ".claude" / "codepanion.json").is_file()}
-    return sorted(found)
-
-
-def norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s or "")).strip().lower()
-
-
-def topic_of(scope: str, topic: str | None) -> tuple[str, str]:
-    """(label, project path or ''): a watched project's folder name or path becomes that project."""
-    raw = re.sub(r"\s+", " ", str(topic or "")).strip()
-    if not raw:
-        return GENERAL, ""
-    for p in projects_of(scope):
-        if raw.lower() in (Path(p).name.lower(), p.lower(), real(raw).lower()):
-            return Path(p).name, p
-    if len(raw) > TOPIC_CHARS:
-        raise ToolError(f"A topic is a short name (at most {TOPIC_CHARS} characters), like a project or a subject.")
-    return raw, ""
-
-
-def parse_at(at: str, t: float) -> float:
-    """'HH:MM' (today, or tomorrow if already past) or 'YYYY-MM-DD HH:MM', local time."""
-    at = str(at or "").strip()
-    base = datetime.fromtimestamp(t)
-    try:
-        if re.fullmatch(r"\d{1,2}:\d{2}", at):
-            h, m = map(int, at.split(":"))
-            when = base.replace(hour=h, minute=m, second=0, microsecond=0)
-            if when.timestamp() < t - 60:
-                when += timedelta(days=1)
-        else:
-            when = datetime.strptime(at, "%Y-%m-%d %H:%M")
-    except ValueError:
-        raise ToolError(f"'{at}' is not a time. Use HH:MM for today (e.g. 17:30) or YYYY-MM-DD HH:MM.") from None
-    if when.timestamp() < t - 60:
-        raise ToolError(f"{when:%Y-%m-%d %H:%M} is already past (now {base:%Y-%m-%d %H:%M}). Ask the user when.")
-    if when.timestamp() > t + MAX_AHEAD_DAYS * 86400:
-        raise ToolError(f"A reminder is at most {MAX_AHEAD_DAYS} days ahead. Ask the user for a nearer date.")
-    return when.timestamp()
-
-
-def by_codepanion_last_hour(cards: list[dict], t: float) -> int:
-    """Cards a lens added on its own (they carry evidence) in the last hour."""
-    things = [c for c in cards if c["kind"] == "reminder"] + [i for c in cards if c["kind"] == "check" for i in c["items"]]
-    return sum(x.get("by") == "codepanion" and x.get("evidence") and t - x.get("t", 0) < 3600 for x in things)
-
-
-def add_card(scope: str, kind: str, topic: str | None, text: str, at: str | None = None,
-             by: str = "user", evidence: str = "") -> dict:
-    """Add a check item (to its topic's card, made if missing) or a reminder. Adding the same open
-    item or reminder twice returns the existing one."""
-    if kind not in CARD_KINDS:
-        raise ToolError(f"kind is {' or '.join(CARD_KINDS)}.")
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
-    if not text:
-        raise ToolError("Say what the card is about: text cannot be empty.")
-    if len(text) > CARD_CHARS:
-        raise ToolError(f"Keep it under {CARD_CHARS} characters: one pending thing per card or item.")
-    label, project = topic_of(scope, topic)
-    if kind == "check" and at:
-        raise ToolError("A check item has no time; for something at a time use kind reminder.")
-    if kind == "reminder" and not at:
-        raise ToolError("A reminder needs at: HH:MM for today or YYYY-MM-DD HH:MM. If the user did not say when, ask.")
-    t = now()
-    when = parse_at(at, t) if kind == "reminder" else None
-    meta = {"t": round(t, 3), "by": by}
-    if evidence:
-        meta["evidence"] = clip(scrub(evidence), 300)
-    with card_store(scope, write=True) as cards:
-        if by == "codepanion" and evidence:  # found by a lens on its own; what the user asks for is not rationed
-            budget = load_config(ws_dir(scope))["budget"]["notes_per_hour"] if config_file(ws_dir(scope)).is_file() else 3
-            if by_codepanion_last_hour(cards, t) >= budget:
-                raise ToolError("The budget for this hour is spent. Do not add it now; say nothing.")
-        live = [c for c in cards if not c.get("archived") and c["topic"].lower() == label.lower()]
-        if kind == "reminder":
-            same = [c for c in live if c["kind"] == "reminder" and not c.get("done_at") and norm_text(c["text"]) == norm_text(text)]
-            if same:
-                return dict(same[0], existed=True)
-            card = {"id": "r-" + secrets.token_hex(3), "kind": "reminder", "topic": label, "project": project,
-                    "text": scrub(text), "at": when, "fired_at": None, "done_at": None, **meta}
-            cards.append(card)
-            return card
-        card = next((c for c in live if c["kind"] == "check"), None)
-        if card is None:
-            card = {"id": "c-" + secrets.token_hex(3), "kind": "check", "topic": label, "project": project, "items": [], **meta}
-            cards.append(card)
-        same = [i for i in card["items"] if not i.get("done_at") and norm_text(i["text"]) == norm_text(text)]
-        if same:
-            return dict(same[0], card=card["id"], topic=label, existed=True)
-        item = {"id": "i-" + secrets.token_hex(3), "text": scrub(text), "done_at": None, **meta}
-        card["items"].append(item)
-        return dict(item, card=card["id"], topic=label)
-
-
-def find_open(cards: list[dict], kind: str, topic: str | None, text: str) -> tuple[dict, dict | None]:
-    """The open item or reminder named by its id or by its exact text (and topic, if given)."""
-    key = str(text or "").strip()
-    found = []
-    for c in cards:
-        if c.get("archived") or c["kind"] != kind or (topic and c["topic"].lower() != topic.lower()):
-            continue
-        if kind == "reminder":
-            if not c.get("done_at") and (c["id"] == key or norm_text(c["text"]) == norm_text(key)):
-                found.append((c, None))
-        else:
-            found += [(c, i) for i in c["items"] if not i.get("done_at") and (i["id"] == key or norm_text(i["text"]) == norm_text(key))]
-    if len(found) != 1:
-        what = "No open" if not found else f"{len(found)} open"
-        raise ToolError(f"{what} {kind} matches '{clip(key, 60)}'. Use codepanion_pending and pass the id it shows.")
-    return found[0]
-
-
-def close_card(scope: str, kind: str, topic: str | None, text: str, by: str = "user") -> dict:
-    """Tick an open check item, or mark a reminder done."""
-    label = topic_of(scope, topic)[0] if topic else None
-    with card_store(scope, write=True) as cards:
-        card, item = find_open(cards, kind, label, text)
-        target = item or card
-        target["done_at"], target["done_by"] = round(now(), 3), by
-        return dict(target, topic=card["topic"], card=card["id"])
-
-
-def set_item(scope: str, item_id: str, done: bool) -> dict:
-    """The page's checkbox: tick or untick an item by id."""
-    with card_store(scope, write=True) as cards:
-        for c in cards:
-            for i in c.get("items", []):
-                if i["id"] == item_id:
-                    i["done_at"], i["done_by"] = (round(now(), 3), "user") if done else (None, None)
-                    return i
-    raise ToolError(f"No item {item_id}.")
-
-
-def update_card(scope: str, card_id: str, action: str, minutes: int = 0) -> dict:
-    """The page's buttons on a card: done (a reminder), snooze (a reminder), archive (any card)."""
-    if action not in ("done", "snooze", "archive"):
-        raise ToolError("action is done, snooze or archive.")
-    with card_store(scope, write=True) as cards:
-        for c in cards:
-            if c["id"] != card_id:
-                continue
-            if action == "archive":
-                c["archived"] = round(now(), 3)
-            elif c["kind"] != "reminder":
-                raise ToolError("Only a reminder can be done or snoozed; tick a check card's items instead.")
-            elif action == "done":
-                c["done_at"], c["done_by"] = round(now(), 3), "user"
-            else:
-                if not 1 <= minutes <= 24 * 60:
-                    raise ToolError("Snooze between 1 minute and 24 hours.")
-                c["at"], c["fired_at"] = now() + minutes * 60, None
-            return c
-    raise ToolError(f"No card {card_id}.")
-
-
-def today_start(t: float) -> float:
-    return datetime.fromtimestamp(t).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-
-
-def pending(scope: str) -> dict:
-    """What the page and codepanion_pending show: open reminders by time, and each topic's open
-    items plus the ones ticked today."""
-    t = now()
-    day = today_start(t)
-    with card_store(scope) as cards:
-        live = [c for c in cards if not c.get("archived")]
-    reminders = sorted((c for c in live if c["kind"] == "reminder" and (not c.get("done_at") or c["done_at"] >= day)),
-                       key=lambda c: (bool(c.get("done_at")), c["at"]))
-    checks = []
-    for c in live:
-        if c["kind"] != "check":
-            continue
-        items = [i for i in c["items"] if not i.get("done_at") or i["done_at"] >= day]
-        checks.append(dict(c, items=items, open=sum(not i.get("done_at") for i in items)))
-    checks.sort(key=lambda c: (c["open"] == 0, c["topic"].lower()))
-    return {"now": t, "reminders": [dict(r, due=r["at"] <= t and not r.get("done_at")) for r in reminders], "checks": checks}
-
-
-def due_count() -> int:
-    """Reminders whose time has come and that the user has not marked done, in every workspace."""
-    t, n = now(), 0
-    for f in (HOME / "cards").glob("*.json") if (HOME / "cards").is_dir() else []:
-        n += sum(c["kind"] == "reminder" and not c.get("archived") and not c.get("done_at") and c["at"] <= t
-                 for c in read_json(f, {"cards": []})["cards"])
-    return n
-
-
-def chat_file(scope: str) -> Path:
-    """The page's chat (chat.py). A reminder that fires is written there too, so it stays in the
-    conversation after it is snoozed or done."""
-    return HOME / "chat" / f"{scope}.jsonl"
-
-
-def chat_event(scope: str, event: dict) -> None:
-    chat_file(scope).parent.mkdir(parents=True, exist_ok=True)
-    with chat_file(scope).open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False) + "\n")
-
-
-def fire_reminders() -> int:
-    """Run by the daemon's poll: a desktop notification once per due reminder. No model."""
-    fired, t = 0, now()
-    for scope in card_scopes():
-        if not cards_file(scope).is_file():
-            continue
-        with card_store(scope, write=True) as cards:
-            for c in cards:
-                if c["kind"] == "reminder" and not c.get("archived") and not c.get("done_at") and not c.get("fired_at") and c["at"] <= t:
-                    c["fired_at"] = round(t, 3)
-                    fired += 1
-                    chat_event(scope, {"t": c["fired_at"], "who": "reminder", "id": c["id"]})
-                    if not os.environ.get("TANKA_CODEPANION_BACKTEST"):
-                        tc.desktop_notify(f"⏰ {c['topic']} · {scope}", c["text"])
-    return fired
-
-
-def brief_time(hhmm_: str) -> tuple[int, int] | None:
-    m = re.fullmatch(r"(\d\d):(\d\d)", hhmm_.strip())
-    return (int(m[1]), int(m[2])) if m and int(m[1]) < 24 and int(m[2]) < 60 else None
-
-
-def brief_of(cards: list[dict], t: float, stale_days: int) -> dict:
-    """The day's brief: the open reminders due by tonight (overdue ones too), the open check items
-    per topic, and the items open stale_days or more. Ids only: the chat shows each one as it is now."""
-    tonight = today_start(t) + 86400
-    live = [c for c in cards if not c.get("archived")]
-    reminders = sorted((c for c in live if c["kind"] == "reminder" and not c.get("done_at") and c["at"] < tonight),
-                       key=lambda c: c["at"])
-    items = [(c, i) for c in live if c["kind"] == "check" for i in c.get("items", []) if not i.get("done_at")]
-    topics: dict[str, int] = {}
-    for c, _ in items:
-        topics[c["topic"]] = topics.get(c["topic"], 0) + 1
-    stale = [i["id"] for _, i in sorted(items, key=lambda x: x[1].get("t", t)) if t - i.get("t", t) >= stale_days * 86400]
-    return {"reminders": [c["id"] for c in reminders], "topics": topics, "stale": stale}
-
-
-def daily_brief() -> int:
-    """Run by the daemon's poll: once a day, at the workspace's brief time, the codepanion says in the
-    chat what the day holds and what has stalled. No model; nothing is said on a day with nothing open."""
-    t, sent = now(), 0
-    st = read_json(state_file(), {})
-    said = st.setdefault("brief", {})
-    today = datetime.fromtimestamp(t).strftime("%Y-%m-%d")
-    for scope in card_scopes():
-        if said.get(scope) == today or not cards_file(scope).is_file():
-            continue
-        try:
-            cfg = load_config(ws_dir(scope))
-        except (ToolError, ValueError, TypeError):
-            continue
-        hm_ = brief_time(cfg["brief"]) if cfg["brief"] else None
-        days = cfg["stale_days"] if isinstance(cfg["stale_days"], int) and cfg["stale_days"] >= 1 else DEFAULT_STALE_DAYS
-        if hm_ is None:
-            continue
-        at = datetime.fromtimestamp(t).replace(hour=hm_[0], minute=hm_[1], second=0, microsecond=0).timestamp()
-        if t < at:
-            continue
-        said[scope] = today
-        if t - at > BRIEF_LATE_HOURS * 3600:
-            continue
-        with card_store(scope) as cards:
-            b = brief_of(cards, t, days)
-        if not b["reminders"] and not b["topics"]:
-            continue
-        chat_event(scope, {"t": round(t, 3), "who": "brief", **b})
-        sent += 1
-        if not os.environ.get("TANKA_CODEPANION_BACKTEST"):
-            n_items = sum(b["topics"].values())
-            tc.desktop_notify(f"Your day · {scope}", f"{len(b['reminders'])} reminder(s), {n_items} to do"
-                              + (f", {len(b['stale'])} stalled" if b["stale"] else ""))
-    write_json(state_file(), st)
-    return sent
-
-
-def rel(at: float, t: float) -> str:
-    mins = -(-(at - t) // 60)  # ceiling: a reminder 20 s away is 'in 1 min', not 'in 0'
-    mins = int(mins)
-    if at <= t:
-        return f"due since {hhmm(at)}" if -mins < 24 * 60 else f"due since {day_time(at)}"
-    if mins < 60:
-        return f"in {mins} min"
-    return f"in {mins // 60} h {mins % 60:02d} min" if mins < 24 * 60 else f"in {mins // 1440} day(s)"
-
-
-def list_pending(scope: str, topic: str | None) -> None:
-    p, t = pending(scope), now()
-    label = topic_of(scope, topic)[0] if topic else None
-    rem = [r for r in p["reminders"] if not label or r["topic"].lower() == label.lower()]
-    checks = [c for c in p["checks"] if not label or c["topic"].lower() == label.lower()]
-    items = [(c, i) for c in checks for i in c["items"]]
-    n_open = sum(not i.get("done_at") for _, i in items)
-    print(f"Now {datetime.fromtimestamp(t):%Y-%m-%d %H:%M (%a)}. {sum(not r.get('done_at') for r in rem)} open reminder(s), "
-          f"{n_open} open item(s) in {len(checks)} topic(s)" + (f" for '{label}'" if label else "") + ":")
-    for r in rem:
-        state = f"done {hhmm(r['done_at'])}" if r.get("done_at") else f"{day_time(r['at'])} ({rel(r['at'], t)})"
-        print(f"{r['id']} reminder [{r['topic']}] {state}: {r['text']}" + ("  (added by you)" if r.get("by") == "codepanion" else ""))
-    for c, i in items:
-        state = f"done {hhmm(i['done_at'])}" if i.get("done_at") else "open"
-        print(f"{i['id']} check [{c['topic']}] {state}: {i['text']}" + ("  (added by you)" if i.get("by") == "codepanion" else ""))
-    if not rem and not items:
-        print("Nothing pending." + (" Topics with cards: " + ", ".join(sorted({c['topic'] for c in p['checks']})) if label and p["checks"] else ""))
-
-
-def card_tool(scope: str, kind: str, text: str, topic: str | None, at: str | None, done: bool, evidence: str) -> None:
-    if done:
-        x = close_card(scope, kind, topic, text, by="codepanion")
-        what = "Ticked" if kind == "check" else "Marked done"
-        print(f"{what} {x['id']} [{x['topic']}]: {x['text']}. Tell the user in one line; do not call it again.")
-        return
-    x = add_card(scope, kind, topic, text, at, by="codepanion", evidence=evidence)
-    if x.get("existed"):
-        print(f"Already there: {x['id']} [{x['topic']}] {x['text']}. Nothing added; do not call it again.")
-    elif kind == "reminder":
-        print(f"Reminder {x['id']} [{x['topic']}] for {day_time(x['at'])} ({rel(x['at'], now())}): {x['text']}. "
-              "The user gets a desktop notification then, and sees it in the page. Do not call it again.")
-    else:
-        print(f"Added {x['id']} to the [{x['topic']}] check card: {x['text']}. It shows in the page. Do not call it again.")
 
 
 # ---------------------------------------------------------------- backtest: past sessions, nothing sent

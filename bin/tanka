@@ -11,7 +11,7 @@ DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
 # Named workspaces live here, as directories or as symlinks to a workspace kept elsewhere.
 WORKSPACES_DIR="${TANKA_WORKSPACES:-$HOME/.tanka/workspaces}"
 # Names that are commands cannot be workspace names.
-RESERVED="init start resume run doctor test tools dev help modules install routine trigger automation"
+RESERVED="init start resume run doctor test tools dev help modules install routine trigger automation ui"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
 MODEL="${TANKA_MODEL:-haiku}"
@@ -36,6 +36,8 @@ Usage:
                                    Run one tool exactly as the assistant would, without Claude
   tanka dev [name|dir]             Authoring session (your default model) to create skills and tools
   tanka test                       Run the harness test suite
+  tanka ui [name] [--detach] | ui stop
+                                   The local page: chat with each workspace, its day, boards, reports
   tanka modules [check <module>]   List the reusable modules, or validate one
   tanka install <module> <name> [--scope S]
                                    Add a module's skill to a workspace
@@ -144,7 +146,7 @@ export TANKA_LAUNCHED=1
 # compact earlier than the default. TANKA_AUTOCOMPACT_PCT=100 keeps the default.
 export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-60}"
 
-# Reminders, the codepanion's brief and every routine and trigger run from the automation daemon, so an
+# Reminders, the daily brief and every routine and trigger run from the automation daemon, so an
 # interactive launch starts it when there is work for it and none runs. TANKA_NO_DAEMON=1 skips this.
 ensure_daemon() {
   [[ -n "${TANKA_NO_DAEMON:-}" || -n "${TANKA_UNATTENDED:-}" ]] && return 0
@@ -295,6 +297,7 @@ case "${1:-}" in
   tools) shift; cmd_tools "$@";;
   dev) shift; cmd_dev "$@";;
   modules) shift; exec python3 "$PLUGIN_DIR/scripts/tanka_modules.py" "${@:-list}";;
+  ui) shift; exec python3 "$PLUGIN_DIR/scripts/tanka_page.py" "$@";;
   routine|trigger)
     kind="$1"; shift
     # The second word, when there is one past the verb, names a workspace: resolve it like everywhere else.

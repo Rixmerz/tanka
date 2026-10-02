@@ -12,7 +12,7 @@ Write allowlist stops at `.tanka/` and `notes/`):
 One daemon (`tanka automation daemon`, usually a launchd agent on macOS or a systemd user service on
 Linux, `tanka automation service install`; a lock keeps it
 to one) polls the event sources that modules declare in module.json ("events"): the
-ones some trigger listens to, and the ones marked "always" (the codepanion's reminders
+ones some trigger listens to, and the ones marked "always" (the desk's reminders
 fire without any trigger). It keeps the
 routines' clock, and starts `tanka run` in the workspace. A run is unattended
 (TANKA_UNATTENDED=1, sends refused by the harness unless the objective allows
@@ -20,7 +20,7 @@ them, and every send tool checks the recipient was opted in with auto_reply).
 It ends with a `REPORT:` line; anything but `REPORT: -` reaches the user as a
 desktop notification, a WhatsApp to their own number if configured, and the
 workspace's `.tanka/automation.log`; a report worth telling is also kept in
-`.tanka/reports.jsonl`, where the codepanion's chat shows it.
+`.tanka/reports.jsonl`, where the page's chat shows it (`tanka ui`).
 
 Standard library only.
 """
@@ -172,7 +172,7 @@ def log(ws: Path, line: str) -> None:
 
 
 def keep_report(ws: Path, kind: str, name: str, spec: dict, code: int, report: str) -> None:
-    """One JSON line per report worth telling, for whatever shows them (the codepanion's chat)."""
+    """One JSON line per report worth telling, for whatever shows them (the page's chat)."""
     entry = {"t": round(time.time(), 3), "kind": kind, "name": name, "on": spec.get("on"), "exit": code, "report": report[:500]}
     with (ws / ".tanka" / "reports.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -323,7 +323,57 @@ class Daemon:
                 self.tick()
             except ValueError as e:
                 print(f"x {e}", file=sys.stderr)
+            beat()
             time.sleep(2)
+
+
+# ---------------------------------------------------------------- is it alive, and on today's code
+
+def heartbeat_file() -> Path:
+    return STATE_HOME / "heartbeat.json"
+
+
+def loaded_code() -> list[str]:
+    """The repository's Python files this process has imported: what a change must reach it through."""
+    root, out = str(REPO) + os.sep, set()
+    for m in list(sys.modules.values()):
+        f = getattr(m, "__file__", None)
+        if f and f.endswith(".py"):
+            f = os.path.realpath(f)
+            if f.startswith(root):
+                out.add(f)
+    return sorted(out)
+
+
+def code_stamp(files: list[str]) -> float:
+    """The newest change among these files (0 when none exists any more)."""
+    return max((os.stat(f).st_mtime for f in files if os.path.isfile(f)), default=0.0)
+
+
+_started: dict = {}
+
+
+def beat() -> None:
+    """Written after every tick: the page reads it to tell a polling daemon from a hung one, and one on
+    today's code from one that started before a change to the files it runs."""
+    if not _started:
+        _started["files"] = loaded_code()
+        _started["code"] = code_stamp(_started["files"])
+    try:
+        STATE_HOME.mkdir(parents=True, exist_ok=True)
+        heartbeat_file().write_text(json.dumps({"t": time.time(), "pid": os.getpid(), **_started}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def heartbeat() -> dict:
+    """{"age": seconds since the last tick, "stale": whether its code changed after it started}, or {}."""
+    try:
+        hb = json.loads(heartbeat_file().read_text(encoding="utf-8"))
+        stale = code_stamp(hb.get("files") or []) > float(hb.get("code", 0)) + 1
+        return {"age": time.time() - float(hb["t"]), "stale": stale, "pid": hb.get("pid")}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
 
 
 # ---------------------------------------------------------------- one daemon at a time
@@ -396,7 +446,10 @@ def stop_detached() -> None:
     """A daemon started by hand holds the lock, and the service's own would exit at once: stop it first."""
     pid = daemon_pid()
     if pid and pid > 0:
-        os.kill(pid, signal.SIGTERM)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
         for _ in range(50):
             if not daemon_pid():
                 return
@@ -427,6 +480,22 @@ def service_stop(run=quiet_run) -> None:
         run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])
     else:
         run(["systemctl", "--user", "stop", "tanka-automation.service"])
+
+
+def restart() -> int | None:
+    """Stop the daemon and start it again on the current code: through the service when there is one."""
+    if service_installed():
+        service_stop()
+        stop_detached()
+        service_start()
+    else:
+        stop_detached()
+        start_detached()
+    for _ in range(50):
+        if (pid := daemon_pid()) and pid > 0:
+            return pid
+        time.sleep(0.1)
+    return None
 
 
 def service(action: str, run=None) -> int:
@@ -477,7 +546,7 @@ def systemd_service(action: str, run) -> int:
         env = "".join(f"Environment={k}={v}\n" for k, v in service_env().items())
         UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)
         UNIT_PATH.write_text(f"""[Unit]
-Description=Tanka automation (routines, triggers, the codepanion's reminders and brief)
+Description=Tanka automation (routines, triggers, reminders and the daily brief)
 
 [Service]
 ExecStart={TANKA} automation daemon
@@ -516,19 +585,23 @@ def listing(ws: Path) -> None:
 
 def ensure() -> int | None:
     """Run by an interactive `tanka start`/`dev`: start the daemon when none runs and there is work for
-    it (a routine, a trigger, or a codepanion whose reminders and brief need its poll). Returns the pid it
-    started, or None. Silent when one already runs."""
-    if daemon_pid():
+    it (a routine, a trigger, a desk whose reminders and brief need its poll, or a codepanion). Returns the
+    pid it started, or None. Silent when one already runs on the current code; restarts one that does not."""
+    if pid := daemon_pid():
+        if heartbeat().get("stale") and heartbeat().get("pid") == pid:
+            pid = restart()
+            print(f"+ Restarted the automation daemon (pid {pid}): it ran code older than this checkout.")
+            return pid
         return None
-    jobs, codepanions = 0, 0
+    jobs, pollers = 0, 0
     for ws in workspaces():
         try:
             cfg = load(ws)
         except ValueError:
             continue
         jobs += len(cfg["routines"]) + len(cfg["triggers"])
-        codepanions += (ws / ".claude" / "codepanion.json").is_file()
-    if not jobs and not codepanions:
+        pollers += (ws / ".claude" / "codepanion.json").is_file() or (ws / ".claude" / "desk.json").is_file()
+    if not jobs and not pollers:
         return None
     if service_installed() and service_start():
         for _ in range(50):
@@ -538,7 +611,7 @@ def ensure() -> int | None:
         print(f"+ Started the automation service again (pid {pid}): it was stopped. Stop it with: tanka automation stop")
         return pid
     pid = start_detached()
-    print(f"+ Started the automation daemon (pid {pid}): reminders, the codepanion's brief and your {jobs} "
+    print(f"+ Started the automation daemon (pid {pid}): reminders, the daily brief and your {jobs} "
           "routine(s) and trigger(s) run from it. Stop it with: tanka automation stop")
     return pid
 

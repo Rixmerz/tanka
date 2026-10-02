@@ -17,7 +17,7 @@ tanka automation log personal       # what ran, when, and what it reported
 
 ## Where they live
 
-Each workspace keeps its own in `.claude/automations.json`. The assistant cannot write there (its Write allowlist is `.tanka/` and `notes/`), so it cannot schedule itself or widen what an automation may do. The daemon keeps its clock in `~/.tanka/shared/automation/` (`TANKA_AUTOMATION_HOME`), with a lock so a second one exits instead of starting every run twice. It polls a module's events when some trigger listens to them, or always when the module's `module.json` marks its events `"always": true` (the codepanion, whose poll fires reminders). `tanka codepanion ui` starts it in the background when none is running.
+Each workspace keeps its own in `.claude/automations.json`. The assistant cannot write there (its Write allowlist is `.tanka/` and `notes/`), so it cannot schedule itself or widen what an automation may do. The daemon keeps its clock in `~/.tanka/shared/automation/` (`TANKA_AUTOMATION_HOME`), with a lock so a second one exits instead of starting every run twice. It polls a module's events when some trigger listens to them, or always when the module's `module.json` marks its events `"always": true` (the desk, whose poll fires reminders and the brief, and the codepanion, whose poll runs its guardian). `tanka ui` starts it in the background when none is running, and restarts one that runs code older than the checkout (the daemon writes a heartbeat with its code's date after every tick).
 
 ## Events
 
@@ -35,7 +35,7 @@ An event only reaches the workspace whose scope owns it: a message from a contac
 
 - **By default it reads and drafts.** The daemon activates an objective that allows the `read` and `draft` classes only, so the harness refuses every send. What needs the user goes to `.tanka/drafts/`.
 - **Replying without the user is opt-in per recipient**, set by the user where the assistant cannot write: `"auto_reply": true` on a WhatsApp role in `contacts.json`, or on a mailbox in Gmail's `accounts.json`. Only then does the objective allow `send`, and the send tools check it again themselves: with `TANKA_UNATTENDED=1` (set by `tanka run`) they refuse any recipient not opted in.
-- The run ends with `REPORT: <one sentence>`, or `REPORT: -`. A report reaches the user as a desktop notification, a WhatsApp to their own number if configured, and a line in `.tanka/automation.log`; it is also kept in `.tanka/reports.jsonl`, which the codepanion's chat shows when the workspace has one (the codepanion's own lens runs excluded: they speak through their notes).
+- The run ends with `REPORT: <one sentence>`, or `REPORT: -`. A report reaches the user as a desktop notification, a WhatsApp to their own number if configured, and a line in `.tanka/automation.log`; it is also kept in `.tanka/reports.jsonl`, which the page's chat shows (the codepanion's own lens runs excluded: they speak through their notes).
 - The objective the user had active is put back after the run.
 
 ## Limits

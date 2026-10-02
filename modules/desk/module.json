@@ -1,0 +1,10 @@
+{
+  "name": "desk",
+  "description": "Your day, kept by your assistant: reminders at a time, pending checks per topic and a daily brief, shown beside the chat on the page.",
+  "requires": [],
+  "events": {
+    "poll_seconds": 10,
+    "always": true,
+    "description": "none to listen to: its poll fires the reminders that come due and says the daily brief"
+  }
+}

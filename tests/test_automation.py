@@ -6,6 +6,7 @@ import io
 import json
 import plistlib
 import os
+import time
 import shutil
 import subprocess
 import sys
@@ -180,6 +181,32 @@ class TestDaemon(AutomationCase):
             ta.daemon_pid = lambda: 4242
             self.assertIsNone(ta.ensure())  # one already runs
         self.assertEqual(started, [1])
+
+    def test_the_heartbeat_tells_a_daemon_on_older_code(self):
+        self.assertEqual(ta.heartbeat(), {})
+        ta.beat()
+        hb = ta.heartbeat()
+        self.assertLess(hb["age"], 5)
+        self.assertFalse(hb["stale"])
+        code = self.tmp / "mod.py"
+        code.write_text("x = 1\n")
+        data = json.loads(ta.heartbeat_file().read_text())
+        data.update(files=[str(code)], code=os.stat(code).st_mtime)
+        ta.heartbeat_file().write_text(json.dumps(data))
+        self.assertFalse(ta.heartbeat()["stale"])
+        os.utime(code, (time.time() + 60, time.time() + 60))  # the file changed after it started
+        self.assertTrue(ta.heartbeat()["stale"])
+
+    def test_a_stale_heartbeat_of_another_process_restarts_nothing(self):
+        stopped = []
+        for k, v in {"daemon_pid": lambda: 4242, "restart": lambda: stopped.append(1),
+                     "heartbeat": lambda: {"age": 1, "stale": True, "pid": 999}}.items():
+            old = getattr(ta, k)
+            setattr(ta, k, v)
+            self.addCleanup(setattr, ta, k, old)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(ta.ensure())
+        self.assertEqual(stopped, [])
 
     def service_on(self, platform):
         cmds = []

@@ -1,0 +1,23 @@
+{
+  "name": "desk_pending",
+  "effect": "read",
+  "description": "Lists the user's cards: reminders with their time, and check cards with the pending items of each topic (a project or a subject), plus what was ticked today, with the current date and time first. Use it when the user asks what they have pending, what is left for today, what they have to do on a project, or what reminders they have, and before desk_card with done true, to get the id of the item or reminder. It does not show coding sessions. Returns one line per reminder or item: id | kind [topic] | time or state | text.",
+  "params": {
+    "topic": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,40}$",
+      "description": "Only this topic: a project's folder name or a subject, as desk_pending shows it in brackets (e.g. tanka). Leave it out for all."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "topic": "tanka"
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "desk_pending.py"
+  ]
+}

@@ -36,7 +36,7 @@ If they have left feedback before (`~/.tanka/shared/codepanion/feedback.jsonl`, 
 - At most **3** lenses in `.claude/codepanion/lenses/<name>.md`, in the format of `examples/`: frontmatter `name`, `wakes_on`, `speaks` (`question`, `finding` or `reminder`), `severity: low`; then `## Rubric` with numbered criteria that can say no, `## Say it like this` with at least one example, and `## Never like this` with at least two.
 - Write the examples in the user's language: the codepanion speaks like them.
 - A `question` lens has only questions in its examples, and never an answer.
-- A `reminder` lens may record what it finds as a check item on the project's card (`codepanion_card`, with the digest line as evidence) instead of a note; say so in its "Say it like this".
+- A `reminder` lens may record what it finds as a check item on the project's card (`desk_card`, with the digest line as evidence) instead of a note; say so in its "Say it like this".
 - `.claude/codepanion.json`: `lenses` (the active names), `thresholds` (from what the history showed: raise a threshold that would fire several times a day), `budget`, `quiet_hours`, `notify`, and `proactivity: 1`.
 
 ## 4. Check

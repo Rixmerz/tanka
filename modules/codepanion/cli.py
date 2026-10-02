@@ -19,13 +19,9 @@ lens <workspace> <lens> stricter|pause|resume
                      wake a lens less often, pause it, or bring it back ("guardian" is the built-in checks)
 recap <workspace> on|off
                      the optional end-of-session recap: what changed, what was not verified, what is at risk
-brief <workspace> [HH:MM|off] [--stale DAYS]
-                     the daily brief in the chat (default 09:00), and how old an open item is to be called stalled (3)
 statusline [install|remove]
                      the status line segment (🦆 N notes, ⏰ M reminders due); install wraps your current status line
-ui [--port N] [--no-open] [--detach] [--no-daemon] | ui stop
-                     a local page: today's cards, notes with 👍/👎, sessions, lenses, health;
-                     it starts the automation daemon if none runs, so reminders notify
+ui [...]             the same as `tanka ui`: the page, where the codepanion adds Notes, Sessions and Lenses
 signals              the signal catalog lenses can wake on
 events               for the automation daemon: one JSON signal per line
 post-install <ws> <scope>
@@ -63,7 +59,7 @@ STARTER = {
 
 
 def resolve_ws(arg: str) -> Path:
-    ws = (c.WORKSPACES / arg) if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", arg) else Path(arg)
+    ws = (c.kit.WORKSPACES / arg) if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", arg) else Path(arg)
     ws = ws.resolve()
     if not (ws / ".tanka" / "policy.json").is_file():
         raise c.ToolError(f"'{arg}' is not a Tanka workspace. Create it with: tanka start {arg}")
@@ -150,7 +146,7 @@ def tap(action: str) -> int:
 
 def segment() -> str:
     """🦆 N for new notes, ⏰ M for reminders due; empty when there is neither."""
-    n, d = c.unseen(), c.due_count()
+    n, d = c.unseen(), c.desk.due_count()
     return " ".join(x for x in (f"🦆 {n}" if n else "", f"⏰ {d}" if d else "") if x)
 
 
@@ -223,34 +219,6 @@ def rate(argv: list[str]) -> int:
     return 0
 
 
-def brief(argv: list[str]) -> int:
-    """Show or set when the codepanion says the day's brief in the chat, and when an item counts as stalled."""
-    if not argv:
-        print("Usage: tanka codepanion brief <workspace> [HH:MM|off] [--stale DAYS]", file=sys.stderr)
-        return 1
-    ws, opts = resolve_ws(argv[0]), argv[1:]
-    raw = c.read_json(c.config_file(ws), {})
-    if "--stale" in opts:
-        i = opts.index("--stale")
-        if i + 1 >= len(opts) or not opts[i + 1].isdigit() or not 1 <= int(opts[i + 1]) <= 60:
-            raise c.ToolError("--stale takes a number of days from 1 to 60")
-        raw["stale_days"] = int(opts[i + 1])
-        opts = opts[:i] + opts[i + 2:]
-    if opts:
-        if opts[0] == "off":
-            raw["brief"] = ""
-        elif c.brief_time(opts[0]):
-            raw["brief"] = opts[0]
-        else:
-            raise c.ToolError(f"'{opts[0]}' is not a time like 09:00, or off")
-    if argv[1:]:
-        c.write_json(c.config_file(ws), raw)
-    cfg = c.load_config(ws)
-    print(f"{ws.name}: " + (f"daily brief at {cfg['brief']}" if cfg["brief"] else "no daily brief")
-          + f"; an item open {cfg['stale_days']} day(s) is called stalled.")
-    return 0
-
-
 # ---------------------------------------------------------------- main
 
 def recap(argv: list[str]) -> int:
@@ -289,7 +257,7 @@ def tap_selftest(project: str) -> str | None:
     """Run the installed tap the way Claude Code would, for the watched project; None when the line landed.
     The synthetic session is deleted afterwards, so nothing reaches the lenses."""
     sid = f"selftest-{os.getpid()}-{int(time.time())}"
-    env = dict(os.environ, TANKA_CODEPANION_HOME=str(c.HOME), TANKA_WORKSPACES=str(c.WORKSPACES))
+    env = dict(os.environ, TANKA_CODEPANION_HOME=str(c.HOME), TANKA_WORKSPACES=str(c.kit.WORKSPACES))
     inp = {"hook_event_name": "Stop", "cwd": project, "session_id": sid}
     try:
         subprocess.run([sys.executable, str(TAP)], input=json.dumps(inp), text=True, capture_output=True,
@@ -316,9 +284,10 @@ def setup(argv: list[str]) -> int:
         raise c.ToolError(f"{project} is not a directory.")
     import tanka_automation as ta
     import tanka_modules as tm
-    ws = c.WORKSPACES / name
+    ws = c.kit.WORKSPACES / name
     # Children (init, the module's post-install) must see the same homes; post-install stays quiet about next steps.
-    child_env = {"TANKA_CODEPANION_HOME": str(c.HOME), "TANKA_WORKSPACES": str(c.WORKSPACES)}
+    child_env = {"TANKA_CODEPANION_HOME": str(c.HOME), "TANKA_WORKSPACES": str(c.kit.WORKSPACES),
+                 "TANKA_DESK_HOME": str(c.desk.HOME), "TANKA_PAGE_HOME": str(c.kit.PAGE_HOME)}
     sys.stdout.flush()
     if not (ws / ".tanka" / "policy.json").is_file():
         p = subprocess.run([str(c.REPO / "bin" / "tanka"), "init", name], text=True, capture_output=True,
@@ -327,18 +296,23 @@ def setup(argv: list[str]) -> int:
             raise c.ToolError(f"could not create the workspace: {p.stderr.strip() or p.stdout.strip()}")
         print(f"+ Workspace created at {ws}")
     ws = resolve_ws(name)
-    if (ws / ".claude" / "skills" / "codepanion").is_dir():
+    # What is missing: the codepanion and the modules it needs (an older install may lack the desk).
+    plan = [m["name"] for m in tm.to_install("codepanion", ws) if not (ws / ".claude" / "skills" / m["name"]).is_dir()]
+    if not plan:
         post_install(ws, name, quiet=True)  # idempotent: fills in only what is missing
         print("= The codepanion module is already installed.")
     else:
         saved = {k: os.environ.get(k) for k in (*child_env, "TANKA_CODEPANION_SETUP")}
         os.environ.update(child_env, TANKA_CODEPANION_SETUP="1")  # tm.install starts post-install with this env
         try:
-            if tm.install("codepanion", ws, name) != 0:
-                return 1
+            for module in (["codepanion"] if "codepanion" in plan else plan):
+                if tm.install(module, ws, name) != 0:
+                    return 1
         finally:
             for k, v in saved.items():
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        if "codepanion" not in plan:
+            post_install(ws, name, quiet=True)
     print(f"+ Watching {c.watch_set(str(Path(project).expanduser()), name)} for '{name}'.")
     if tap("install") != 0:
         return 1
@@ -383,7 +357,7 @@ def setup(argv: list[str]) -> int:
           "  leaves open into cards. Optional next steps:")
     steps = ((f"tanka codepanion recap {name} on", "end-of-session recap (one model run per session)"),
              (f"tanka dev {name}  → /new-codepanion", "lenses of your own"),
-             ("tanka codepanion ui", "the page"))
+             (f"tanka ui {name}", "the page: chat, Your day, notes, sessions"))
     width = max(len(cmd) for cmd, _ in steps) + 3
     for cmd, what in steps:
         print(f"    {cmd.ljust(width)}{what}")
@@ -449,7 +423,8 @@ def main(argv: list[str]) -> int:
         if cmd == "rate":
             return rate(rest)
         if cmd == "brief":
-            return brief(rest)
+            print("The daily brief moved to the desk: tanka desk brief <workspace> [HH:MM|off] [--stale DAYS]", file=sys.stderr)
+            return 1
         if cmd == "recap":
             return recap(rest)
         if cmd == "setup":
@@ -460,8 +435,8 @@ def main(argv: list[str]) -> int:
         if cmd == "statusline":
             return statusline(rest)
         if cmd == "ui":
-            import ui
-            return ui.main(rest)
+            import tanka_page
+            return tanka_page.main(rest)
         if cmd == "signals":
             for name, desc in c.SIGNALS.items():
                 print(f"{name:<22} {desc}")

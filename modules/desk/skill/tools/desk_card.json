@@ -1,7 +1,7 @@
 {
-  "name": "codepanion_card",
+  "name": "desk_card",
   "effect": "draft",
-  "description": "Adds one card for the user, or closes one: a check item (something pending on a topic, no time) or a reminder (a desktop notification at a time). Use kind check when the user says they have to do something, or a lens finds something left pending in a session; kind reminder when they say remind me at a time. With done true it ticks the item or marks the reminder done: pass the id from codepanion_pending as text. It never deletes; the user archives cards in the page. If the user did not say when, ask before a reminder; do not guess the time. Adding the same open thing twice returns the existing one. Returns the card id.",
+  "description": "Adds one card for the user, or closes one: a check item (something pending on a topic, no time) or a reminder (a desktop notification at a time). Use kind check when the user says they have to do something, or you find something left pending (in a coding session, a message); kind reminder when they say remind me at a time. With done true it ticks the item or marks the reminder done: pass the id from desk_pending as text. It never deletes; the user archives cards on the page. If the user did not say when, ask before a reminder; do not guess the time. Adding the same open thing twice returns the existing one. Returns the card id.",
   "params": {
     "kind": {
       "type": "string",
@@ -16,12 +16,12 @@
       "type": "string",
       "required": true,
       "pattern": "^[^\\n]{1,200}$",
-      "description": "The pending thing in the user's words, one line (e.g. Revisar el PR de pagos); with done true, the id from codepanion_pending (e.g. i-3f2a9c)."
+      "description": "The pending thing in the user's words, one line (e.g. Revisar el PR de pagos); with done true, the id from desk_pending (e.g. i-3f2a9c)."
     },
     "topic": {
       "type": "string",
       "pattern": "^[^\\n]{1,40}$",
-      "description": "What it belongs to: a watched project's folder name (e.g. tanka) or any subject the user names (e.g. facturas). Leave it out for general."
+      "description": "What it belongs to: a project's folder name (e.g. tanka) or any subject the user names (e.g. facturas). Leave it out for general."
     },
     "at": {
       "type": "string",
@@ -36,7 +36,7 @@
     "evidence": {
       "type": "string",
       "pattern": "^[^\\n]{0,300}$",
-      "description": "When a lens found it in a session: the event it comes from, copied from the digest (e.g. 16:40 prompt: lo veo mañana). Leave it out when the user asked."
+      "description": "When you found it on your own: what it comes from, copied as you read it (e.g. 16:40 prompt: lo veo mañana). Leave it out when the user asked."
     }
   },
   "examples": [
@@ -60,6 +60,6 @@
   "timeout_sec": 20,
   "run": [
     "python3",
-    "codepanion_card.py"
+    "desk_card.py"
   ]
 }

@@ -158,7 +158,7 @@ When the catalog does not have what a lens needs, the builder skill can declare 
 
 **Budgets**, set in `.claude/codepanion.json`: runs per hour (default 6), notes per hour (default 3), dollars per day (default 1.00). A skipped run is logged, never queued forever.
 
-## 5. The module: six tools, read and draft only
+## 5. The module: four tools, read and draft only
 
 | Tool | Effect | What it does |
 |---|---|---|
@@ -166,10 +166,8 @@ When the catalog does not have what a lens needs, the builder skill can declare 
 | `codepanion_digest` | read | One session's activity since a given point: prompts, tools, failures, files, capped and scrubbed |
 | `codepanion_diff` | read | `git status` / `diff` / `log` / `show` of a watched project; refuses any path outside `watch.json` |
 | `codepanion_note` | draft | Queues one remark: lens, severity, evidence, the question or finding. **The harness picks the channel, not the model.** |
-| `codepanion_pending` | read | The user's cards: reminders with their time, and each topic's open items and today's ticks |
-| `codepanion_card` | draft | Adds a check item (to its topic's card) or a reminder, or ticks one; never archives |
 
-The six slots are full. Phase 2's `codepanion_review` (a Tier 2 subagent) has to replace one, most likely by folding `codepanion_diff` into it.
+Cards (reminders and pending checks) moved to the [desk](../modules/desk/README.md), which the codepanion needs: a lens that finds something left pending calls `desk_card`. With the desk's two tools a codepanion workspace has six; Phase 2's `codepanion_review` (a Tier 2 subagent) would most likely fold `codepanion_diff` into it.
 
 There is no `send`, `modify` or write tool that reaches your project.
 
@@ -185,7 +183,7 @@ There is no `send`, `modify` or write tool that reaches your project.
 
 | Channel | When | How |
 |---|---|---|
-| **whisper** (default) | Everything | A segment in your Claude Code status line (`🦆 2`) plus the note queue. It *adds* a segment, because you probably have a status line already; `tanka codepanion statusline` prints the segment for your own command to include. The queue can also be read and rated in a local page, `tanka codepanion ui`. |
+| **whisper** (default) | Everything | A segment in your Claude Code status line (`🦆 2`) plus the note queue. It *adds* a segment, because you probably have a status line already; `tanka codepanion statusline` prints the segment for your own command to include. The queue can also be read and rated in the local page, `tanka ui` ([page](page.md)). |
 | **nudge** | `guardian` findings and severity high | A desktop notification: `osascript` on macOS, `notify-send` on Linux |
 | **talk** | Whenever you want | `tanka codepanion`, or `tanka <its workspace>`, opens a chat with it in another terminal or pane: the queue, the digest, duck mode. This is the reactive half. |
 | **relay** (opt-in, off) | You choose which lenses | On your next prompt the tap adds the pending note to your coding agent's context, labelled as advice, not instructions |
@@ -258,7 +256,7 @@ Found while reading `plugin/scripts/tanka_automation.py`:
 
 ## 9. Plan
 
-**Phase 1 (built): the mechanism, and a first codepanion you build.** The tap, the feed, `watch.json`, three catalog signals (`turn_end_substantial`, `stuck`, `idle_dirty`), the lens format, `check`, `history` and `backtest` (with `--say N` for real model calls in a sandbox), six tools (`sessions`, `digest`, `diff`, `note`, `pending`, `card`), notes with the status line segment and an optional desktop notification (macOS and Linux), `rate`, `new-codepanion` with all six steps, and a local page (`tanka codepanion ui`, `/codepanion-ui` in `tanka dev`) whose first tab is a chat with the workspace's assistant, which makes the cards (check cards per topic, reminders) with its own tools and shows them as chips on its answer, beside a "Your day" panel with the day's reminders and pending checks, while the lens notes, fired reminders (with what became of each), a daily brief with what has stalled (no model, `tanka codepanion brief`) and the workspace's routine reports show in the same stream; each message carries what it said on its own since the user's last one, a new day's session opens with the end of the earlier chat, and answers stream into the page; the page is in English, plus the notes and their ratings, the sessions' timelines, the lenses and the health of the tap and the daemon; it ticks, snoozes and archives cards and records ratings, and never creates cards or edits lenses. Due reminders raise a desktop notification from the daemon's poll and ⏰ N in the status line. The daemon's routing is generic (§8), and its alerts now reach macOS. `tests/test_codepanion.py` covers:
+**Phase 1 (built): the mechanism, and a first codepanion you build.** The tap, the feed, `watch.json`, three catalog signals (`turn_end_substantial`, `stuck`, `idle_dirty`), the lens format, `check`, `history` and `backtest` (with `--say N` for real model calls in a sandbox), six tools (`sessions`, `digest`, `diff`, `note`, `pending`, `card`), notes with the status line segment and an optional desktop notification (macOS and Linux), `rate`, `new-codepanion` with all six steps, and a local page (since moved into Tanka as `tanka ui`, [page](page.md), with the cards in the [desk](../modules/desk/README.md)) whose first tab is a chat with the workspace's assistant, which makes the cards (check cards per topic, reminders) with its own tools and shows them as chips on its answer, beside a "Your day" panel with the day's reminders and pending checks, while the lens notes, fired reminders (with what became of each), a daily brief with what has stalled (no model, `tanka codepanion brief`) and the workspace's routine reports show in the same stream; each message carries what it said on its own since the user's last one, a new day's session opens with the end of the earlier chat, and answers stream into the page; the page is in English, plus the notes and their ratings, the sessions' timelines, the lenses and the health of the tap and the daemon; it ticks, snoozes and archives cards and records ratings, and never creates cards or edits lenses. Due reminders raise a desktop notification from the daemon's poll and ⏰ N in the status line. The daemon's routing is generic (§8), and its alerts now reach macOS. `tests/test_codepanion.py` covers:
 
 - a session in a watched project produces a feed, one in an unwatched project (or a sibling with the same prefix) produces nothing;
 - a secret in a prompt or a command never reaches the feed;
