@@ -1,13 +1,13 @@
 // The desk on the page: Your day beside the chat, fired reminders and the daily brief in it (docs/page.md).
 (() => {
-  const { el, svg, api, act, hm, isToday, shortDay, relOf, nameOf, focus, ui, ICON, LOCALE } = Tanka;
+  const { el, svg, api, act, hm, isToday, shortDay, relOf, nameOf, focus, ui, ICON, LOCALE, icon } = Tanka;
   const T = {
     using: name => /desk_card/.test(name) ? "updating your cards…" : /desk_pending/.test(name) ? "checking your cards…" : null,
     suggest: [["What's pending today?", true], ["Remind me in 15 min to ", false], ["I still have to ", false], ["I finished ", false]],
     hello: "Tell me what is pending or what to remind you of, and I keep the cards in Your day; I speak here on my own when a reminder comes due.",
     brief: "Your day", briefToday: "Due today", briefTodo: "To do", briefStale: "Stalled", nothingLeft: "All of it is done or archived now.",
     fx: { reminder: "Reminder", check: "To do", done: "Done" },
-    reminder: "Reminder", doneAt: t => `✓ Done at ${t}`, snoozedTo: t => `Snoozed to ${t}`, gone: "Archived",
+    reminder: "Reminder", doneAt: t => `Done at ${t}`, snoozedTo: t => `Snoozed to ${t}`, gone: "Archived",
     done: "Done", s10: "+10 min", s60: "+1 h",
     dayTitle: "Your day",
     nDue: n => `${n} due`, nNext: n => `${n} upcoming`, nOpen: n => `${n} to do`, allClear: "All clear",
@@ -20,48 +20,48 @@
   let doneOpen = false;
   const cardAct = (sc, id, action, minutes) => act(api("/api/m/desk/card", { scope: sc.scope, id, action, minutes }));
   const flashCls = id => ui.flash && ui.flash.id === id ? " flash" : "";
-  const found = x => x.evidence ? el("span", { class: "tag found", title: T.found + ": " + x.evidence }, "🔎") : null;
+  const found = x => x.evidence ? el("span", { class: "tag found", title: T.found + ": " + x.evidence }, icon("search")) : null;
   const topicTag = t => t && t !== "general" ? el("span", { class: "tag" }, t) : null;
   const iconBtn = (content, title, fn, cls) => el("button", { type: "button", class: "icon" + (cls ? " " + cls : ""), title, "aria-label": title, on: { click: fn } }, content);
 
   function chip(sc, f) {
-    const ico = { reminder: "⏰", check: "☐", done: "✓" }[f.type] || "•";
+    const ico = { reminder: "clock", check: "box", done: "check" }[f.type] || "box";
     const detail = f.type === "reminder" && f.at ? hm(f.at) + (isToday(f.at) ? "" : " · " + shortDay(f.at)) : (f.topic && f.topic !== "general" ? f.topic : "");
     return el("button", { type: "button", class: "fx", disabled: !!f.gone, title: f.text, on: { click: () => focus(f.id) } },
-      el("span", { "aria-hidden": "true" }, ico), el("span", { class: "k" }, T.fx[f.type] + (detail ? " · " + detail : "")), el("span", { class: "x" }, f.text));
+      icon(ico), el("span", { class: "k" }, T.fx[f.type] + (detail ? " · " + detail : "")), el("span", { class: "x" }, f.text));
   }
 
   function reminderEvent(sc, m) {
     const st = m.state;
     return el("div", { class: "event" + (st === "done" ? " done" : st === "due" ? "" : " quiet") },
-      el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "⏰"), el("span", { class: "label" }, T.reminder),
+      el("div", { class: "head" }, icon("clock"), el("span", { class: "label" }, T.reminder),
         m.topic && m.topic !== "general" ? el("span", { class: "tag" }, m.topic) : null, el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
       m.text ? el("p", { class: "text" }, m.text) : null,
       st === "due"
         ? el("div", { class: "acts" },
-            el("button", { type: "button", class: "btn primary", on: { click: () => cardAct(sc, m.id, "done") } }, "✓ " + T.done),
+            el("button", { type: "button", class: "btn primary", on: { click: () => cardAct(sc, m.id, "done") } }, icon("check"), T.done),
             el("button", { type: "button", class: "btn", title: T.snooze10, on: { click: () => cardAct(sc, m.id, "snooze", 10) } }, T.s10),
             el("button", { type: "button", class: "btn", title: T.snooze60, on: { click: () => cardAct(sc, m.id, "snooze", 60) } }, T.s60))
-        : el("div", { class: "state" + (st === "done" ? " ok" : "") }, st === "done" ? T.doneAt(hm(m.done_at)) : st === "snoozed" ? T.snoozedTo(hm(m.at)) : T.gone));
+        : el("div", { class: "state" + (st === "done" ? " ok" : "") }, st === "done" ? [icon("check"), T.doneAt(hm(m.done_at))] : st === "snoozed" ? T.snoozedTo(hm(m.at)) : T.gone));
   }
 
   function briefChip(x, ico, detail) {
     return el("button", { type: "button", class: "fx" + (x.done ? " done" : ""), disabled: !!x.gone, title: x.text || "", on: { click: () => focus(x.id) } },
-      el("span", { "aria-hidden": "true" }, x.done ? "✓" : ico), el("span", { class: "k" }, detail), el("span", { class: "x" }, x.text || "—"));
+      icon(x.done ? "check" : ico), el("span", { class: "k" }, detail), el("span", { class: "x" }, x.text || "—"));
   }
 
   function briefEvent(sc, m) {
     const rem = m.reminders || [], stale = m.stale || [], topics = Object.entries(m.topics || {});
     const open = rem.concat(stale).some(x => !x.done && !x.gone);
     return el("div", { class: "event" + (open ? "" : " quiet") },
-      el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "☀"), el("span", { class: "label" }, T.brief),
+      el("div", { class: "head" }, icon("sun"), el("span", { class: "label" }, T.brief),
         el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
       rem.length ? el("div", { class: "sub" }, T.briefToday) : null,
-      rem.length ? el("div", { class: "fxs" }, rem.map(r => briefChip(r, "⏰", r.at ? hm(r.at) : ""))) : null,
+      rem.length ? el("div", { class: "fxs" }, rem.map(r => briefChip(r, "clock", r.at ? hm(r.at) : ""))) : null,
       topics.length ? el("div", { class: "sub" }, T.briefTodo) : null,
       topics.length ? el("p", { class: "topics" }, topics.map(([t, n]) => `${t} ${n}`).join(" · ")) : null,
       stale.length ? el("div", { class: "sub" }, T.briefStale) : null,
-      stale.length ? el("div", { class: "fxs" }, stale.map(i => briefChip(i, "☐", i.topic && i.topic !== "general" ? i.topic : ""))) : null,
+      stale.length ? el("div", { class: "fxs" }, stale.map(i => briefChip(i, "box", i.topic && i.topic !== "general" ? i.topic : ""))) : null,
       open ? null : el("div", { class: "state ok" }, T.nothingLeft));
   }
 
@@ -81,7 +81,7 @@
   function topicBox(sc, cd) {
     return el("div", { class: "topic" + flashCls(cd.id), "data-card": cd.id },
       el("div", { class: "topic-h" }, el("span", {}, cd.topic), cd.project ? el("span", { class: "tag", title: cd.project }, T.project) : null,
-        el("span", { class: "n" }, cd.open ? String(cd.open) : "✓"),
+        el("span", { class: "n" }, cd.open ? String(cd.open) : icon("check")),
         iconBtn(svg(ICON.archive), T.archiveTopic, () => cardAct(sc, cd.id, "archive"))),
       el("ul", { class: "checks" }, cd.items.map(i => el("li", { class: (i.done_at ? "done" : "") + flashCls(i.id), "data-card": i.id },
         el("label", {},
@@ -106,7 +106,7 @@
       el("div", { class: "day-h" }, el("h2", {}, T.dayTitle), el("span", { class: "date" }, new Date().toLocaleDateString(LOCALE, { weekday: "long", day: "numeric", month: "short" }))),
       el("p", { class: "summary" }, parts.length ? parts.flatMap((x, i) => i ? [" · ", x] : [x]) : T.allClear)];
     if (!n.open.length && !p.checks.length && !doneR.length)
-      kids.push(el("div", { class: "side-empty" }, el("div", { class: "big", "aria-hidden": "true" }, "☀️"), el("strong", {}, T.sideEmpty), T.sideEmptyText(nameOf(sc))));
+      kids.push(el("div", { class: "side-empty" }, el("div", { class: "big", "aria-hidden": "true" }, icon("sun")), el("strong", {}, T.sideEmpty), T.sideEmptyText(nameOf(sc))));
     if (n.open.length) kids.push(el("div", { class: "sec" }, T.secReminders), ...n.open.map(r => remRow(sc, r)));
     if (p.checks.length) kids.push(el("div", { class: "sec" }, T.secChecks), ...p.checks.map(cd => topicBox(sc, cd)));
     if (doneR.length) kids.push(el("details", { class: "donehist", open: doneOpen, on: { toggle: e => { doneOpen = e.target.open; } } },

@@ -35,6 +35,17 @@
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; }
+.ico { width: 1.05em; height: 1.05em; flex: none; vertical-align: -.17em; }
+.ico.flip { transform: rotate(180deg); }
+.event .head .ico { width: 15px; height: 15px; color: var(--accent); }
+.event.done .head .ico, .event.quiet .head .ico { color: var(--muted); }
+.event.bad .head .ico { color: var(--bad); }
+.fx .ico { width: 15px; height: 15px; color: var(--muted); }
+.btn .ico, .ghost .ico { margin-right: 5px; }
+.avatar .ico { width: 16px; height: 16px; }
+.side-empty .big .ico { width: 30px; height: 30px; color: var(--accent); }
+.tag.found .ico { width: 12px; height: 12px; vertical-align: -.1em; }
+.state .ico { margin-right: 4px; }
 /* A native select's open list follows these, not the page, in some browsers: give it the theme. */
 select, option { background-color: var(--raised); color: var(--ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -215,7 +226,7 @@ details.ev pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; whi
 .checks li { border-radius: 8px; }
 .checks label { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; cursor: pointer; font-size: 14px; line-height: 1.4; }
 .checks input { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; flex: none; margin: 1px 0 0; border: 1.5px solid var(--faint); border-radius: 6px; display: grid; place-items: center; cursor: pointer; background: var(--raised); transition: background .15s, border-color .15s; }
-.checks input::after { content: "✓"; font-size: 12px; font-weight: 800; color: var(--accent-ink); transform: scale(0); transition: transform .12s; }
+.checks input::after { content: ""; width: 12px; height: 12px; background: var(--accent-ink); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; transform: scale(0); transition: transform .12s; }
 .checks input:checked { background: var(--accent); border-color: var(--accent); }
 .checks input:checked::after { transform: scale(1); }
 .checks li.done label > span { color: var(--faint); text-decoration: line-through; }
@@ -367,7 +378,7 @@ const T = {
   placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
   hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCost: " · each message is one run of your assistant (at most US$0.30)",
   left: n => ` · ${n} left today`,
-  thinking: s => `thinking · ${s} s`, newMessages: "↓ New messages", usingTool: "using a tool…",
+  thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
   hello: n => `Hi, I'm ${n}`,
   helloText: "Write to me here. Each message is one run of your assistant in this workspace, with its own tools.",
@@ -408,9 +419,10 @@ function el(tag, props, ...kids) {
   for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
   return n;
 }
-function svg(d) {
+function svg(d, cls) {
   const NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg"), p = document.createElementNS(NS, "path");
   s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true");
+  if (cls) s.setAttribute("class", cls);
   for (const [k, v] of [["d", d], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2.2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) p.setAttribute(k, v);
   s.append(p);
   return s;
@@ -423,7 +435,24 @@ function mark() {
   }
   return s;
 }
-const ICON = { send: "M12 19V5M5.5 11.5L12 5l6.5 6.5", check: "M5 12.5l4.5 4.5L19 7.5", archive: "M3.5 6.5h17v4h-17zM5.5 10.5v8h13v-8M10 14h4" };
+// Line icons, one path each, drawn on a 24-unit grid with the same stroke; the page uses no emoji.
+const ICON = {
+  send: "M12 19V5M5.5 11.5L12 5l6.5 6.5", check: "M5 12.5l4.5 4.5L19 7.5", archive: "M3.5 6.5h17v4h-17zM5.5 10.5v8h13v-8M10 14h4",
+  clock: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 7v5l3 2",
+  box: "M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z",
+  sun: "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 2.5v2M12 19.5v2M4.6 4.6L6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4",
+  activity: "M22 12h-4l-3 9L9 3l-3 9H2",
+  search: "M16 16l4.5 4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0z",
+  thumb: "M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88z",
+  wrench: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+  table: "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM3 10h18M9 10v9",
+  x: "M6 6l12 12M18 6L6 18",
+  retry: "M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5",
+  zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+  down: "M12 5v14M5.5 12.5L12 19l6.5-6.5",
+};
+// An icon in text: sized to the line, coloured like it; "flip" turns it upside down (a thumb down).
+const icon = (name, cls) => svg(ICON[name], "ico" + (cls ? " " + cls : ""));
 const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
 
 async function api(path, body) {
@@ -517,7 +546,7 @@ function focus(id) {
 const Tanka = {
   module(name, spec) { MODS[name] = spec || {}; },
   el, svg, mark, api, act, T, ICON, LOCALE, HM, hm, when, clock, isToday, shortDay, dayLabel, relOf, span, rich, plural,
-  nameOf, focus, remember, ui, render: () => render(), refresh: () => refresh(),
+  nameOf, focus, remember, ui, icon, render: () => render(), refresh: () => refresh(),
 };
 /*__MODULES__*/
 
@@ -526,7 +555,7 @@ const avatar = () => el("span", { class: "avatar" }, mark());
 
 function reportEvent(m) {
   return el("div", { class: "event" + (m.failed ? " bad" : " quiet") },
-    el("div", { class: "head" }, el("span", { "aria-hidden": "true" }, "⚙"), el("span", { class: "label" }, T.report(m.kind, m.name || "?")),
+    el("div", { class: "head" }, icon("activity"), el("span", { class: "label" }, T.report(m.kind, m.name || "?")),
       m.failed ? el("span", { class: "tag" }, T.reportFailed) : null, el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
     el("p", { class: "text" }, m.text));
 }
@@ -549,11 +578,11 @@ function message(sc, m, first) {
     const txt = m.code && T.err[m.code] ? T.err[m.code](m.detail || "") : m.text;
     return el("div", { class: "msg them first" }, el("span", { class: "avatar err", "aria-hidden": "true" }, "!"),
       el("div", { class: "col" }, el("div", { class: "bubble error" }, el("p", {}, txt)),
-        m.retry ? el("div", { class: "fxs" }, el("button", { type: "button", class: "btn", on: { click: () => send(m.retry) } }, "↻ " + T.retry)) : null));
+        m.retry ? el("div", { class: "fxs" }, el("button", { type: "button", class: "btn", on: { click: () => send(m.retry) } }, icon("retry"), T.retry)) : null));
   }
   const chips = (m.effects || []).map(f => chip(sc, f)).filter(Boolean), dev = m.who === "dev";
   return el("div", { class: "msg them" + (dev ? " dev" : "") + (first ? " first" : "") },
-    first ? (dev ? el("span", { class: "avatar dev", "aria-hidden": "true" }, "🛠") : avatar()) : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
+    first ? (dev ? el("span", { class: "avatar dev", "aria-hidden": "true" }, icon("wrench")) : avatar()) : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
     el("div", { class: "col" },
       first ? el("div", { class: "who" }, el("strong", {}, dev ? T.devName : nameOf(sc)), hm(m.t)) : null,
       el("div", { class: "bubble", title: hm(m.t) }, rich(m.text)),
@@ -715,7 +744,7 @@ function setupComposer() {
   say.addEventListener("input", () => { grow(); updateComposer(); });
   say.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   sendBtn.addEventListener("click", send);
-  $("jump").textContent = T.newMessages;
+  $("jump").replaceChildren(icon("down"), " " + T.newMessages);
   $("jump").addEventListener("click", scrollEnd);
   scroller().addEventListener("scroll", () => { if (nearEnd()) $("jump").hidden = true; });
   $("daytoggle").addEventListener("click", () => { ui.showDay = true; render(); });

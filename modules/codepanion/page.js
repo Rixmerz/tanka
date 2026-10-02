@@ -1,6 +1,6 @@
 // The codepanion on the page: notes, sessions and lenses, and its voice in the chat (docs/page.md).
 (() => {
-  const { el, api, act, mark, hm, when, clock, plural } = Tanka;
+  const { el, api, act, mark, hm, when, clock, plural, icon } = Tanka;
   const T = {
     notes: "Notes", sessions: "Sessions", lenses: "Lenses",
     noted: l => `Noticed on my own · ${l}`, evidence: "Show evidence", useful: "Useful", notUseful: "Not useful",
@@ -12,7 +12,7 @@
     noPrompt: "(no prompt yet)", hide: "Hide", timeline: "Timeline", loading: "Loading…",
     sessionStats: s => `${s.prompts} prompt(s) · ${s.tools} tool call(s) · ${s.failures} failed`,
     showingLast: (n, o) => `Showing the last ${n} events; ${o} earlier ones are left out.`,
-    firings: n => `${n} signal(s) crossed (⚡). Whether one woke a lens depends on the lenses, the budget and quiet hours.`,
+    firings: n => `${n} signal(s) crossed, marked with a bolt. Whether one woke a lens depends on the lenses, the budget and quiet hours.`,
     noFirings: "No signal crossed in this session.",
     sessionStart: (src, br) => `session start (${src || "new"})${br ? " on " + br : ""}`, turnEnd: "— turn end", sessionEnd: r => "session end " + (r || ""),
     checkFails: "check fails, so its lenses do not run:",
@@ -22,16 +22,16 @@
     noLenses: s => `No lenses yet: only the built-in checks run. Build lenses with /new-codepanion in tanka dev ${s}.`,
     active: "active", inactive: "inactive", speaks: v => "speaks " + (v || "?"), wakesOn: v => "wakes on " + v,
     problems: n => plural(n, "problem", "problems"), checkOk: "check ok",
-    lensStats: l => `${plural(l.notes, "note", "notes")} · 👍 ${l.good} · 👎 ${l.bad}`, rubric: "Rubric and examples",
-    tune: l => `Two 👎 in a row for ${l}. Should it speak less?`, tuneStricter: "Wake less often", tunePause: "Pause it",
+    lensStats: l => [`${plural(l.notes, "note", "notes")} · `, icon("thumb"), ` ${l.good} · `, icon("thumb", "flip"), ` ${l.bad}`], rubric: "Rubric and examples",
+    tune: l => `Two thumbs down in a row for ${l}. Should it speak less?`, tuneStricter: "Wake less often", tunePause: "Pause it",
     tuneDone: { stricter: "Made stricter", pause: "Paused", resume: "Resumed" },
     using: name => /codepanion_/.test(name) ? "reading your coding sessions…" : null,
   };
   const cp = { open: null, detail: null, seenSent: "" };
   const rateBtn = (sc, n, v) => el("button", { type: "button", class: "ghost", "aria-pressed": String(n.verdict === v),
-    on: { click: () => act(api("/api/m/codepanion/rate", { scope: sc.scope, id: n.id, verdict: v })) } }, v === "good" ? "👍 " + T.useful : "👎 " + T.notUseful);
+    on: { click: () => act(api("/api/m/codepanion/rate", { scope: sc.scope, id: n.id, verdict: v })) } }, v === "good" ? [icon("thumb"), T.useful] : [icon("thumb", "flip"), T.notUseful]);
 
-  // A 👎 streak on one lens: the user picks how it changes, or ignores it. The page never changes a lens on its own.
+  // A thumbs-down streak on one lens: the user picks how it changes, or ignores it. The page never changes a lens on its own.
   function tuneEvent(sc, m) {
     const btn = (action, label) => el("button", { type: "button", class: "btn",
       on: { click: () => act(api("/api/m/codepanion/lens", { scope: sc.scope, lens: m.lens, action })) } }, label);
@@ -96,13 +96,13 @@
     d.events.forEach((e, i) => {
       let text, cls = "";
       if (e.e === "prompt") { text = "› " + (e.text || ""); cls = "prompt"; }
-      else if (e.e === "tool") { text = `${e.tool} ${e.target || ""}${e.lines ? ` (+${e.lines})` : ""}${e.ok ? "" : "  ✗ " + (e.error || "")}`; cls = e.ok ? "" : "fail"; }
+      else if (e.e === "tool") { text = `${e.tool} ${e.target || ""}${e.lines ? ` (+${e.lines})` : ""}${e.ok ? "" : "  failed: " + (e.error || "")}`; cls = e.ok ? "" : "fail"; }
       else if (e.e === "session_start") text = T.sessionStart(e.source, e.branch);
       else if (e.e === "turn_end") text = T.turnEnd;
       else if (e.e === "session_end") text = T.sessionEnd(e.reason);
       else text = e.e;
       items.push(el("li", { class: cls }, clock(e.t) + "  " + text));
-      for (const f of fires[i] || []) items.push(el("li", { class: "fire" }, clock(f.t) + "  ⚡ " + f.signal + ": " + f.evidence));
+      for (const f of fires[i] || []) items.push(el("li", { class: "fire" }, clock(f.t) + "  ", icon("zap"), " " + f.signal + ": " + f.evidence));
     });
     return el("div", {},
       d.offset ? el("p", { class: "meta" }, T.showingLast(d.events.length, d.offset)) : null,

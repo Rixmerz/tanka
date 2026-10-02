@@ -1,6 +1,6 @@
 // Boards on the page: each view's rows grouped and counted, a row's buttons writing a message (docs/page.md).
 (() => {
-  const { el, api, act, hm, when } = Tanka;
+  const { el, api, act, hm, when, icon } = Tanka;
   const T = {
     tab: "Boards", board: "Board", filter: "Filter by name, course…", rows: n => `${n} row(s)`,
     empty: s => `No boards yet. Declare one with /new-view in tanka dev ${s}, or start from the example: tanka boards example ${s} && tanka boards build ${s}`,
@@ -59,7 +59,7 @@
           (v.actions || []).filter(a => shows(a, row)).map(a => el("button", { type: "button", class: "btn", title: says(a.says, row),
             on: { click: () => Tanka.compose(says(a.says, row)) } }, a.label)),
           el("button", { type: "button", class: "ghost", title: T.archive,
-            on: { click: () => act(api("/api/m/boards/archive", { scope: sc.scope, view: v.name, id: row.id })) } }, "×"))));
+            on: { click: () => act(api("/api/m/boards/archive", { scope: sc.scope, view: v.name, id: row.id })) } }, icon("x")))));
       if (bs.open === row.id)
         body.push(el("tr", { class: "detail" }, el("td", { colspan: String(cols.length + 1) },
           longs.map(k => [el("span", { class: "k" }, v.fields[k].label), text(row.fields[k]) || "—"]),
@@ -119,7 +119,7 @@
   function chip(sc, f) {
     return el("button", { type: "button", class: "fx", title: `${f.title}: ${f.label}`,
       on: { click: () => { bs.view = f.view; bs.open = f.id; bs.filter = ""; Tanka.go("boards"); Tanka.refresh(); } } },
-      el("span", { "aria-hidden": "true" }, "▦"), el("span", { class: "k" }, `${T.chip[f.type] || f.type} · ${f.title}`), el("span", { class: "x" }, f.label));
+      icon("table"), el("span", { class: "k" }, `${T.chip[f.type] || f.type} · ${f.title}`), el("span", { class: "x" }, f.label));
   }
 
   Tanka.module("boards", {
