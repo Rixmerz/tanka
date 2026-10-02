@@ -37,6 +37,31 @@ def post_install(ws: Path, scope: str) -> int:
     return 0
 
 
+OLD_TOOLS = ("codepanion_card", "codepanion_pending")
+
+
+def upgrade() -> int:
+    """A codepanion installed before the desk carries the card tools itself: drop them, refresh its
+    SKILL.md, and install the desk in that workspace."""
+    sys.path.insert(0, str(d.REPO / "plugin" / "scripts"))
+    import tanka_modules as tm
+    for scope in d.kit.scopes():
+        ws = d.kit.ws_dir(scope)
+        skill = ws / ".claude" / "skills" / "codepanion"
+        if not skill.is_dir():
+            continue
+        old = [f for name in OLD_TOOLS for f in (skill / "tools").glob(f"{name}.*")]
+        for f in old:
+            f.unlink()
+        if old:
+            text = (d.REPO / "modules" / "codepanion" / "skill" / "SKILL.md").read_text(encoding="utf-8")
+            (skill / "SKILL.md").write_text(text.replace("__SCOPE__", scope), encoding="utf-8")
+            print(f"+ {scope}: the codepanion's card tools now come from the desk")
+        if not (ws / ".claude" / "skills" / "desk").is_dir() and tm.install("desk", ws, scope) != 0:
+            return 1
+    return 0
+
+
 def brief(argv: list[str]) -> int:
     """Show or set when the desk says the day's brief in the chat, and when an item counts as stalled."""
     if not argv:
@@ -71,14 +96,14 @@ def main(argv: list[str]) -> int:
         if cmd == "post-install" and len(rest) == 2:
             return post_install(Path(rest[0]), rest[1])
         if cmd == "events":
-            d.migrate()
+            d.migrate(settings=False)
             d.fire_reminders()
             d.daily_brief()
             return 0
         if cmd == "migrate":
             done = d.migrate()
             print("\n".join(f"+ Moved {x}" for x in done) or "= Nothing to move.")
-            return 0
+            return upgrade()
         if cmd == "pending" and rest:
             d.list_pending(resolve_ws(rest[0]).name, rest[1] if len(rest) > 1 else None)
             return 0

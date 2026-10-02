@@ -41,7 +41,7 @@ A day with nothing open has no brief, and a machine that wakes more than 12 h af
 
 ## Moving in from an older codepanion
 
-Cards, the chat and the brief settings used to live in the codepanion module. The desk moves them the first time it runs (`tanka desk migrate` does it by hand): `shared/codepanion/cards` to `shared/desk/cards`, `shared/codepanion/chat` to `shared/page/chat`, and `brief`/`stale_days` from `codepanion.json` to `desk.json`. Nothing is moved over existing data.
+Cards, the chat and the brief settings used to live in the codepanion module. The daemon's poll moves the data the first time it runs (`shared/codepanion/cards` to `shared/desk/cards`, `shared/codepanion/chat` to `shared/page/chat`); nothing is moved over existing data. Run `tanka desk migrate` once to finish: it also moves `brief`/`stale_days` from `codepanion.json` to `desk.json`, drops the card tools an older codepanion carried, and installs the desk in its workspace. Until then the page's Health says which codepanion is missing its desk. The poll never writes `desk.json` itself, so deleting it turns the desk's reminders and brief off for good.
 
 ## Files
 

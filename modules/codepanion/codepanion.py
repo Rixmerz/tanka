@@ -32,8 +32,6 @@ from pathlib import Path
 MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
-sys.path.insert(0, str(REPO / "modules" / "desk"))
-import desk  # noqa: E402  (session close puts leftovers on the user's cards)
 import tanka_common as tc  # noqa: E402
 import tanka_kit as kit  # noqa: E402
 from tanka_kit import (SECRET_PATTERNS, ToolError, clip, day_time, hhmm, now, persona_name, read_json,  # noqa: E402,F401
@@ -557,8 +555,19 @@ def guardian_findings(evs: list[dict], start: int, repo: str, ws: Path) -> list[
     return out
 
 
+def desk_module():
+    """The desk, imported only when a card is written: the tap imports this file on every hook, and a
+    broken desk must not silence it."""
+    path = str(REPO / "modules" / "desk")
+    if path not in sys.path:
+        sys.path.insert(0, path)
+    import desk
+    return desk
+
+
 def close_session(scope: str, ws: Path, sid: str, evs: list[dict]) -> int:
     """Put what the session left behind on the project's card; returns how many items were added."""
+    desk = desk_module()
     repo, added = repo_of(evs), 0
     project = evs[0].get("project", "")
     todos = next((e["todos"] for e in reversed(evs) if e.get("e") == "tool" and e.get("todos") is not None), [])

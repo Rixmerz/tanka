@@ -165,6 +165,27 @@ class TestMoveIn(WorkspaceCase):
         self.assertEqual(d.migrate(), [])  # once
 
 
+class TestUpgrade(WorkspaceCase):
+    def test_the_poll_moves_data_but_never_turns_the_desk_back_on(self):
+        (self.ws / ".claude" / "desk.json").unlink()
+        d.write_json(self.ws / ".claude" / "codepanion.json", {"lenses": []})
+        d.migrate(settings=False)
+        self.assertFalse((self.ws / ".claude" / "desk.json").exists())
+
+    def test_migrate_moves_the_card_tools_out_of_an_old_codepanion(self):
+        tools = self.ws / ".claude" / "skills" / "codepanion" / "tools"
+        tools.mkdir(parents=True)
+        for name in ("codepanion_card", "codepanion_pending", "codepanion_note"):
+            (tools / f"{name}.json").write_text("{}")
+            (tools / f"{name}.py").write_text("")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["migrate"]), 0)
+        self.assertEqual(sorted(f.name for f in tools.iterdir()), ["codepanion_note.json", "codepanion_note.py"])
+        self.assertTrue((self.ws / ".claude" / "skills" / "desk" / "tools" / "desk_card.py").is_file())
+        self.assertNotIn("codepanion_card", (tools.parent / "SKILL.md").read_text())
+        self.assertIn("card tools now come from the desk", out.getvalue())
+
+
 class TestInstall(WorkspaceCase):
     def test_module_passes_its_rules_and_installs(self):
         self.assertEqual(tm.check("desk"), [])

@@ -66,8 +66,10 @@ def load_config(ws: Path) -> dict:
 
 def projects_of(scope: str) -> list[str]:
     """The projects the codepanion watches for this workspace, when it is installed: they are topics."""
+    path = str(REPO / "modules" / "codepanion")
+    if path not in sys.path:
+        sys.path.insert(0, path)
     try:
-        sys.path.insert(0, str(REPO / "modules" / "codepanion"))
         import codepanion
     except ImportError:
         return []
@@ -412,8 +414,10 @@ def card_tool(scope: str, kind: str, text: str, topic: str | None, at: str | Non
 
 # ---------------------------------------------------------------- moving in from the codepanion
 
-def migrate() -> list[str]:
-    """Cards, the chat and the brief used to live in the codepanion module. Move them once."""
+def migrate(settings: bool = True) -> list[str]:
+    """Cards, the chat and the brief used to live in the codepanion module. Move them once. The daemon's
+    poll moves only the data (settings=False): writing desk.json there would bring back a desk the user
+    turned off by deleting it."""
     done = []
     old = Path(os.environ.get("TANKA_CODEPANION_HOME", kit.SHARED / "codepanion"))
     if kit.adopt(old / "cards", HOME / "cards"):
@@ -424,7 +428,7 @@ def migrate() -> list[str]:
     if st.get("brief") and not state_file().is_file():
         write_json(state_file(), {"brief": st["brief"]})
         done.append("brief state")
-    for scope in kit.scopes():
+    for scope in kit.scopes() if settings else []:
         ws = kit.ws_dir(scope)
         cp = ws / ".claude" / "codepanion.json"
         if cp.is_file() and not config_file(ws).is_file():

@@ -146,7 +146,7 @@ def tap(action: str) -> int:
 
 def segment() -> str:
     """🦆 N for new notes, ⏰ M for reminders due; empty when there is neither."""
-    n, d = c.unseen(), c.desk.due_count()
+    n, d = c.unseen(), c.desk_module().due_count()
     return " ".join(x for x in (f"🦆 {n}" if n else "", f"⏰ {d}" if d else "") if x)
 
 
@@ -287,7 +287,7 @@ def setup(argv: list[str]) -> int:
     ws = c.kit.WORKSPACES / name
     # Children (init, the module's post-install) must see the same homes; post-install stays quiet about next steps.
     child_env = {"TANKA_CODEPANION_HOME": str(c.HOME), "TANKA_WORKSPACES": str(c.kit.WORKSPACES),
-                 "TANKA_DESK_HOME": str(c.desk.HOME), "TANKA_PAGE_HOME": str(c.kit.PAGE_HOME)}
+                 "TANKA_DESK_HOME": str(c.desk_module().HOME), "TANKA_PAGE_HOME": str(c.kit.PAGE_HOME)}
     sys.stdout.flush()
     if not (ws / ".tanka" / "policy.json").is_file():
         p = subprocess.run([str(c.REPO / "bin" / "tanka"), "init", name], text=True, capture_output=True,

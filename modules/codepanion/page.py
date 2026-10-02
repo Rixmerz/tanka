@@ -92,7 +92,10 @@ def health() -> list[dict]:
     tap, watch = tapped(), c.watch()
     if not watch and not tap:
         return []
-    return [{"label": "Codepanion tap", "ok": len(tap) == 6,
+    deskless = [s for s in c.kit.scopes() if installed(c.kit.ws_dir(s)) and not (c.kit.ws_dir(s) / ".claude" / "skills" / "desk").is_dir()]
+    warn = [{"label": "Codepanion without its desk", "ok": False,
+             "text": f"{', '.join(deskless)}: run tanka desk migrate"}] if deskless else []
+    return warn + [{"label": "Codepanion tap", "ok": len(tap) == 6,
              "text": "installed (6 hooks)" if len(tap) == 6 else ("partial: " + ", ".join(tap) if tap else "not installed: tanka codepanion tap install")},
             {"label": "Watched", "ok": bool(watch) or None,
              "text": "; ".join(f"{p} → {w}" for p, w in watch.items()) or "nothing: tanka codepanion watch add <path> <workspace>"},
