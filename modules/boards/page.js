@@ -57,18 +57,47 @@
   function stateMenu(sc, v, row, k) {
     const f = v.fields[k], val = row.fields[k], open = bs.menu === row.id;
     const btn = el("button", { type: "button", class: "pill tone-" + (val ? toneOf(f, val) : "neutral"), "aria-haspopup": "menu",
-      "aria-expanded": String(open), title: T.change, on: { click: () => { bs.menu = open ? null : row.id; Tanka.render(); } } },
+      "aria-expanded": String(open), title: T.change, on: { click: e => {
+        bs.menu = open ? null : row.id;
+        bs.menuAt = e.currentTarget.getBoundingClientRect();
+        Tanka.render();
+      } } },
       el("span", { class: "tdot" }), val || T.none, icon("chevron"));
     const menu = open ? el("ul", { class: "pmenu", role: "menu" }, f.choices.map(c => el("li", { role: "none" },
       el("button", { type: "button", role: "menuitemradio", "aria-checked": String(c === val), on: { click: () => {
         bs.menu = null;
         act(api("/api/m/boards/set", { scope: sc.scope, view: v.name, id: row.id, field: k, value: c }));
       } } }, el("span", { class: "tdot tone-" + toneOf(f, c) }), c)))) : null;
+    if (menu) placeMenu(menu, f.choices.length);
     return el("span", { class: "menu-wrap" }, btn, menu);
   }
-  document.addEventListener("pointerdown", e => {
-    if (bs.menu && !e.target.closest(".menu-wrap")) { bs.menu = null; Tanka.render(); }
-  });
+  // The menu is fixed to the screen, not to its row: the group card and the table both clip what overflows
+  // them, which would cut the menu off on a group's last row. Below the pill, or above it near the bottom.
+  function placeMenu(menu, n, r = bs.menuAt) {
+    const h = n * 34 + 12, w = 190;
+    if (!r) return;
+    menu.style.position = "fixed";
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    if (window.innerHeight - r.bottom < h + 8 && r.top > h + 8) {
+      menu.style.top = "auto";
+      menu.style.bottom = (window.innerHeight - r.top + 4) + "px";
+    } else {
+      menu.style.top = (r.bottom + 4) + "px";
+    }
+  }
+  const closeMenu = () => { bs.menu = null; Tanka.render(); };
+  document.addEventListener("pointerdown", e => { if (bs.menu && !e.target.closest(".menu-wrap")) closeMenu(); });
+  // A fixed menu would stay put while its row scrolls: it follows its pill, and closes once the pill is out of sight.
+  document.addEventListener("scroll", () => {
+    const pill = bs.menu && document.querySelector('.menu-wrap > button[aria-expanded="true"]');
+    const menu = pill && pill.parentNode.querySelector(".pmenu");
+    if (!menu) return;
+    const r = pill.getBoundingClientRect(), view = document.getElementById("view").getBoundingClientRect();
+    if (r.bottom < view.top || r.top > view.bottom) return closeMenu();
+    bs.menuAt = r;
+    placeMenu(menu, menu.children.length, r);
+  }, true);
+  window.addEventListener("resize", () => { if (bs.menu) closeMenu(); });
 
   function actionBtn(a, row, cls) {
     return el("button", { type: "button", class: "btn" + (cls ? " " + cls : ""), title: T.actionTitle,

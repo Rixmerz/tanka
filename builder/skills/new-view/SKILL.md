@@ -31,6 +31,7 @@ The workspace is `$TANKA_WORKSPACE`; its name is the directory's name. All comma
 
 - `title`, `description`, `key`, `group_by`, `columns` (the table's columns; leave the group out), `fields`, `actions`.
 - Each field: `label` and `hint` in the user's language (the hint is what the tool tells the assistant about the field), `type`, and `min`/`max`, `choices`, `long` or `editable` as it applies.
+- A choice field may carry `tones`, the colour of each state on the page (`info`, `warn`, `good`, `accent`, `bad`, `dev`, `neutral`): give the states the user acts on a colour that says so (`"re-review": "warn"`, `"published": "good"`). Without it the colours follow the order of `choices`.
 - `example`: one complete, realistic row with made-up names. The assistant sees it as the tool's example call.
 
 ## 3. Check and build

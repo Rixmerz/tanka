@@ -47,6 +47,17 @@ class TestViews(BoardCase):
             self.assertTrue(any(part in p for p in problems), (part, problems))
         self.assertIn("2-24 lowercase", b.view_problems("A", GRADES)[0])
 
+    def test_tones_colour_some_choices_and_nothing_else(self):
+        def problems(field, tones):
+            spec = json.loads(json.dumps(GRADES))
+            spec["fields"][field]["tones"] = tones
+            return [p for p in b.view_problems("grades", spec) if "tones" in p]
+        self.assertEqual(problems("status", {"reviewed": "info", "published": "good"}), [])
+        self.assertTrue(problems("status", {"reviewed": "purple"}))     # not one of the page's tones
+        self.assertTrue(problems("status", {"lost": "bad"}))            # not one of the choices
+        self.assertTrue(problems("status", ["info"]))                   # not a mapping
+        self.assertTrue(problems("student", {"reviewed": "info"}))      # only a choice field has tones
+
     def test_build_refuses_views_that_fail_check(self):
         (b.views_dir(self.ws) / "broken.json").write_text("{not json")
         with self.assertRaisesRegex(b.ToolError, "do not pass check"):
