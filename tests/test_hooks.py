@@ -370,6 +370,19 @@ class TestPersonaOnboarding(HookTestCase):
             "hook_event_name": "UserPromptSubmit", "user_prompt": "hi"}, self.tmp)
         return out["hookSpecificOutput"]["additionalContext"]
 
+    def test_a_new_skill_mid_session_asks_the_user_to_reload(self):
+        def prompt(pid):
+            code, out, _ = run_hook("hook_user_prompt.py", {
+                "session_id": self.sid, "prompt_id": pid, "cwd": str(self.tmp),
+                "hook_event_name": "UserPromptSubmit", "user_prompt": "hi"}, self.tmp)
+            return out
+        self.assertNotIn("systemMessage", prompt("p1"))  # what the session started with
+        skill = self.tmp / ".claude" / "skills" / "boards"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: boards\ndescription: x\n---\n")
+        self.assertIn("/reload-skills", prompt("p2")["systemMessage"])
+        self.assertNotIn("systemMessage", prompt("p3"))  # said once
+
     def test_template_ships_unconfigured(self):
         shipped = json.loads((self.tmp / ".tanka" / "persona.json").read_text())
         self.assertFalse(shipped.get("configured"))

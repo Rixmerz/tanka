@@ -706,8 +706,8 @@ def record_cost(ws, kind: str, name: str, usd) -> None:
         f.write(json.dumps({"t": round(time.time(), 3), "kind": kind, "name": name, "usd": usd}) + "\n")
 
 
-def spent_today(ws) -> tuple[float, int]:
-    """(USD, runs) the workspace's ledger shows since local midnight."""
+def spent_today(ws, kind: str | None = None) -> tuple[float, int]:
+    """(USD, runs) the workspace's ledger shows since local midnight, of one kind (chat, dev, …) or all."""
     from datetime import datetime
     midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     total, runs = 0.0, 0
@@ -721,7 +721,7 @@ def spent_today(ws) -> tuple[float, int]:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if r.get("t", 0) >= midnight:
+        if r.get("t", 0) >= midnight and (kind is None or r.get("kind") == kind):
             total += float(r.get("usd") or 0)
             runs += 1
     return round(total, 4), runs

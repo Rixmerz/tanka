@@ -302,6 +302,77 @@ class TestChat(PageCase):
         self.assertEqual([m for m in self.stream() if not m.get("module")][-1]["text"], "Hola de nuevo.")
 
 
+class TestDev(PageCase):
+    """The selector's other side: dev, with its own session, permissions and spending cap."""
+
+    def setUp(self):
+        super().setUp()
+        self.runs = []
+
+        def fake(kind):
+            def run(scope, text, extra):
+                self.runs.append((kind, text, list(extra)))
+                return 0, f"{kind} answered", ""
+            return run
+        self.patch(chat, "run_tanka", fake("tanka"))
+        self.patch(chat, "run_dev", fake("dev"))
+
+    def say(self, text, mode="tanka"):
+        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": text, "mode": mode})
+        for _ in range(100):
+            if not chat.busy("duck"):
+                break
+            time.sleep(0.02)
+        return status, json.loads(data)
+
+    def test_dev_has_its_own_session_and_conversation(self):
+        self.say("hola")
+        self.say("crea un tablero de clientes", mode="dev")
+        self.say("y ahora?", mode="dev")
+        self.say("gracias")
+        kinds = [(k, extra[0]) for k, _, extra in self.runs]
+        self.assertEqual(kinds, [("tanka", "--session-id"), ("dev", "--session-id"), ("dev", "--resume"), ("tanka", "--resume")])
+        self.assertNotEqual(self.runs[0][2][1], self.runs[1][2][1])
+        lines = [(m["who"], m.get("mode")) for m in self.scope()["chat"] if not m.get("module")]
+        self.assertEqual(lines, [("you", None), ("tanka", None), ("you", "dev"), ("dev", None), ("you", "dev"), ("dev", None),
+                                 ("you", None), ("tanka", None)])
+        self.assertEqual(chat.sent_today("duck"), 2)  # dev is capped by money, not by messages
+
+    def test_a_new_day_recaps_each_conversation_apart(self):
+        yesterday = time.time() - 86400
+        kit.chat_event("duck", {"t": yesterday, "who": "you", "text": "el informe va el viernes"})
+        kit.chat_event("duck", {"t": yesterday + 1, "who": "you", "text": "agrega un estado al tablero", "mode": "dev"})
+        kit.chat_event("duck", {"t": yesterday + 2, "who": "dev", "text": "Listo, agregué el estado."})
+        self.say("qué quedó?", mode="dev")
+        sent = self.runs[-1][1]
+        self.assertIn("agrega un estado al tablero", sent)
+        self.assertNotIn("el informe va el viernes", sent)
+
+    def test_dev_stops_at_its_daily_cap(self):
+        kit.tc.record_cost(self.ws, "dev", "dev", chat.DEV_DAY_USD)
+        status, data = self.say("otro tablero", mode="dev")
+        self.assertEqual(status, 400)
+        self.assertIn("for today", data["error"])
+        self.assertEqual(self.say("hola")[0], 200)  # the assistant is not affected
+        self.assertEqual(self.say("x", mode="root")[0], 400)
+
+    def test_the_dev_command_is_guarded_by_its_own_hook(self):
+        cmd = chat.dev_cmd("duck", "hola", ["--session-id", "s"])
+        joined = " ".join(cmd)
+        hook = json.loads(cmd[cmd.index("--settings") + 1])["hooks"]["PreToolUse"][0]
+        self.assertEqual(hook["matcher"], "*")
+        self.assertIn("tanka_dev_guard.py", hook["hooks"][0]["command"])
+        self.assertIn(str(self.ws.resolve()), hook["hooks"][0]["command"])
+        self.assertIn("--setting-sources project,local", joined)  # none of the user's hooks or MCP servers
+        self.assertIn(f"--max-budget-usd {chat.DEV_BUDGET_USD:.2f}", joined)
+        self.assertIn("WebFetch", cmd[cmd.index("--disallowedTools") + 1:])
+
+    def test_state_says_what_dev_may_still_spend(self):
+        kit.tc.record_cost(self.ws, "dev", "dev", 1.5)
+        dev = self.scope()["dev"]
+        self.assertEqual(dev["left_usd"], round(chat.DEV_DAY_USD - 1.5, 2))
+
+
 class TestStreaming(WorkspaceCase):
     """The chat's run as it streams: the draft the page shows, and the answer at the end."""
 

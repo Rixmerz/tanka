@@ -40,6 +40,29 @@ The chat file holds the user's messages (`who: "you"`), the answers (`"tanka"`),
 (`"error"`), and whatever a module writes there with `tanka_common.chat_event` (a fired reminder,
 the brief).
 
+## Dev, from the chat
+
+A selector over the chat's box picks who answers: **Tanka**, the workspace's assistant, or **Dev**, the
+user's strong model (`TANKA_DEV_MODEL`, default `opus`), which builds what the assistant uses. It starts
+on Tanka each time the page opens. Dev has its own session of the day and its own conversation in the
+same chat, costs at most `TANKA_DEV_PAGE_BUDGET_USD` a message (2) and `TANKA_DEV_PAGE_DAY_USD` a day
+(10), and what it makes shows on the page at once: a board within seconds, a new tool on the
+assistant's next message.
+
+What dev may touch is decided by a PreToolUse hook, [`tanka_dev_guard.py`](../plugin/scripts/tanka_dev_guard.py):
+read the repository and the workspace; write the workspace's `.claude/views`, `.claude/skills`,
+`.claude/codepanion` and its `codepanion.json` and `desk.json`; run only the `bin/tanka` commands that
+check and build those (`boards`, `tools check|test|list`, `codepanion check`, `modules`, `install`,
+`desk brief`), one per call, with no shell operators or substitutions. Everything else is denied, and an
+error in the guard denies too. The run itself is `bypassPermissions`, because Claude Code asks before
+any write under `.claude/` and a headless run cannot answer; the guard is what holds it, as the Tanka
+hooks hold the assistant. It loads none of the user's settings, hooks or MCP servers. A tool that needs
+a browser or another program is built with `tanka dev <workspace>` in a terminal.
+
+New tools reach open terminal sessions too: the Tanka MCP server tells Claude Code when the tools change
+(`tools/list_changed`), so no `/mcp` reconnect is needed. A **new** skill needs `/reload-skills` in an
+open session, which no hook can run: the next prompt shows a line saying so.
+
 ## How a module plugs in
 
 A module that adds to the page ships two files next to its `module.json`.

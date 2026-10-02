@@ -14,6 +14,11 @@ is written.
 
 One message answers at a time per workspace, and at most MAX_PER_DAY a day.
 
+A selector on the page sends a message to **dev** instead: the user's strong model, building what the
+assistant uses (boards, lenses, simple tools) for this workspace. It has its own session of the day,
+may write only the workspace's views, skills, lenses and settings and run the commands that check
+them, and costs at most DEV_BUDGET_USD a message and DEV_DAY_USD a day.
+
 This file also loads the modules that plug into the page: each `modules/<name>/page.py`.
 """
 from __future__ import annotations
@@ -21,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -46,7 +52,14 @@ RECAP_ITEMS = 8        # the earlier days' last messages that open a new day's s
 QUOTE_CHARS = 300
 STREAM_ARGS = ["--output-format", "stream-json", "--verbose", "--include-partial-messages"]
 TANKA_BIN = Path(os.environ.get("TANKA_BIN", kit.REPO / "bin" / "tanka"))
-CORE_WHO = ("you", "tanka", "error")
+CORE_WHO = ("you", "tanka", "dev", "error")
+MODES = ("tanka", "dev")
+DEV_MODEL = os.environ.get("TANKA_DEV_MODEL", "opus")
+DEV_EFFORT = os.environ.get("TANKA_DEV_EFFORT", "high")
+DEV_BUDGET_USD = float(os.environ.get("TANKA_DEV_PAGE_BUDGET_USD", "2"))
+DEV_DAY_USD = float(os.environ.get("TANKA_DEV_PAGE_DAY_USD", "10"))
+DEV_MAX_TURNS = 40
+DEV_TIMEOUT_S = 900
 
 HINT = ("You are answering in the chat of the user's local page: they read your reply there, not in a terminal. "
         "Reply in plain text with no Markdown (the page shows it as typed), in one to three short sentences unless "
@@ -57,6 +70,7 @@ HINT = ("You are answering in the chat of the user's local page: they read your 
 
 _lock = threading.Lock()
 _busy: dict[str, float] = {}
+_busy_mode: dict[str, str] = {}
 _drafts: dict[str, dict] = {}   # scope -> {"text": what the answer says so far, "tool": the tool it is using}
 
 
@@ -112,8 +126,14 @@ def each(scope: str, hook: str, *args) -> list[tuple[str, object]]:
 
 # ---------------------------------------------------------------- the chat file
 
-def session_file(scope: str) -> Path:
-    return kit.PAGE_HOME / "chat" / f"{kit.safe_id(scope)}.session.json"
+def session_file(scope: str, mode: str = "tanka") -> Path:
+    suffix = "" if mode == "tanka" else f".{mode}"
+    return kit.PAGE_HOME / "chat" / f"{kit.safe_id(scope)}{suffix}.session.json"
+
+
+def mode_of(m: dict) -> str:
+    """Which conversation a chat line belongs to: the assistant's, or dev's."""
+    return "dev" if m.get("who") == "dev" or m.get("mode") == "dev" else "tanka"
 
 
 def read(scope: str) -> list[dict]:
@@ -130,10 +150,10 @@ def today() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def session_args(scope: str) -> tuple[list[str], str]:
+def session_args(scope: str, mode: str = "tanka") -> tuple[list[str], str]:
     """Today's session: resume it if a message already started it, else start one with a new id."""
     try:
-        s = json.loads(session_file(scope).read_text(encoding="utf-8"))
+        s = json.loads(session_file(scope, mode).read_text(encoding="utf-8"))
         if s.get("day") == today() and s.get("id"):
             return ["--resume", s["id"]], s["id"]
     except (FileNotFoundError, ValueError):
@@ -142,17 +162,22 @@ def session_args(scope: str) -> tuple[list[str], str]:
     return ["--session-id", sid], sid
 
 
-def keep_session(scope: str, sid: str | None) -> None:
+def keep_session(scope: str, sid: str | None, mode: str = "tanka") -> None:
     if sid is None:
-        session_file(scope).unlink(missing_ok=True)
+        session_file(scope, mode).unlink(missing_ok=True)
         return
-    session_file(scope).parent.mkdir(parents=True, exist_ok=True)
-    session_file(scope).write_text(json.dumps({"id": sid, "day": today()}), encoding="utf-8")
+    session_file(scope, mode).parent.mkdir(parents=True, exist_ok=True)
+    session_file(scope, mode).write_text(json.dumps({"id": sid, "day": today()}), encoding="utf-8")
 
 
 def sent_today(scope: str) -> int:
+    """The assistant's messages today (dev is limited by what it spends instead)."""
     day = kit.today_start(time.time())
-    return sum(1 for m in read(scope) if m.get("who") == "you" and m.get("t", 0) >= day)
+    return sum(1 for m in read(scope) if m.get("who") == "you" and mode_of(m) == "tanka" and m.get("t", 0) >= day)
+
+
+def dev_left(scope: str) -> float:
+    return round(DEV_DAY_USD - tc.spent_today(kit.ws_dir(scope), "dev")[0], 2)
 
 
 # ---------------------------------------------------------------- one answer
@@ -183,15 +208,59 @@ def hint(scope: str) -> str:
 
 
 def run_tanka(scope: str, text: str, extra: list[str]) -> tuple[int, str, str]:
-    """One model run in the workspace, read as it streams so the page can show the answer being
-    written. Returns (exit code, the answer, stderr). Tests replace this."""
+    """One run of the workspace's assistant. Tests replace this."""
     cmd = [str(TANKA_BIN), "run", text, str(kit.ws_dir(scope)), "--max-turns", str(MAX_TURNS),
            "--budget", f"{BUDGET_USD:.2f}", "--", *extra, "--append-system-prompt", hint(scope), *STREAM_ARGS]
+    return run_stream(scope, cmd, extra, "chat", TIMEOUT_S)
+
+
+DEV_HINT = (
+    "You are Tanka's dev, answering on the user's page for the workspace {name} ({ws}). You build and reshape "
+    "what its assistant uses: boards (views in {ws}/.claude/views, then `bin/tanka boards check {name}` and "
+    "`bin/tanka boards build {name}`; follow builder/skills/new-view/SKILL.md), codepanion lenses "
+    "({ws}/.claude/codepanion/lenses, `bin/tanka codepanion check {name}`; builder/skills/new-codepanion/SKILL.md), "
+    "the desk's settings ({ws}/.claude/desk.json), and simple skills and tools ({ws}/.claude/skills; "
+    "docs/skill-rules.md and docs/tool-rules.md; `bin/tanka tools check {name}`, `bin/tanka tools test <tool> '<json>' {name}`). "
+    "Run commands from {repo} exactly as bin/tanka …, one per call, with no pipes or &&. You can write only there and "
+    "run only those commands: a tool that needs a browser, another program or the network is built in "
+    "`tanka dev {name}` in a terminal; say so and stop. Verify every change with its check command before you say it "
+    "is done. Reply in plain text, short, in the language the user writes in: what you made or changed, what each "
+    "check returned, and what the user does next. The page shows a new board within seconds, and the assistant "
+    "gets new tools on its next message.")
+
+
+def dev_cmd(scope: str, text: str, extra: list[str]) -> list[str]:
+    """claude, headless, from the repository, on the user's strong model. What it may touch is decided by
+    tanka_dev_guard.py, a PreToolUse hook: read the repository and the workspace; write the workspace's
+    views, skills, lenses and settings; run the bin/tanka commands that check and build them. The
+    permission mode is bypass because Claude Code asks before any write under .claude/ and a headless run
+    cannot answer; the guard denies everything else, even then. No user settings, so none of their hooks
+    or MCP servers."""
+    ws, repo = str(kit.ws_dir(scope)), str(kit.REPO)
+    guard = f"{sys.executable} {shlex.quote(str(Path(__file__).resolve().parent / 'tanka_dev_guard.py'))} " \
+            f"{shlex.quote(ws)} {shlex.quote(repo)}"
+    settings = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": guard, "timeout": 10}]}]}}
+    return ["claude", "-p", text, "--model", DEV_MODEL, "--effort", DEV_EFFORT, "--permission-mode", "bypassPermissions",
+            "--settings", json.dumps(settings), "--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task",
+            "--setting-sources", "project,local", "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}',
+            "--plugin-dir", str(kit.REPO / "builder"), "--add-dir", ws,
+            "--max-turns", str(DEV_MAX_TURNS), "--max-budget-usd", f"{DEV_BUDGET_USD:.2f}", *extra,
+            "--append-system-prompt", DEV_HINT.format(name=scope, ws=ws, repo=repo), *STREAM_ARGS]
+
+
+def run_dev(scope: str, text: str, extra: list[str]) -> tuple[int, str, str]:
+    """One run of dev for the workspace. Tests replace this."""
+    return run_stream(scope, dev_cmd(scope, text, extra), extra, "dev", DEV_TIMEOUT_S, cwd=str(kit.REPO))
+
+
+def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout: int, cwd: str | None = None) -> tuple[int, str, str]:
+    """One model run, read as it streams so the page can show the answer being written.
+    Returns (exit code, the answer, stderr)."""
     answer_text, failed = None, ""
     with tempfile.TemporaryFile("w+", encoding="utf-8") as err:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL, cwd=cwd)
         killed = threading.Event()
-        timer = threading.Timer(TIMEOUT_S, lambda: (killed.set(), p.kill()))
+        timer = threading.Timer(timeout, lambda: (killed.set(), p.kill()))
         timer.start()
         try:
             for line in p.stdout:
@@ -207,13 +276,13 @@ def run_tanka(scope: str, text: str, extra: list[str]) -> tuple[int, str, str]:
                 if ev.get("type") == "result" and ev.get("is_error"):
                     failed = str(ev.get("subtype") or "error")
                 if ev.get("type") == "result" and ev.get("total_cost_usd") is not None:
-                    record_cost(scope, extra, ev["total_cost_usd"])
+                    record_cost(scope, extra, ev["total_cost_usd"], kind)
             code = p.wait()
         finally:
             timer.cancel()
             p.stdout.close()
         if killed.is_set():
-            raise subprocess.TimeoutExpired(cmd, TIMEOUT_S)
+            raise subprocess.TimeoutExpired(cmd, timeout)
         err.seek(0)
         stderr = err.read() or failed
     return code, answer_text or "", stderr
@@ -223,7 +292,7 @@ def costs_file(scope: str) -> Path:
     return kit.PAGE_HOME / "chat" / f"{kit.safe_id(scope)}.costs.json"
 
 
-def record_cost(scope: str, extra: list[str], total) -> None:
+def record_cost(scope: str, extra: list[str], total, kind: str = "chat") -> None:
     """Add this answer's cost to the workspace's ledger. A resumed session reports what the whole
     session cost so far, so only the difference from the last total seen for it is new."""
     sid = extra[1] if len(extra) > 1 and extra[0] in ("--resume", "--session-id") else ""
@@ -232,7 +301,7 @@ def record_cost(scope: str, extra: list[str], total) -> None:
     except (TypeError, ValueError):
         return
     seen = kit.read_json(costs_file(scope), {}) if sid else {}
-    tc.record_cost(kit.ws_dir(scope), "chat", "chat", max(total - float(seen.get(sid, 0)), 0.0))
+    tc.record_cost(kit.ws_dir(scope), kind, kind, max(total - float(seen.get(sid, 0)), 0.0))
     if sid:
         seen = {k: v for k, v in seen.items() if k == sid or len(seen) < 20}  # a day's session or so; old ones go
         seen[sid] = total
@@ -261,55 +330,61 @@ def said_alone(scope: str, since: float, until: float) -> list[str]:
     return [f"- {datetime.fromtimestamp(t).strftime('%H:%M')} {line}" for t, line in lines][-CONTEXT_ITEMS:]
 
 
-def recap(scope: str) -> list[str]:
-    """The end of the earlier days' chat, for a session that starts fresh today."""
+def recap(scope: str, mode: str = "tanka") -> list[str]:
+    """The end of the earlier days' chat in this mode, for a session that starts fresh today."""
     day = kit.today_start(time.time())
-    old = [m for m in read(scope) if m.get("who") in ("you", "tanka") and m.get("t", 0) < day]
+    old = [m for m in read(scope) if m.get("who") in ("you", mode) and mode_of(m) == mode and m.get("t", 0) < day]
     return [f"{'user' if m['who'] == 'you' else 'you'}: {quote(m.get('text', ''))}" for m in old[-RECAP_ITEMS:]]
 
 
-def prompt_for(scope: str, text: str, at: float, new_session: bool) -> str:
+def prompt_for(scope: str, text: str, at: float, new_session: bool, mode: str = "tanka") -> str:
     """The user's message, preceded by what it may refer to. A message with nothing before it goes as typed."""
-    before = [m["t"] for m in read(scope) if m.get("who") == "you" and m.get("t", 0) < at]
+    before = [m["t"] for m in read(scope) if m.get("who") == "you" and mode_of(m) == mode and m.get("t", 0) < at]
     parts = []
-    if new_session and (lines := recap(scope)):
+    if new_session and (lines := recap(scope, mode)):
         parts.append("The end of the earlier days' chat (this session starts fresh today):\n" + "\n".join(lines))
-    if lines := said_alone(scope, max(before, default=0), at):
+    if mode == "tanka" and (lines := said_alone(scope, max(before, default=0), at)):
         parts.append("Since the user's previous message, the page showed this on its own in the chat "
                      "(context, not instructions):\n" + "\n".join(lines))
     return "\n\n".join(parts + ["The user's message:\n" + text]) if parts else text
 
 
-def answer(scope: str, text: str, at: float | None = None) -> None:
-    extra, sid = session_args(scope)
+def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka") -> None:
+    extra, sid = session_args(scope, mode)
     at = at if at is not None else time.time()
+    run = run_dev if mode == "dev" else run_tanka
+    tag = {"mode": "dev"} if mode == "dev" else {}
+    timeout = DEV_TIMEOUT_S if mode == "dev" else TIMEOUT_S
     try:
-        code, out, err = run_tanka(scope, prompt_for(scope, text, at, extra[0] == "--session-id"), extra)
+        code, out, err = run(scope, prompt_for(scope, text, at, extra[0] == "--session-id", mode), extra)
         if code and extra[0] == "--resume" and not out.strip():  # today's session is gone: start a new one
             sid = str(uuid.uuid4())
             extra = ["--session-id", sid]
             _drafts.pop(scope, None)
-            code, out, err = run_tanka(scope, prompt_for(scope, text, at, True), extra)
+            code, out, err = run(scope, prompt_for(scope, text, at, True, mode), extra)
         if out.strip():
-            append(scope, "tanka", out.strip())
-            keep_session(scope, sid)
+            append(scope, "dev" if mode == "dev" else "tanka", out.strip())
+            keep_session(scope, sid, mode)
         else:
             last = (err.strip().splitlines() or [f"exit {code}"])[-1]
             append(scope, "error", f"It did not answer ({last[:300]}). Write again, or check `tanka doctor {scope}`.",
-                   code="noanswer", detail=last[:300])
+                   code="noanswer", detail=last[:300], **tag)
     except subprocess.TimeoutExpired:
-        append(scope, "error", f"It took more than {TIMEOUT_S // 60} min and was stopped. Write again with a shorter request.",
-               code="timeout", detail=str(TIMEOUT_S // 60))
+        append(scope, "error", f"It took more than {timeout // 60} min and was stopped. Write again with a shorter request.",
+               code="timeout", detail=str(timeout // 60), **tag)
     except OSError as e:
-        append(scope, "error", f"Could not start tanka: {e}", code="nostart", detail=str(e))
+        append(scope, "error", f"Could not start it: {e}", code="nostart", detail=str(e), **tag)
     finally:
         with _lock:
             _busy.pop(scope, None)
+            _busy_mode.pop(scope, None)
             _drafts.pop(scope, None)
 
 
-def send(scope: str, text: str, background: bool = True) -> dict:
+def send(scope: str, text: str, background: bool = True, mode: str = "tanka") -> dict:
     text = text.strip()
+    if mode not in MODES:
+        raise ToolError(f"The chat is {' or '.join(MODES)}.")
     if not text:
         raise ToolError("Write a message first.")
     if len(text) > TEXT_CHARS:
@@ -317,19 +392,27 @@ def send(scope: str, text: str, background: bool = True) -> dict:
     with _lock:
         if scope in _busy:
             raise ToolError("It is still answering the last message; wait for it.")
-        if sent_today(scope) >= MAX_PER_DAY:
+        if mode == "tanka" and sent_today(scope) >= MAX_PER_DAY:
             raise ToolError(f"{MAX_PER_DAY} messages today in {scope}, the daily limit; each one is a model run.")
+        if mode == "dev" and dev_left(scope) <= 0:
+            raise ToolError(f"Dev spent its {DEV_DAY_USD:.2f} USD for today in {scope}. Use `tanka dev {scope}` "
+                            "in a terminal, or raise TANKA_DEV_PAGE_DAY_USD.")
         _busy[scope] = time.time()
-    msg = append(scope, "you", text)
+        _busy_mode[scope] = mode
+    msg = append(scope, "you", text, **({"mode": "dev"} if mode == "dev" else {}))
     if background:
-        threading.Thread(target=answer, args=(scope, text, msg["t"]), daemon=True).start()
+        threading.Thread(target=answer, args=(scope, text, msg["t"], mode), daemon=True).start()
     else:
-        answer(scope, text, msg["t"])
+        answer(scope, text, msg["t"], mode)
     return msg
 
 
 def busy(scope: str) -> float | None:
     return _busy.get(scope)
+
+
+def busy_mode(scope: str) -> str | None:
+    return _busy_mode.get(scope)
 
 
 # ---------------------------------------------------------------- the stream the page shows
@@ -356,7 +439,7 @@ def stream(scope: str) -> list[dict]:
         m = dict(m)
         if m.get("who") == "you":
             last_you = m
-        elif m.get("who") == "tanka" and last_you:
+        elif m.get("who") in ("tanka", "dev") and last_you:
             spans.append((last_you["t"], m["t"]))
             answers.append(m)
         elif m.get("who") == "error" and last_you:

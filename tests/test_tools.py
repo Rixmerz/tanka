@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -283,9 +284,10 @@ class TestServer(ToolsCase):
         ]
         p = subprocess.run([sys.executable, str(SCRIPTS / "tanka_mcp.py"), str(self.ws)],
                            input="\n".join(json.dumps(r) for r in reqs) + "\n", capture_output=True, text=True, timeout=30)
-        out = {m["id"]: m for m in map(json.loads, p.stdout.splitlines())}
+        out = {m["id"]: m for m in map(json.loads, p.stdout.splitlines()) if "id" in m}
         self.assertEqual(sorted(out), [1, 2, 3, 4])
         self.assertEqual(out[1]["result"]["serverInfo"]["name"], "tanka")
+        self.assertTrue(out[1]["result"]["capabilities"]["tools"]["listChanged"])
         tool = out[2]["result"]["tools"][0]
         self.assertEqual(tool["name"], "demo_echo")
         self.assertIn('Example: {"course_id": 1}', tool["description"])
@@ -294,6 +296,27 @@ class TestServer(ToolsCase):
         self.assertFalse(out[3]["result"]["isError"])
         self.assertIn("'--id=3'", out[3]["result"]["content"][0]["text"])
         self.assertTrue(out[4]["result"]["isError"])
+
+    def test_a_tool_added_mid_session_is_announced(self):
+        import threading
+        import tanka_mcp
+        self.add(manifest())
+        told, stop = [], threading.Event()
+        old = tanka_mcp.WATCH_SECONDS
+        tanka_mcp.WATCH_SECONDS = 0.05
+        self.addCleanup(setattr, tanka_mcp, "WATCH_SECONDS", old)
+        t = threading.Thread(target=tanka_mcp.watch, args=(self.ws, stop, lambda: told.append(1)), daemon=True)
+        t.start()
+        time.sleep(0.2)
+        self.assertEqual(told, [])  # nothing changed, nothing said
+        self.add(dict(manifest(), name="demo_other"))
+        for _ in range(40):
+            if told:
+                break
+            time.sleep(0.05)
+        stop.set()
+        t.join(2)
+        self.assertEqual(told, [1])
 
     def test_mcp_config_respects_external_policy(self):
         def lines():

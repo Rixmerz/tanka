@@ -44,19 +44,39 @@ def build_context(policy: dict, persona_raw: dict, objective: dict | None, root=
     return "\n".join(lines)
 
 
+def new_skills(st: dict, root) -> list[str]:
+    """Skills added since this session started. Claude Code reloads a changed skill by itself, but a new
+    skill directory only after /reload-skills, which no hook can run: the user has to."""
+    try:
+        import tanka_tools as tt
+        now = tt.skill_names(root)
+    except Exception:
+        return []
+    seen = st.setdefault("skills_seen", now)
+    added = [s for s in now if s not in seen]
+    st["skills_seen"] = sorted(set(seen) | set(now))
+    return added
+
+
 def main() -> None:
     inp = tc.read_input()
     root = tc.workspace_root(inp)
+    added = []
     try:
         st = tc.load_session(root, str(inp.get("session_id", "unknown")))
         tc.ensure_turn(st, inp.get("prompt_id") or f"p{int(time.time() * 1000)}")
+        added = new_skills(st, root)
         tc.save_session(root, st)
     except Exception:
         pass
     policy = tc.load_policy(root)
     persona = tc.load_persona(root)
     objective = tc.load_objective(root)
-    tc.emit(tc.additional_context("UserPromptSubmit", build_context(policy, persona, objective, root)))
+    out = tc.additional_context("UserPromptSubmit", build_context(policy, persona, objective, root))
+    if added:
+        out["systemMessage"] = (f"New skill(s) in this workspace: {', '.join(added)}. Run /reload-skills to load them "
+                                "in this session (their tools are already available).")
+    tc.emit(out)
 
 
 if __name__ == "__main__":

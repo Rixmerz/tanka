@@ -10,7 +10,7 @@
 :root {
   --bg: #f5f2ea; --panel: #fbf9f4; --raised: #ffffff; --bubble: #ece7db; --ink: #1f1d1a; --muted: #6b665c; --faint: #9a9488;
   --line: #e4ded0; --accent: #e09a12; --accent-ink: #251900; --accent-soft: #fbedc9;
-  --good: #2f7d4a; --bad: #b3372b; --warn: #a65f00;
+  --good: #2f7d4a; --bad: #b3372b; --warn: #a65f00; --dev: #5b4fc4;
   --shadow-sm: 0 1px 2px rgb(40 30 10 / .06); --shadow: 0 2px 6px rgb(40 30 10 / .06), 0 10px 30px rgb(40 30 10 / .06);
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: light;
@@ -20,7 +20,7 @@
     color-scheme: dark;
     --bg: #131216; --panel: #18171c; --raised: #211f26; --bubble: #26242c; --ink: #ece9e2; --muted: #a39e94; --faint: #757068;
     --line: #2d2b33; --accent: #f2b52b; --accent-ink: #1d1503; --accent-soft: #3a2f12;
-    --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c;
+    --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c; --dev: #a397f5;
     --shadow-sm: 0 1px 2px rgb(0 0 0 / .3); --shadow: 0 2px 8px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .25);
   }
 }
@@ -28,7 +28,7 @@
   color-scheme: dark;
   --bg: #131216; --panel: #18171c; --raised: #211f26; --bubble: #26242c; --ink: #ece9e2; --muted: #a39e94; --faint: #757068;
   --line: #2d2b33; --accent: #f2b52b; --accent-ink: #1d1503; --accent-soft: #3a2f12;
-  --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c;
+  --good: #5fbf7f; --bad: #ef7466; --warn: #e8a54c; --dev: #a397f5;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / .3); --shadow: 0 2px 8px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .25);
 }
 * { box-sizing: border-box; }
@@ -150,6 +150,17 @@ details.ev pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; whi
 .hint { margin-top: 7px; font-size: 12px; color: var(--faint); text-align: center; }
 .hint kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
 .hint .err { color: var(--bad); }
+.modes { display: flex; gap: 4px; margin-bottom: 8px; }
+.modes button { border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 3px 13px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.modes button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
+.modes button.dev[aria-checked="true"] { background: var(--dev); border-color: var(--dev); color: #fff; }
+.box.dev { border-color: color-mix(in srgb, var(--dev) 55%, var(--line)); }
+.box.dev:focus-within { border-color: var(--dev); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dev) 18%, transparent), var(--shadow); }
+.box.dev .send { background: var(--dev); color: #fff; }
+.msg.dev .bubble { background: color-mix(in srgb, var(--dev) 13%, var(--bubble)); }
+.avatar.dev { background: color-mix(in srgb, var(--dev) 22%, transparent); font-size: 15px; }
+.you.dev .bubble { background: var(--dev); color: #fff; }
+.who .to { color: var(--dev); font-weight: 650; }
 
 /* ---------- your day */
 .day { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 18px 20px 28px; }
@@ -308,6 +319,7 @@ tr.detail .k { color: var(--muted); font-size: 12px; font-weight: 650; text-tran
     </div>
     <div class="composer">
       <div class="lane">
+        <div class="modes" id="modes" role="radiogroup"></div>
         <div class="suggest" id="suggest"></div>
         <div class="box">
           <textarea id="say" rows="1" maxlength="1000"></textarea>
@@ -334,7 +346,7 @@ const T = {
   liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The automation daemon is not polling: reminders and routines will not run. Open Health.",
   workspace: "Workspace",
   placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
-  hint: ["Enter", " sends · ", "Shift+Enter", " new line · each message is one run of your assistant (at most US$0.30)"],
+  hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCost: " · each message is one run of your assistant (at most US$0.30)",
   left: n => ` · ${n} left today`,
   thinking: s => `thinking · ${s} s`, newMessages: "↓ New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
@@ -345,6 +357,12 @@ const T = {
   now: "now", ago: s => `${s} ago`, inSpan: s => `in ${s}`, days: n => plural(n, "day", "days"),
   unreachable: e => `Could not reach the page server (${e}). Is tanka ui still running?`,
   noScope: "No workspace yet. Create one with: tanka start <name>",
+  modes: "Who answers", devName: "Dev", toDev: "to Dev",
+  devPlaceholder: n => `Ask dev to build or change something for ${n}…`,
+  devHint: (per, left) => ` · dev runs your strong model: at most US$${per.toFixed(2)} a message, US$${Math.max(left, 0).toFixed(2)} left today`,
+  devTitle: "Dev builds what the assistant uses (boards, lenses, simple tools) and checks it. It does not do your tasks.",
+  devUsing: name => /^(Edit|Write|MultiEdit)$/.test(name) ? "writing…" : name === "Bash" ? "checking…" : /^(Read|Glob)$/.test(name) ? "reading…" : "working…",
+  devSuggest: [["Create a board for ", false], ["Add a field to the board ", false], ["Why can't the assistant record on ", false]],
   hDaemon: "Daemon", hRuns: "Runs today", hModules: "Modules",
   daemonOk: (p, s) => `running (pid ${p}), polled ${s}s ago`, daemonStale: p => `running (pid ${p}), not polling`,
   daemonOld: " · runs older code: tanka automation stop, then tanka ui again",
@@ -352,7 +370,7 @@ const T = {
   runs: (n, usd) => `${n} run(s), ${usd.toFixed(2)} USD spent`,
 };
 const nameOf = sc => (sc && sc.name) || "tanka";
-const ui = { tab: "chat", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
+const ui = { tab: "chat", mode: "tanka", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
              rows: null, nodes: [], logScope: null, stick: true, sideSig: "", wsSig: "", tabSig: "", suggestSig: "",
              flash: null, showDay: false };
 try {
@@ -505,19 +523,20 @@ function message(sc, m, first) {
     return render ? render(sc, m, modOf(sc, m.module)) : null;
   }
   if (m.who === "report") return reportEvent(m);
-  if (m.who === "you") return el("div", { class: "msg you" + (first ? " first" : "") },
-    el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t)) : null, el("div", { class: "bubble", title: hm(m.t) }, m.text)));
+  if (m.who === "you") return el("div", { class: "msg you" + (m.mode === "dev" ? " dev" : "") + (first ? " first" : "") },
+    el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t), m.mode === "dev" ? el("span", { class: "to" }, " · " + T.toDev) : null) : null,
+      el("div", { class: "bubble", title: hm(m.t) }, m.text)));
   if (m.who === "error") {
     const txt = m.code && T.err[m.code] ? T.err[m.code](m.detail || "") : m.text;
     return el("div", { class: "msg them first" }, el("span", { class: "avatar err", "aria-hidden": "true" }, "!"),
       el("div", { class: "col" }, el("div", { class: "bubble error" }, el("p", {}, txt)),
         m.retry ? el("div", { class: "fxs" }, el("button", { type: "button", class: "btn", on: { click: () => send(m.retry) } }, "↻ " + T.retry)) : null));
   }
-  const chips = (m.effects || []).map(f => chip(sc, f)).filter(Boolean);
-  return el("div", { class: "msg them" + (first ? " first" : "") },
-    first ? avatar() : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
+  const chips = (m.effects || []).map(f => chip(sc, f)).filter(Boolean), dev = m.who === "dev";
+  return el("div", { class: "msg them" + (dev ? " dev" : "") + (first ? " first" : "") },
+    first ? (dev ? el("span", { class: "avatar dev", "aria-hidden": "true" }, "🛠") : avatar()) : el("span", { class: "avatar ghost", "aria-hidden": "true" }),
     el("div", { class: "col" },
-      first ? el("div", { class: "who" }, el("strong", {}, nameOf(sc)), hm(m.t)) : null,
+      first ? el("div", { class: "who" }, el("strong", {}, dev ? T.devName : nameOf(sc)), hm(m.t)) : null,
       el("div", { class: "bubble", title: hm(m.t) }, rich(m.text)),
       chips.length ? el("div", { class: "fxs" }, chips) : null));
 }
@@ -532,7 +551,7 @@ function rowsOf(sc) {
     if (m.module && !(MODS[m.module] && MODS[m.module].items && MODS[m.module].items[m.who])) continue;
     const d = dayKey(m.t * 1000);
     if (d !== day) { rows.push({ key: "day:" + d, sig: d, build: () => el("div", { class: "sep" }, dayLabel(m.t)) }); day = d; prev = null; }
-    const side = m.who === "you" ? "you" : m.who === "tanka" ? "them" : "event";
+    const side = m.who === "you" ? (m.mode === "dev" ? "youdev" : "you") : m.who === "tanka" || m.who === "dev" ? m.who : "event";
     const first = !prev || prev.side !== side || side === "event" || m.t - prev.t > 300;
     const { seen, ...shown } = m;  // marking a note seen must not rebuild it (an open evidence would close)
     rows.push({ key: `${m.module || ""}:${m.who}:${m.t}:${m.id || ""}`, sig: JSON.stringify([shown, first]), build: () => message(sc, m, first) });
@@ -602,15 +621,17 @@ function usingLabel(name) {
 }
 function tick() {
   const sc = current();
-  if (sc && sc.busy) $("thinkingLbl").textContent = sc.draft && sc.draft.tool ? usingLabel(sc.draft.tool) : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - sc.busy)));
+  if (sc && sc.busy) $("thinkingLbl").textContent = sc.draft && sc.draft.tool
+    ? (sc.busy_mode === "dev" ? T.devUsing(sc.draft.tool) : usingLabel(sc.draft.tool))
+    : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - sc.busy)));
 }
 
 // ------------------------------------------------------------ the composer (built once, never re-rendered)
 const say = $("say"), sendBtn = $("send");
 function grow() { say.style.height = "auto"; say.style.height = Math.min(say.scrollHeight, 168) + "px"; }
 function suggestions(sc) {
-  const all = active(sc).flatMap(([, s]) => s.suggest || []);
-  const sig = (sc ? sc.scope : "") + JSON.stringify(all);
+  const all = ui.mode === "dev" ? T.devSuggest : active(sc).flatMap(([, s]) => s.suggest || []);
+  const sig = (sc ? sc.scope : "") + ui.mode + JSON.stringify(all);
   if (sig === ui.suggestSig) return;
   ui.suggestSig = sig;
   $("suggest").replaceChildren(...all.map(([text, now]) => el("button", { type: "button", on: { click: () => {
@@ -621,15 +642,20 @@ function suggestions(sc) {
 function updateComposer() {
   const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
   sendBtn.disabled = busy || !say.value.trim();
-  const name = nameOf(sc);
-  say.placeholder = busy ? T.placeholderBusy(name) : T.placeholder(name);
-  say.setAttribute("aria-label", T.placeholder(name));
+  const name = nameOf(sc), dev = ui.mode === "dev";
+  say.placeholder = busy ? T.placeholderBusy(sc && sc.busy_mode === "dev" ? T.devName : name) : dev ? T.devPlaceholder(name) : T.placeholder(name);
+  say.setAttribute("aria-label", dev ? T.devPlaceholder(name) : T.placeholder(name));
+  say.closest(".box").classList.toggle("dev", dev);
+  for (const b of $("modes").children) b.setAttribute("aria-checked", String(b.dataset.mode === ui.mode));
+  $("modes").lastChild.firstChild.textContent = T.devName;
+  $("modes").firstChild.textContent = name;
   $("helloT").textContent = T.hello(name);
   $("helloP").textContent = [T.helloText, ...active(sc).map(([, s, mod]) => s.hello ? s.hello(sc, mod) : "")].filter(Boolean).join(" ");
-  $("typingName").textContent = name;
+  $("typingName").textContent = sc && sc.busy_mode === "dev" ? T.devName : name;
   suggestions(sc);
   $("suggest").hidden = !!say.value.trim() || busy;
-  $("left").textContent = sc && sc.chat_left != null && sc.chat_left < 10 ? T.left(sc.chat_left) : "";
+  $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.per_message_usd, sc.dev.left_usd)
+    : T.hintCost + (sc && sc.chat_left != null && sc.chat_left < 10 ? T.left(sc.chat_left) : "");
 }
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
@@ -638,7 +664,7 @@ async function send(textArg) {
   $("cmsg").textContent = "";
   updateComposer();
   try {
-    await api("/api/chat", { scope: sc.scope, text });
+    await api("/api/chat", { scope: sc.scope, text, mode: ui.mode });
     if (typed) { say.value = ""; grow(); }
   } catch (e) { $("cmsg").textContent = " · " + e.message; }
   ui.sending = false;
@@ -656,6 +682,12 @@ Tanka.compose = text => {
 };
 Tanka.go = tab => { ui.tab = tab; ui.showDay = false; remember("tanka.tab", tab); render(); };
 function setupComposer() {
+  // Who answers: the workspace's assistant, or dev. It starts on the assistant every time the page opens,
+  // so dev (the strong model) is never used without choosing it.
+  const modeBtn = (mode, label, cls, title) => el("button", { type: "button", role: "radio", class: cls, "data-mode": mode, title,
+    "aria-checked": String(ui.mode === mode), on: { click: () => { ui.mode = mode; ui.suggestSig = ""; updateComposer(); say.focus(); } } }, label);
+  $("modes").setAttribute("aria-label", T.modes);
+  $("modes").append(modeBtn("tanka", "Tanka", "", ""), modeBtn("dev", el("span", {}, T.devName), "dev", T.devTitle));
   sendBtn.append(svg(ICON.send));
   sendBtn.setAttribute("aria-label", T.send);
   sendBtn.title = T.send;

@@ -72,7 +72,9 @@ def scope_state(scope: str) -> dict:
     ws = kit.ws_dir(scope)
     return {"scope": scope, "name": kit.persona_name(ws), "workspace": str(ws),
             "modules": dict(chat.each(scope, "state")), "chat": chat.stream(scope), "busy": chat.busy(scope),
-            "draft": chat.draft(scope), "chat_left": chat.MAX_PER_DAY - chat.sent_today(scope),
+            "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope),
+            "chat_left": chat.MAX_PER_DAY - chat.sent_today(scope),
+            "dev": {"left_usd": chat.dev_left(scope), "per_message_usd": chat.DEV_BUDGET_USD, "model": chat.DEV_MODEL},
             "spent_today": tc.spent_today(ws)}
 
 
@@ -168,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("send a JSON object")
             if self.path == "/api/chat":
                 scope = known_scope(str(body.get("scope", "")))
-                return self.json(200, {"message": chat.send(scope, str(body.get("text", "")))})
+                return self.json(200, {"message": chat.send(scope, str(body.get("text", "")), mode=str(body.get("mode") or "tanka"))})
             if self.path.startswith("/api/m/"):
                 return self.json(200, module_call("ACTIONS", self.path, str(body.get("scope", "")), body))
         except (ToolError, ValueError) as e:
