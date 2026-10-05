@@ -1,0 +1,18 @@
+{
+  "name": "cauce_board",
+  "effect": "read",
+  "description": "Lists the coding tasks cauce handles in the repositories this workspace may use: what needs the user (failed, blocked, a branch to review), what is running with its model and cost, what is queued per repository, and what finished recently. Use it when the user asks about their code, their tasks or a repository, and before cauce_task or cauce_queue to get a task id or a repository name. It does not show what a task tried (that is cauce_task). Returns one line per task: id | repository | state | title.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,60}$",
+      "description": "Only this repository, by the name cauce_board lists (e.g. webapp). Leave it out for all of them."
+    }
+  },
+  "examples": [
+    {},
+    {"repo": "webapp"}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_board.py"]
+}

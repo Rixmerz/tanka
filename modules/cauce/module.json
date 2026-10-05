@@ -1,0 +1,5 @@
+{
+  "name": "cauce",
+  "description": "Your coding tasks, run by cauce: what needs you, what is running and what it costs, the queue per repository, shown on the page; your assistant can check them and queue new ones in the repositories you allow.",
+  "requires": []
+}

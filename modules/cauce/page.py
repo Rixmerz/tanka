@@ -1,0 +1,98 @@
+"""cauce on the page (docs/page.md): the Code tab with what needs you, what runs and what waits per
+repository; finished and stuck tasks in the chat; and the user's buttons (cancel, reopen a paused
+repository, run a repository's queue)."""
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+import cauce_link as cl
+
+STREAM_HOURS = 24   # how far back a finished or stuck task shows in the chat
+DONE_ON_PAGE = 15
+
+
+def installed(ws: Path) -> bool:
+    return (ws / ".claude" / "skills" / "cauce").is_dir()
+
+
+def state(scope: str, ws: Path) -> dict:
+    mine = cl.repos(scope)
+    names = sorted(mine)
+    base = {"repos": names, "working": [n for n in names if cl.working(scope, n)], "error": None}
+    if not mine:
+        return dict(base, board=None)
+    try:
+        b = cl.board(scope)
+    except cl.ToolError as e:
+        return dict(base, board=None, error=str(e))
+    return dict(base, board={k: b[k] for k in ("counts", "needs_you", "running", "queued")} | {"done": b["done"][:DONE_ON_PAGE]})
+
+
+def ended(scope: str) -> list[dict]:
+    """Tasks that passed or stopped for the user in the last STREAM_HOURS, newest last."""
+    if not cl.repos(scope):
+        return []
+    try:
+        b = cl.board(scope)
+    except cl.ToolError:
+        return []
+    since = time.time() - STREAM_HOURS * 3600
+    seen, out = set(), []
+    for t in b["needs_you"] + b["done"]:
+        at = cl.epoch(t.get("updated_at"))
+        if at < since or t["id"] in seen:
+            continue
+        seen.add(t["id"])
+        out.append({"t": at, "who": "task", "id": t["id"], "title": cl.clip(t.get("title"), cl.TITLE_CHARS),
+                    "status": t.get("status"), "repo": t.get("repo_name", ""), "cell": cl.cell_of(t),
+                    "asks": t.get("asks", ""), "branch": t.get("branch"), "cost": t.get("cost_usd") or 0})
+    return sorted(out, key=lambda x: x["t"])
+
+
+def stream(scope: str, ws: Path) -> list[dict]:
+    return ended(scope)
+
+
+def context(scope: str, ws: Path, since: float, until: float) -> list[tuple[float, str]]:
+    return [(x["t"], f"cauce task #{x['id']} in {x['repo']} ended {x['status']}: {x['title']}"
+             + (f" ({x['asks']})" if x["asks"] else "")) for x in ended(scope) if since < x["t"] < until]
+
+
+def hint(scope: str, ws: Path) -> str:
+    return ("The user's coding tasks run in cauce and show in the Code tab of their page. cauce_board lists them, "
+            "cauce_task explains one, cauce_queue queues a new one in a repository this workspace may use. You cannot "
+            "run the queue, cancel or merge: the user does that with the buttons in the Code tab.")
+
+
+def health() -> list[dict]:
+    exe = cl.binary()
+    found = cl.version() if exe else None
+    return [{"label": "cauce", "ok": bool(found),
+             "text": found or ("not installed: claude plugin install cauce@rixmerz" if not exe else f"{exe} does not answer")}]
+
+
+def task_detail(scope: str, ws: Path, q: dict) -> dict:
+    try:
+        task_id = int(q.get("id", ""))
+    except ValueError as e:
+        raise cl.ToolError("a task id is a number") from e
+    d = cl.task(scope, task_id)
+    keep = ("seq", "cell", "turns", "cost_usd", "passed", "failure", "summary", "move", "move_reason")
+    return {"task": d["task"], "branch": d.get("branch"), "plan": d.get("plan"),
+            "attempts": [{k: a.get(k) for k in keep} for a in d.get("attempts", [])]}
+
+
+def _id(body: dict) -> int:
+    try:
+        return int(body.get("id", ""))
+    except ValueError as e:
+        raise cl.ToolError("a task id is a number") from e
+
+
+ACTIONS = {
+    "cancel": lambda scope, ws, body: cl.cancel(scope, _id(body)),
+    "unpause": lambda scope, ws, body: cl.unpause(scope, str(body.get("repo", ""))),
+    "work": lambda scope, ws, body: cl.work(scope, str(body.get("repo", ""))),
+}
+GETS = {"task": task_detail}

@@ -1,0 +1,30 @@
+{
+  "name": "cauce_queue",
+  "effect": "modify",
+  "description": "Queues a coding task for cauce in one repository this workspace may use: fixing, building, changing, documenting or reviewing something there. The task waits in that repository's queue and runs only when the user starts the queue on their page, so queueing costs nothing. Use it when the user asks for something to be done in their code. It needs the repository name from cauce_board and the task in the user's words; if either is unclear, ask. Calling it twice queues the task twice, so never repeat a call that succeeded. Returns the task number.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,60}$",
+      "required": true,
+      "description": "The repository, by the name cauce_board lists (e.g. webapp)."
+    },
+    "task": {
+      "type": "string",
+      "pattern": "^[^\\n]{10,2000}$",
+      "required": true,
+      "description": "What should be done, in the user's words, complete on its own (e.g. the login page keeps the query string after redirecting)."
+    },
+    "check": {
+      "type": "string",
+      "pattern": "^[^\\n]{2,200}$",
+      "description": "A command that proves it worked, only if the user gave one (e.g. pytest -q tests/test_login.py)."
+    }
+  },
+  "examples": [
+    {"repo": "webapp", "task": "Fix the login redirect: it drops the query string"},
+    {"repo": "webapp", "task": "Add a test for the empty cart total", "check": "pytest -q tests/test_cart.py"}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_queue.py"]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "cauce_task",
+  "effect": "read",
+  "description": "Shows one coding task cauce ran: its state, every attempt with the model it used and how it ended, why it moved to the next model, its cost, and the branch to review when it passed. Use it when the user asks why a task failed, what it did, or what it needs from them. It needs the task id: call cauce_board first unless the user gave the number. It does not list tasks (that is cauce_board). Returns a few lines; relay what the task asks of the user.",
+  "params": {
+    "task_id": {
+      "type": "integer",
+      "minimum": 1,
+      "required": true,
+      "description": "The task number, as cauce_board shows it after # (e.g. 12)."
+    }
+  },
+  "examples": [
+    {"task_id": 12}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_task.py"]
+}
