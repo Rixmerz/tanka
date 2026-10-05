@@ -349,6 +349,24 @@ table.board select { font: inherit; font-size: 13px; color: var(--ink); backgrou
 tr.detail td { background: var(--bubble); white-space: pre-wrap; font-size: 14px; }
 tr.detail .k { color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; display: block; margin-top: 6px; }
 
+/* ---------- code: cauce's tasks, their way through the matrix, and the workers out now */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 9px; }
+.flow .kind { font-size: 11.5px; font-weight: 650; color: var(--muted); margin-right: 4px; }
+.flow .step { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11.5px; padding: 1px 8px; border-radius: 99px; border: 1px dashed var(--line); color: var(--faint); }
+.flow .step.start { border-style: solid; color: var(--muted); }
+.flow .step.fail { border-style: solid; border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); color: var(--bad); }
+.flow .step.ok { border-style: solid; border-color: var(--good); color: var(--good); font-weight: 650; }
+.flow .step.now { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 650; animation: stepnow 1.6s ease-in-out infinite; }
+.flow .step .ico { width: 12px; height: 12px; }
+.flow .to { color: var(--faint); font-size: 11px; }
+@keyframes stepnow { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .flow .step.now { animation: none; } }
+.agent .cell { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.agent .caps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.steps { margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
+.steps li { margin: 3px 0; }
+.steps .why { color: var(--muted); }
+
 /* ---------- records: the shared look of boards and people */
 .tone-info { --tone: var(--info); } .tone-warn { --tone: var(--warn); } .tone-good { --tone: var(--good); }
 .tone-bad { --tone: var(--bad); } .tone-accent { --tone: var(--accent); } .tone-dev { --tone: var(--dev); } .tone-neutral { --tone: var(--muted); }

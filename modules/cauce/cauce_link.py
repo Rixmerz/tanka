@@ -276,6 +276,20 @@ def cell_of(t: dict) -> str:
     return t.get("current_cell") or t.get("final_cell") or t.get("start_cell") or "-"
 
 
+def minutes(iso: str | None) -> str:
+    seconds = time.time() - epoch(iso) if iso else -1
+    if seconds < 0:
+        return "?"
+    m = int(seconds // 60)
+    return "under a minute" if m < 1 else f"{m} min" if m < 60 else f"{m // 60} h {m % 60} min"
+
+
+def tries(t: dict) -> str:
+    """The way a task took through its ladder: haiku ✗ → sonnet/low ✓."""
+    steps = (t.get("flow") or {}).get("steps") or []
+    return " → ".join(f"{s['cell']} {'✓' if s.get('passed') else '✗'}" for s in steps)
+
+
 def line(t: dict, *parts: str) -> str:
     return " | ".join([f"#{t['id']}", t.get("repo_name") or "?", *[p for p in parts if p], clip(t.get("title"), TITLE_CHARS)])
 
@@ -293,17 +307,24 @@ def board_text(scope: str, name: str | None = None) -> str:
     out.append(f"Needs the user ({len(needs)}):")
     out += [line(t, t.get("status", ""), t.get("asks", "")) for t in needs] or ["(nothing)"]
     running = [t for t in b["running"] if keep(t)]
-    out.append(f"Running ({len(running)}):")
-    out += [line(t, cell_of(t), f"attempt {t.get('attempt') or 1}", f"${t.get('cost_usd') or 0:.2f}") for t in running] or ["(nothing)"]
+    agents = [t for t in running if t.get("worker")]
+    out.append(f"Agents working ({len(agents)}), each a cauce worker on one attempt:")
+    out += [line(t, t["worker"].get("cell") or cell_of(t), f"attempt {t['worker'].get('seq') or 1}",
+                 f"running {minutes(t['worker'].get('started_at'))}", f"${t.get('cost_usd') or 0:.2f} so far")
+            for t in agents] or ["(none)"]
+    between = [t for t in running if t.get("flow") and not t.get("worker")]
+    out += [line(t, "between attempts", f"tried {', '.join(s['cell'] for s in t['flow']['steps']) or 'nothing yet'}")
+            for t in between]
     lanes = [lane for lane in b["queued"] if not name or lane.get("repo_name") == name]
-    out.append(f"Queued ({sum(len(lane['tasks']) for lane in lanes)}):")
+    out.append(f"Pending ({sum(len(lane['tasks']) for lane in lanes)}):")
     for lane in lanes:
         if lane.get("paused"):
             out.append(f"{lane.get('repo_name') or '?'} is paused: {lane.get('reason') or 'a task did not pass'}")
         out += [line(t, "queued") for t in lane["tasks"]]
     done = [t for t in b["done"] if keep(t)][:DONE_SHOWN]
-    out.append("Finished recently:")
-    out += [line(t, f"passed at {cell_of(t)}", f"branch {t['branch']}" if t.get("branch") else "") for t in done] or ["(nothing)"]
+    out.append("Done recently:")
+    out += [line(t, f"passed at {cell_of(t)}", tries(t), f"branch {t['branch']}" if t.get("branch") else "")
+            for t in done] or ["(nothing)"]
     return "\n".join(out)
 
 

@@ -40,6 +40,9 @@ print(answer if isinstance(answer, str) else json.dumps(answer))
 '''
 
 NOW = datetime.now(UTC).isoformat(timespec="seconds")
+FLOW = {"kind": "implement", "start": "sonnet/low", "ladder": ["sonnet/low", "sonnet/medium", "opus/medium"],
+        "reasons": [], "steps": [{"seq": 1, "cell": "sonnet/low", "passed": 0, "failure": "code_bug",
+                                  "move": "more_effort", "move_reason": "the work was shallow"}]}
 
 
 def task(i, status, repo="github.com/o/app", **kw):
@@ -78,9 +81,12 @@ class CauceCase(unittest.TestCase):
     def board(self, **kw):
         b = {"counts": {"needs_you": 1, "running": 1, "queued": 1, "done": 1},
              "needs_you": [task(1, "failed", asks="every cell on its ladder failed: read the attempts")],
-             "running": [task(2, "running", current_cell="sonnet/medium", attempt=2)],
+             "running": [task(2, "running", current_cell="sonnet/medium", attempt=2, flow=FLOW,
+                              worker={"seq": 2, "cell": "sonnet/medium", "max_turns": 30, "budget_usd": 1.9,
+                                      "capabilities": ["livespec"], "started_at": NOW, "alive": True})],
              "queued": [{"repo": "github.com/o/app", "paused": False, "reason": None, "tasks": [task(3, "queued")]}],
-             "done": [task(4, "done", branch="cauce/task-4")],
+             "done": [task(4, "done", branch="cauce/task-4", flow=dict(FLOW, steps=[
+                 {"seq": 1, "cell": "haiku", "passed": 1}]))],
              "repos": {str(self.app): "github.com/o/app"}}
         b.update(kw)
         return b
@@ -146,9 +152,10 @@ class TestCalls(CauceCase):
         self.assertEqual(len(self.calls()), 1)  # cached between polls
         text = cl.board_text("duck")
         self.assertIn("#1 | app | failed | every cell on its ladder failed", text)
-        self.assertIn("#2 | app | sonnet/medium | attempt 2 | $0.03 | task 2", text)
+        self.assertIn("Agents working (1)", text)
+        self.assertIn("#2 | app | sonnet/medium | attempt 2 | running under a minute | $0.03 so far | task 2", text)
         self.assertIn("#3 | app | queued | task 3", text)
-        self.assertIn("#4 | app | passed at haiku | branch cauce/task-4 | task 4", text)
+        self.assertIn("#4 | app | passed at haiku | haiku ✓ | branch cauce/task-4 | task 4", text)
         with self.assertRaisesRegex(cl.ToolError, "not a repository"):
             cl.board_text("duck", "other")
 
