@@ -1021,7 +1021,7 @@ function usingLabel(name) {
 function tick() {
   const sc = current();
   if (sc && sc.busy) $("thinkingLbl").textContent = sc.draft && sc.draft.tool
-    ? (sc.busy_mode === "dev" ? T.devUsing(sc.draft.tool) : usingLabel(sc.draft.tool))
+    ? (sc.busy_mode === "dev" && sc.draft.tool !== "compact" ? T.devUsing(sc.draft.tool) : usingLabel(sc.draft.tool))
     : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - sc.busy)));
 }
 
