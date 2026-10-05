@@ -56,6 +56,24 @@ each one a file in `files/`), the bubble shows them, and the assistant is told t
 Taking a chip off the message leaves the file in the workspace. Reading a file the user added needs no
 skill, and the per-turn reminder says so.
 
+## Folders outside the workspace
+
+The assistant reads its own workspace. Anything else it reads only from a folder the user approved, read
+only. When it tries to read outside (Read, Glob, Grep), the `PreToolUse` hook checks the folder against
+`read_dirs` in `.tanka/policy.json`, which the assistant cannot write:
+
+- approved: the read is allowed, and the launcher already passed the folder to Claude Code as `--add-dir`;
+- not approved: the read is denied and the hook leaves a **request** for that folder, outside every
+  workspace (`TANKA_PAGE_HOME/access/`), so the assistant cannot approve itself. The chat shows it where it
+  happened, with *Approve, read only* and *Deny*; approving adds the folder (or one above it, by
+  `POST /api/access {scope, id, decision, dir?}`) and the next message reads it;
+- never: the whole disk, the home folder itself, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.claude`, `~/.tanka`
+  (every workspace's data and the page's), `~/.config/gcloud`, `~/.kube`, `~/.docker`, or any folder that
+  holds one of them. These are denied without a request, whatever the policy says.
+
+A path is resolved before it is checked, so a link inside the workspace cannot lead out of it. Writing
+outside the workspace stays denied. Workspace → Rules lists the approved folders, to add or remove by hand.
+
 ## Commands
 
 Typing `/` as the first thing in the box, or the **/** button beside it, opens the commands that mode can
@@ -165,6 +183,7 @@ terminal sessions update their tools by themselves, and a new skill needs `/relo
 | `POST /api/workspace/settings` `{scope, persona?, policy?, advisor_model?}` | save the profile, the rules or the advisor |
 | `POST /api/workspace/create` `{scope, name?}` | a new workspace (`tanka init`) with its assistant's name |
 | `POST /api/workspace/reload` `{scope, what, mode?}` | rescan the skills, start and ask the MCP servers, or start a new conversation |
+| `POST /api/access` `{scope, id, decision, dir?}` | approve (read only) or deny the assistant's request to read a folder |
 | `POST /api/persona/name` `{scope, name}` | rename the persona |
 | `POST /api/persona/avatar` `{scope, type, data}` | set the picture |
 | `POST /api/persona/avatar-remove` `{scope}` | remove the picture |

@@ -450,6 +450,13 @@ def main(argv: list[str]) -> int:
         text, is_error = run_tool(ws, m, args)
         print(("ERROR " if is_error else "") + text)
         return 1 if is_error else 0
+    if cmd == "read-dirs":
+        # One argument per line: --add-dir and each folder the user approved for reading.
+        import tanka_common as tc
+        for d in tc.read_dirs(tc.load_policy(ws)):
+            print("--add-dir")
+            print(str(d))
+        return 0
     if cmd == "mcp-config" and len(argv) >= 3:
         # One --mcp-config value per line: Tanka's own server, then the
         # workspace's mcp.json only when the policy lets foreign servers load.

@@ -136,6 +136,7 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 | Forgets rules in long conversations | Hard rules re-injected every turn; objective persisted to a file; forced output style |
 | Degrades with many tools / 200K without compaction | Clean workspace, `--strict-mcp-config`, warning above 3 servers, low `MAX_MCP_OUTPUT_TOKENS` |
 | Overreaches (commits, sends, deletes) | `send` and `modify` require confirmation; `destructive` is denied; `may_send` per objective |
+| Reads what it should not | Only its workspace and the folders you approved (read only); a read elsewhere leaves a request with an Approve button in the chat; keys, the home folder and Tanka's own data never |
 | Follows instructions embedded in email | External content is treated as data, and no irreversible action is possible without a human |
 
 **Always open the workspace through `tanka`.** A plain `claude` or `claude -r` inside it has none of Tanka's tools or guardrails and loads your own plugins, so the workspace's settings refuse its first prompt and point to `tanka <workspace name>`.

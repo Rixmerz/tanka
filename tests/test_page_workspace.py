@@ -362,6 +362,51 @@ class TestConversationAndTools(WorkspacePageCase):
         return self.call("POST", "/api/workspace/reload", {"scope": "duck", "what": what})
 
 
+class TestAccess(WorkspacePageCase):
+    """Folders outside the workspace: approved by the user, from a request in the chat or by hand in Rules."""
+
+    def setUp(self):
+        super().setUp()
+        import tanka_common as tc
+        self.tc = tc
+        self.course = self.tmp / "elsewhere" / "course"
+        (self.course / "submissions").mkdir(parents=True)
+
+    def policy(self):
+        return json.loads((self.ws / ".tanka" / "policy.json").read_text())
+
+    def test_a_request_shows_in_the_chat_and_approving_adds_the_folder(self):
+        req = self.tc.request_access(self.ws, self.course / "submissions", "Read", self.course / "submissions" / "a.pdf")
+        item = next(m for m in self.scope()["chat"] if m.get("who") == "access")
+        self.assertEqual((item["id"], item["state"]), (req["id"], "pending"))
+        # the user may approve the folder above the one asked for
+        status, data = self.call("POST", "/api/access", {"scope": "duck", "id": req["id"], "decision": "approve", "dir": str(self.course)})
+        self.assertEqual((status, data["state"]), (200, "approved"), data)
+        self.assertEqual(self.policy()["read_dirs"], [str(self.course.resolve())])
+        self.assertEqual(next(m for m in self.scope()["chat"] if m.get("who") == "access")["state"], "approved")
+        self.assertEqual(self.call("POST", "/api/access", {"scope": "duck", "id": req["id"], "decision": "deny"})[1]["state"], "approved")
+
+    def test_denying_and_what_is_refused(self):
+        req = self.tc.request_access(self.ws, self.course, "Read", self.course / "x")
+        self.assertEqual(self.call("POST", "/api/access", {"scope": "duck", "id": req["id"], "decision": "deny"})[1]["state"], "denied")
+        self.assertNotIn("read_dirs", self.policy())
+        req = self.tc.request_access(self.ws, self.course, "Read", self.course / "x")
+        for body in ({"decision": "maybe"}, {"decision": "approve", "dir": str(Path.home())},
+                     {"decision": "approve", "dir": str(self.tmp / "nowhere")}, {"id": "nope", "decision": "approve"}):
+            with self.subTest(body=body):
+                self.assertEqual(self.call("POST", "/api/access", {"scope": "duck", "id": req["id"], **body})[0], 400)
+
+    def test_folders_by_hand_in_the_rules(self):
+        status, data = self.call("POST", "/api/workspace/settings", {"scope": "duck", "policy": {
+            "read_dirs": [str(self.course), "file://" + str(self.course / "submissions"), str(self.course), ""]}})
+        self.assertEqual(status, 200, data)
+        self.assertEqual(self.policy()["read_dirs"], [str(self.course.resolve()), str((self.course / "submissions").resolve())])
+        self.assertEqual(self.report()["settings"]["policy"]["read_dirs"], self.policy()["read_dirs"])
+        for bad in ([str(Path.home())], [str(Path.home() / ".ssh")], ["relative/path"], [str(self.tmp / "nowhere")], ["/"]):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.call("POST", "/api/workspace/settings", {"scope": "duck", "policy": {"read_dirs": bad}})[0], 400)
+
+
 class TestManager(WorkspacePageCase):
     def act(self, action, **body):
         return self.call("POST", f"/api/workspace/{action}", dict(body, scope="duck"))

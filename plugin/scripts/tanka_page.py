@@ -31,7 +31,7 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tanka_automation as ta  # noqa: E402
@@ -312,6 +312,7 @@ def settings_report(ws: Path) -> dict:
                                 **{k: list(sv.get(k) or []) for k in (*PATTERN_LISTS, "internal_domains")}},
             "loop_guard": {k: int(lg.get(k) or 0) for k in LOOP_LIMITS},
             "closing_report": bool(policy.get("objective", {}).get("require_closing_report_when_tools_used", True)),
+            "read_dirs": [str(d) for d in policy.get("read_dirs") or []],
         },
         "advisor_model": str(advisor.get("advisorModel") or "sonnet") if isinstance(advisor, dict) else "sonnet",
         "limits": {"loop_guard": LOOP_LIMITS, "send_validation": SEND_LIMITS, "persona": {k: v[0] for k, v in PERSONA_FIELDS.items()}},
@@ -350,6 +351,62 @@ def _patterns(where: str, value) -> list[str]:
             raise ToolError(f"{where}: '{item}' is not a valid pattern ({e}).") from e
         out.append(item)
     return out
+
+
+def readable_dir(value) -> str:
+    """A folder the assistant may read: one that exists, given whole, and never one that holds the home
+    folder, keys or Tanka's own data."""
+    text = str(value or "").strip()
+    if text.startswith("file://"):
+        text = unquote(urlparse(text).path)
+    path = Path(text).expanduser()
+    if not text or not path.is_absolute():
+        raise ToolError(f"'{text}' is not a full path to a folder (like /home/you/Documents/course).")
+    if not path.is_dir():
+        raise ToolError(f"{path} is not a folder on this computer.")
+    never = tc.never_readable(path)
+    if never:
+        raise ToolError(f"{path} cannot be opened to the assistant: {never}.")
+    return str(path.resolve())
+
+
+def readable_dirs(values) -> list[str]:
+    if not isinstance(values, list):
+        raise ToolError("read_dirs must be a list of folders.")
+    out = []
+    for v in values:
+        if str(v or "").strip() and (d := readable_dir(v)) not in out:
+            out.append(d)
+    if len(out) > tc.MAX_READ_DIRS:
+        raise ToolError(f"At most {tc.MAX_READ_DIRS} folders.")
+    return out
+
+
+def decide_access(scope: str, body: dict) -> dict:
+    """The user's answer to a request to read a folder: approve adds it to the workspace's rules."""
+    ws = kit.ws_dir(known_scope(scope))
+    decision = str(body.get("decision", ""))
+    if decision not in ("approve", "deny"):
+        raise ToolError("Approve or deny.")
+    reqs = tc.access_requests(ws)
+    req = next((r for r in reqs if r.get("id") == body.get("id")), None)
+    if req is None:
+        raise ToolError("No such request.")
+    if req.get("state") != "pending":
+        return {"ok": True, "state": req["state"]}
+    if decision == "approve":
+        folder = readable_dir(body.get("dir") or req["dir"])  # the user may approve a folder above the one asked
+        raw = kit.read_json(tc.tanka_dir(ws) / tc.POLICY_FILE, {})
+        if not isinstance(raw, dict):
+            raise ToolError("policy.json is not a JSON object; fix it by hand.")
+        raw["read_dirs"] = readable_dirs([*(raw.get("read_dirs") or []), folder])
+        kit.write_json(tc.tanka_dir(ws) / tc.POLICY_FILE, raw)
+        req.update(state="approved", approved=folder)
+    else:
+        req["state"] = "denied"
+    req["decided"] = round(time.time(), 3)
+    kit.write_json(tc.access_file(ws), reqs)
+    return {"ok": True, "state": req["state"], "dir": req.get("approved", req["dir"])}
 
 
 def save_settings(scope: str, body: dict) -> dict:
@@ -412,6 +469,8 @@ def save_settings(scope: str, body: dict) -> dict:
         for key, (low, high) in LOOP_LIMITS.items():
             if key in lg_in:
                 raw.setdefault("loop_guard", {})[key] = _int(key, lg_in[key], low, high)
+        if "read_dirs" in policy_in:
+            raw["read_dirs"] = readable_dirs(policy_in["read_dirs"])
         if "closing_report" in policy_in:
             raw.setdefault("objective", {})["require_closing_report_when_tools_used"] = policy_in["closing_report"] is True
     settings = None
@@ -708,6 +767,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, {"name": set_name(str(body.get("scope", "")), body.get("name"))})
             if self.path.startswith("/api/workspace/"):
                 return self.json(200, workspace_action(self.path[len("/api/workspace/"):], body))
+            if self.path == "/api/access":
+                return self.json(200, decide_access(str(body.get("scope", "")), body))
             if self.path == "/api/chat":
                 scope = known_scope(str(body.get("scope", "")))
                 files = body.get("files") or []

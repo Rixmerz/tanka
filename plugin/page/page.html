@@ -329,6 +329,9 @@ p.problem, p.warning { margin: 6px 0 0; white-space: pre-wrap; }
 
 .sep.notice { font-size: 12.5px; font-weight: 500; text-transform: none; letter-spacing: 0; }
 
+.event .sub-line { margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.event code { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+
 /* ---------- files dropped on the chat */
 .attached { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 3px 6px 3px 11px; font-size: 13px; }
@@ -610,6 +613,9 @@ const T = {
   liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The automation daemon is not polling: reminders and routines will not run. Open Health.",
   workspace: "Workspace",
   placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
+  accessTitle: n => `${n} asks to read a folder outside its workspace`, accessFile: f => `It tried to open ${f}`,
+  accessApprove: "Approve, read only", accessDeny: "Deny", accessHint: "It can read, never change, what is in it. You can remove it later in Workspace → Rules.",
+  accessApproved: "Approved: it reads this folder from your next message. Ask it again.", accessDenied: "Denied.",
   hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCommands: " commands", hintDrop: " · drop files to add them",
   attach: "Add files to the workspace", dropHere: "Drop to copy into the workspace", copying: "copying…", removeFile: n => `Leave ${n} out of the message`,
   tooMany: n => `At most ${n} files in one message.`,
@@ -666,6 +672,8 @@ const TW = {
   dec: { allow: "do it", ask: "ask me first", deny: "never" }, destructive: "Delete or destroy", always: "never — always denied, this cannot change",
   sendAllow: "It will send without asking you. Only do this for a workspace whose recipients you trust.",
   external: "Other MCP servers", extDeny: "blocked", extPolicy: "loaded from .tanka/mcp.json and decided by the rules above",
+  readTitle: "Folders outside the workspace", readDirs: "It may read (one folder per line)",
+  readHint: "Read only, never changed. Not your whole home folder, ~/.ssh, ~/.aws, ~/.claude or ~/.tanka. When it needs another, it asks in the chat.",
   sendChecks: "Checks before anything is sent", requireSubject: "Require a subject", minBody: "Shortest message (characters)",
   maxRecipients: "Most recipients in one send", allowlist: "Only these recipients (patterns, one per line)", allowHint: "Empty lets it write to anyone.",
   blocklist: "Never these recipients (patterns, one per line)", internal: "Your own domains (one per line)", internalHint: "Anyone else is flagged as external when it asks you.",
@@ -883,12 +891,30 @@ function chip(sc, f) {
   return spec && spec.chips ? spec.chips(sc, f, modOf(sc, f.module)) : null;
 }
 
+// The assistant tried to read a folder outside its workspace: the user approves it (read only) or not.
+function accessEvent(sc, m) {
+  const decide = (decision) => act(api("/api/access", { scope: sc.scope, id: m.id, decision }));
+  const st = m.state || "pending";
+  return el("div", { class: "event" + (st === "pending" ? "" : " quiet") },
+    el("div", { class: "head" }, icon("search"), el("span", { class: "label" }, T.accessTitle(nameOf(sc))),
+      el("span", { class: "spacer" }), el("span", {}, hm(m.t))),
+    el("p", { class: "text" }, el("code", {}, m.dir)),
+    m.file && m.file !== m.dir ? el("div", { class: "sub-line" }, T.accessFile(m.file)) : null,
+    st === "pending"
+      ? el("div", { class: "acts" },
+          el("button", { type: "button", class: "btn primary", on: { click: () => decide("approve") } }, icon("check"), T.accessApprove),
+          el("button", { type: "button", class: "btn", on: { click: () => decide("deny") } }, T.accessDeny),
+          el("span", { class: "meta" }, T.accessHint))
+      : el("div", { class: "state" + (st === "approved" ? " ok" : "") }, st === "approved" ? T.accessApproved : T.accessDenied));
+}
+
 function message(sc, m, first) {
   if (m.module) {
     const spec = MODS[m.module], render = spec && spec.items && spec.items[m.who];
     return render ? render(sc, m, modOf(sc, m.module)) : null;
   }
   if (m.who === "notice") return el("div", { class: "sep notice", role: "note" }, m.text);
+  if (m.who === "access") return accessEvent(sc, m);
   if (m.who === "report") return reportEvent(m);
   if (m.who === "you") return el("div", { class: "msg you" + (m.mode === "dev" ? " dev" : "") + (first ? " first" : "") },
     el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t), m.mode === "dev" ? el("span", { class: "to" }, " · " + T.toDev) : null) : null,
@@ -1382,6 +1408,7 @@ function saveSettings(sc, part) {
   if (part === "rules") {
     const p = clone(f.policy), sv = p.send_validation;
     for (const k of ["recipient_allowlist", "recipient_blocklist", "internal_domains"]) sv[k] = (sv[k] || []).map(x => x.trim()).filter(Boolean);
+    p.read_dirs = (p.read_dirs || []).map(x => x.trim()).filter(Boolean);
     body.policy = p;
   }
   // A save that changed something loads the tab again (a new version), and the form starts from what was saved.
@@ -1414,6 +1441,8 @@ function rulesCard(sc, d) {
       el("h3", {}, TW.decisions), ...decRows,
       el("span", { class: "lbl" }, TW.destructive), el("span", { class: "meta" }, TW.always),
       ...row(f, ["policy", "external_mcp"], TW.external, "select", { options: [["deny", TW.extDeny], ["policy", TW.extPolicy]] }),
+      el("h3", {}, TW.readTitle),
+      ...row(f, ["policy", "read_dirs"], TW.readDirs, "lines", null, TW.readHint),
       el("h3", {}, TW.sendChecks),
       ...row(f, ["policy", "send_validation", "require_subject"], TW.requireSubject, "bool"),
       ...num("send_validation", "min_body_chars", TW.minBody), ...num("send_validation", "max_recipients", TW.maxRecipients),

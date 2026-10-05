@@ -12,6 +12,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugin" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import tanka_common as tc  # noqa: E402
 TEMPLATE = REPO / "workspace-template"
 
 
@@ -489,6 +491,82 @@ class TestPersonaHelpers(unittest.TestCase):
                      "Status: needs-confirmation", "Statut: terminé"):
             self.assertTrue(re.search(rx, line), line)
         self.assertFalse(re.search(rx, "everything went fine"))
+
+
+class TestReadOutside(HookTestCase):
+    """Reading outside the workspace: only from folders the user approved, and a request otherwise."""
+
+    def setUp(self):
+        super().setUp()
+        self.page = Path(tempfile.mkdtemp(prefix="tanka-page-"))
+        self.addCleanup(shutil.rmtree, self.page, True)
+        old = os.environ.get("TANKA_PAGE_HOME")
+        os.environ["TANKA_PAGE_HOME"] = str(self.page)
+        self.addCleanup(lambda: os.environ.pop("TANKA_PAGE_HOME", None) if old is None else os.environ.__setitem__("TANKA_PAGE_HOME", old))
+        self.outside = Path(tempfile.mkdtemp(prefix="tanka-outside-")).resolve()
+        self.addCleanup(shutil.rmtree, self.outside, True)
+        (self.outside / "course" / "submissions").mkdir(parents=True)
+        (self.outside / "course" / "key.pdf").write_text("key")
+
+    def approve(self, *dirs):
+        pol = self.tmp / ".tanka" / "policy.json"
+        data = json.loads(pol.read_text())
+        data["read_dirs"] = [str(d) for d in dirs]
+        pol.write_text(json.dumps(data))
+
+    def requests(self):
+        return tc.access_requests(self.tmp)
+
+    def test_inside_the_workspace_is_not_its_business(self):
+        code, out, _ = self.pre("Read", {"file_path": str(self.tmp / ".tanka" / "persona.json")})
+        self.assertEqual(decision(out), "")
+        self.assertEqual(self.requests(), [])
+
+    def test_outside_and_not_approved_leaves_one_request(self):
+        target = self.outside / "course" / "key.pdf"
+        code, out, _ = self.pre("Read", {"file_path": str(target)})
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("Approve button", reason(out))
+        self.pre("Read", {"file_path": str(target)}, tool_use_id="tu2")
+        reqs = self.requests()
+        self.assertEqual(len(reqs), 1)  # asking twice does not ask twice
+        self.assertEqual((reqs[0]["dir"], reqs[0]["state"]), (str(self.outside / "course"), "pending"))
+        code, out, _ = self.pre("Glob", {"pattern": str(self.outside / "course" / "submissions") + "/**/*.pdf"})
+        self.assertEqual(decision(out), "deny")
+        self.assertEqual(self.requests()[-1]["dir"], str(self.outside / "course" / "submissions"))
+
+    def test_an_approved_folder_is_read_and_nothing_above_it(self):
+        self.approve(self.outside / "course")
+        code, out, _ = self.pre("Read", {"file_path": str(self.outside / "course" / "key.pdf")})
+        self.assertEqual(decision(out), "allow")
+        code, out, _ = self.pre("Grep", {"pattern": "x", "path": str(self.outside / "course" / "submissions")})
+        self.assertEqual(decision(out), "allow")
+        code, out, _ = self.pre("Read", {"file_path": str(self.outside / "elsewhere.txt")})
+        self.assertEqual(decision(out), "deny")
+        code, out, _ = self.pre("Write", {"file_path": str(self.outside / "course" / "x.txt"), "content": "x"})
+        self.assertEqual(decision(out), "deny")  # read only
+
+    def test_a_link_cannot_lead_out_of_the_workspace(self):
+        (self.tmp / "notes").mkdir(exist_ok=True)
+        (self.tmp / "notes" / "key.pdf").symlink_to(self.outside / "course" / "key.pdf")
+        code, out, _ = self.pre("Read", {"file_path": str(self.tmp / "notes" / "key.pdf")})
+        self.assertEqual(decision(out), "deny")
+
+    def test_keys_home_and_tanka_are_never_readable_and_never_asked_for(self):
+        self.approve(Path.home(), Path.home() / ".ssh")
+        for path in (Path.home() / ".ssh" / "id_rsa", Path.home() / ".tanka" / "workspaces" / "other" / "x",
+                     Path.home() / "Documents" / "x"):
+            with self.subTest(path=path):
+                code, out, _ = self.pre("Read", {"file_path": str(path)})
+                self.assertEqual(decision(out), "deny")
+        self.assertIn("never allowed", reason(self.pre("Read", {"file_path": str(Path.home() / ".ssh" / "id_rsa")})[1]))
+        self.assertTrue(all(".ssh" not in r["dir"] and ".tanka" not in r["dir"] for r in self.requests()))
+
+    def test_the_launcher_passes_each_approved_folder(self):
+        self.approve(self.outside / "course", self.outside / "missing", Path.home())
+        p = subprocess.run([sys.executable, str(SCRIPTS / "tanka_tools.py"), "read-dirs", str(self.tmp)],
+                           capture_output=True, text=True, check=True)
+        self.assertEqual(p.stdout.split(), ["--add-dir", str(self.outside / "course")])
 
 
 if __name__ == "__main__":

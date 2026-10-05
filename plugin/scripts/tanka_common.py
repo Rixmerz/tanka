@@ -560,6 +560,104 @@ def path_allowed(root: Path, file_path: str, globs: list[str]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Folders outside the workspace the user approved for reading
+# --------------------------------------------------------------------------- #
+# The assistant reads its own workspace. Anything else it reads only from a folder the user approved,
+# by hand on the page or by answering a request the hook leaves there when the assistant tries. The list
+# lives in policy.json ("read_dirs"), which the assistant cannot write; the launcher passes each one to
+# Claude Code as --add-dir, and the hook allows reads under them. Writing outside stays denied.
+READ_TOOLS = ("Read", "Glob", "Grep", "NotebookRead", "LS")
+MAX_READ_DIRS = 20
+ACCESS_KEEP = 50
+
+
+def never_readable(path: Path) -> str | None:
+    """Why a folder can never be approved, or None. It may not hold the user's whole home, their keys or
+    Tanka's own data (every workspace's, and the page's)."""
+    home = Path.home().resolve()
+    try:
+        p = path.expanduser().resolve()
+    except OSError:
+        return "it cannot be resolved"
+    if p == Path(p.anchor):
+        return "it is the whole disk"
+    if p == home or home.is_relative_to(p):
+        return "it holds your whole home folder"
+    for name in (".ssh", ".aws", ".gnupg", ".claude", ".tanka", ".config/gcloud", ".kube", ".docker"):
+        guarded = home / name
+        if p == guarded or p.is_relative_to(guarded) or guarded.is_relative_to(p):
+            return f"it holds ~/{name}"
+    return None
+
+
+def read_dirs(policy: dict) -> list[Path]:
+    out = []
+    for d in policy.get("read_dirs") or []:
+        try:
+            p = Path(str(d)).expanduser().resolve()
+        except OSError:
+            continue
+        if p.is_dir() and never_readable(p) is None:
+            out.append(p)
+    return out
+
+
+def read_target(tool: str, tool_input: dict, root: Path) -> Path | None:
+    """The folder or file a reading tool reaches, resolved (so a link cannot point it elsewhere)."""
+    if not isinstance(tool_input, dict):
+        return None
+    raw = tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path") or ""
+    if not raw and tool == "Glob":
+        pattern = str(tool_input.get("pattern") or "")
+        if pattern.startswith(("/", "~")):  # an absolute pattern reaches as far as its fixed part
+            fixed = []
+            for part in Path(pattern).parts:
+                if any(ch in part for ch in "*?[{"):
+                    break
+                fixed.append(part)
+            raw = str(Path(*fixed)) if fixed else ""
+    if not raw:
+        return None
+    p = Path(str(raw)).expanduser()
+    if not p.is_absolute():
+        p = root / p
+    try:
+        return p.resolve()
+    except OSError:
+        return None
+
+
+def access_file(root: Path) -> Path:
+    """The requests of one workspace, outside every workspace so the assistant cannot forge an approval."""
+    home = Path(os.environ.get("TANKA_PAGE_HOME", Path.home() / ".tanka" / "shared" / "page"))
+    real = Path(root).resolve()
+    key = hashlib.sha256(str(real).encode()).hexdigest()[:10]
+    return home / "access" / f"{re.sub(r'[^A-Za-z0-9_-]', '_', real.name)}-{key}.json"
+
+
+def access_requests(root: Path) -> list[dict]:
+    data = load_json(access_file(root), [])
+    return data if isinstance(data, list) else []
+
+
+def request_access(root: Path, folder: Path, tool: str, target: Path) -> dict:
+    """One pending request per folder: asking twice does not ask twice."""
+    reqs = access_requests(root)
+    for r in reqs:
+        if r.get("dir") == str(folder) and r.get("state") == "pending":
+            return r
+    req = {"id": hashlib.sha256(f"{folder}{time.time()}".encode()).hexdigest()[:10], "dir": str(folder),
+           "file": str(target), "tool": tool, "t": round(time.time(), 3), "state": "pending"}
+    reqs = (reqs + [req])[-ACCESS_KEEP:]
+    f = access_file(root)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(reqs, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(f)
+    return req
+
+
+# --------------------------------------------------------------------------- #
 # Outgoing-message validation
 # --------------------------------------------------------------------------- #
 def _flatten_strings(v, out: list[str], depth: int = 0) -> None:

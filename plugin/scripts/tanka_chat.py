@@ -537,6 +537,12 @@ def reports(scope: str) -> list[dict]:
     return out
 
 
+def access_items(scope: str) -> list[dict]:
+    """The assistant's requests to read a folder outside the workspace, where it asked: in the chat."""
+    return [{"t": r["t"], "who": "access", "id": r["id"], "dir": r["dir"], "file": r.get("file", ""),
+             "state": r.get("state", "pending")} for r in tc.access_requests(kit.ws_dir(scope)) if r.get("t")]
+
+
 def stream(scope: str) -> list[dict]:
     """The chat, the routines' reports and what each installed module adds, in time order: the last
     STREAM_ITEMS. Each answer carries the chips of what it changed, from the modules' `effects`."""
@@ -557,7 +563,7 @@ def stream(scope: str) -> list[dict]:
         for name, got in each(scope, "effects", spans):
             for m, chips in zip(answers, got):
                 m.setdefault("effects", []).extend(dict(f, module=name) for f in chips)
-    out += reports(scope)
+    out += reports(scope) + access_items(scope)
     for name, items in each(scope, "stream"):
         out += [dict(x, module=name) for x in items]
     return sorted(out, key=lambda m: m["t"])[-STREAM_ITEMS:]

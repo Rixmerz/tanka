@@ -132,6 +132,7 @@ common_args() {
     --setting-sources project,local \
     --strict-mcp-config --mcp-config
   python3 "$PLUGIN_DIR/scripts/tanka_tools.py" mcp-config "$ws" "$PLUGIN_DIR"
+  python3 "$PLUGIN_DIR/scripts/tanka_tools.py" read-dirs "$ws"
   printf '%s\n' \
     --plugin-dir "$PLUGIN_DIR" \
     --model "$MODEL" \

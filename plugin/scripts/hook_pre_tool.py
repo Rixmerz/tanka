@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tanka_common as tc  # noqa: E402
@@ -80,6 +81,31 @@ def main() -> None:
                 tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
                 tc.save_session(root, st)
                 tc.pre_tool_decision("deny", f"Subagent '{sub or 'general-purpose'}' is not available: only {prefix}* agents run in Tanka. Do the task with your own skills and tools, or tell the user it is not covered.")
+                return
+        if tool in tc.READ_TOOLS:
+            target = tc.read_target(tool, tool_input, root)
+            real_root = Path(root).resolve()
+            if target is not None and not (target == real_root or target.is_relative_to(real_root)):
+                never = tc.never_readable(target)
+                approved = None if never else next(
+                    (d for d in tc.read_dirs(policy) if target == d or target.is_relative_to(d)), None)
+                if approved is not None:
+                    tc.record_call(st, tool, tool_input, cls, "pending", tool_use_id)
+                    tc.save_session(root, st)
+                    tc.pre_tool_decision("allow", f"{tool} allowed: the user approved reading {approved}")
+                    return
+                tc.record_call(st, tool, tool_input, cls, "denied", tool_use_id)
+                tc.save_session(root, st)
+                if never:
+                    tc.pre_tool_decision("deny", f"Reading {target} is never allowed ({never}). Tell the user; do not "
+                                         "ask them to copy it.")
+                    return
+                folder = target if target.is_dir() else target.parent
+                tc.request_access(root, folder, tool, target)
+                tc.pre_tool_decision("deny", f"{folder} is outside your workspace and the user has not approved reading it. "
+                                     "A request to read that folder is on their page now, with an Approve button in the chat. "
+                                     "Tell them in one line, and try again after they approve it. Do not ask them to copy "
+                                     "files or to run a command.")
                 return
         if tool in ("Write", "Edit", "MultiEdit"):
             fp = str(tool_input.get("file_path", "")) if isinstance(tool_input, dict) else ""
