@@ -276,6 +276,53 @@ class TestSettings(WorkspacePageCase):
                 self.assertEqual(self.call("POST", "/api/workspace/create", {"scope": bad})[0], 400)
 
 
+class TestReload(WorkspacePageCase):
+    """Reload: what the next message loads, proved before it is sent."""
+
+    def reload(self, what, **extra):
+        return self.call("POST", "/api/workspace/reload", {"scope": "duck", "what": what, **extra})
+
+    def test_skills_are_scanned_again(self):
+        write_skill(tt.skills_dir(self.ws), "library", tools=2)
+        status, data = self.reload("skills")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["skills"], [{"name": "library", "tools": ["library_tool0", "library_tool1"]}])
+        self.assertEqual((data["tools"], data["problems"]), (2, []))
+
+    def test_the_mcp_servers_are_started_and_asked_for_their_tools(self):
+        write_skill(tt.skills_dir(self.ws), "library", tools=1)
+        fake = str(Path(__file__).resolve().parent / "fake_mcp_server.py")
+        (self.ws / ".tanka" / "mcp.json").write_text(json.dumps({"mcpServers": {
+            "mail": {"command": sys.executable, "args": [fake]},
+            "gone": {"command": "/no/such/server"},
+            "remote": {"type": "http", "url": "https://example.com/mcp"}}}))
+        status, data = self.reload("mcp")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["servers"][0], {"name": "tanka (this workspace's tools)", "ok": True, "tools": ["library_tool0"]})
+        self.assertEqual(data["external"], "blocked by the rules")
+        self.assertEqual(data["skipped"], ["gone", "mail", "remote"])
+        (self.ws / ".tanka" / "policy.json").write_text(json.dumps({"external_mcp": "policy"}))
+        got = {s["name"]: s for s in self.reload("mcp")[1]["servers"]}
+        self.assertEqual(got["mail"]["tools"], ["list_messages", "send_message", "trash_message"])
+        self.assertFalse(got["gone"]["ok"])
+        self.assertIn("could not start", got["gone"]["error"])
+        self.assertIsNone(got["remote"]["ok"])
+
+    def test_a_silent_or_dying_server_is_reported_not_waited_on(self):
+        self.patch(page, "MCP_PROBE_SECONDS", 1.0)
+        self.assertIn("no answer to initialize", page.probe_mcp("s", {"command": "sleep", "args": ["30"]}, self.ws)["error"])
+        self.assertIn("exited (code 1)", page.probe_mcp("f", {"command": "false"}, self.ws)["error"])
+
+    def test_a_new_conversation(self):
+        import tanka_chat as chat
+        chat.keep_session("duck", "abc")
+        self.assertEqual(chat.session_args("duck")[0], ["--resume", "abc"])
+        self.assertEqual(self.reload("conversation")[0], 200)
+        self.assertEqual(chat.session_args("duck")[0][0], "--session-id")
+        self.assertEqual(self.reload("conversation", mode="nope")[0], 400)
+        self.assertEqual(self.reload("everything")[0], 400)
+
+
 class TestManager(WorkspacePageCase):
     def act(self, action, **body):
         return self.call("POST", f"/api/workspace/{action}", dict(body, scope="duck"))

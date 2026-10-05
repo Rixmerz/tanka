@@ -114,6 +114,17 @@ before it writes anything, and keeps every key the page does not show. Destructi
 offered: they are always denied, and a request to allow them is refused. A field being typed in survives
 the page's polls; Save loads the tab again from what was written.
 
+**Reload.** Each chat message is a new `claude -p` process, so it already loads the skills and starts
+the MCP servers as they are on disk. The Reload card proves it before the next message, and gets out of a
+conversation that still believes something old. *Reload skills* scans the workspace again and lists every
+skill with its tools, the tools that will load out of 15, and every problem and warning; it also refreshes
+the `/` menu. *Reload MCP servers* starts each server the next message will start — Tanka's own, then the
+ones in `.tanka/mcp.json` when the rules let them load — the way Claude Code does (`initialize`, then
+`tools/list`, at most `TANKA_PAGE_MCP_PROBE_SECONDS`, 10, each), lists their tools or why one failed, and
+stops them; a remote server is named but not contacted. *New conversation* drops the day's session for the
+mode on screen, so the next message starts one. `POST /api/workspace/reload {scope, what: skills|mcp|conversation, mode?}`.
+Open terminal sessions are not reached: there, a new skill still needs `/reload-skills`.
+
 **A new workspace.** The workspace switcher ends in *New workspace*: a folder name and the assistant's
 name, and the page runs `tanka init` exactly as a terminal would (`POST /api/workspace/create`), then
 opens on it.
@@ -150,6 +161,7 @@ terminal sessions update their tools by themselves, and a new skill needs `/relo
 | `POST /api/workspace/skill` `{scope, skill, enabled}` | turn an own skill on or off |
 | `POST /api/workspace/settings` `{scope, persona?, policy?, advisor_model?}` | save the profile, the rules or the advisor |
 | `POST /api/workspace/create` `{scope, name?}` | a new workspace (`tanka init`) with its assistant's name |
+| `POST /api/workspace/reload` `{scope, what, mode?}` | rescan the skills, start and ask the MCP servers, or start a new conversation |
 | `POST /api/persona/name` `{scope, name}` | rename the persona |
 | `POST /api/persona/avatar` `{scope, type, data}` | set the picture |
 | `POST /api/persona/avatar-remove` `{scope}` | remove the picture |

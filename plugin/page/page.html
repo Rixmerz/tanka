@@ -672,6 +672,11 @@ const TW = {
   closing: "Ask for a closing status line after it used tools",
   newWs: "New workspace", newWsTitle: "A new workspace", folder: "Folder name", folderHint: "Lowercase letters, digits, - and _. It is how you open it: tanka <folder>.",
   asstName: "Assistant's name", create: "Create", cancel: "Cancel",
+  reload: "Reload", reloadHint: "Each message already loads the skills and starts the MCP servers as they are now. These check it before you send one, and start over a conversation that still believes something old.",
+  rSkills: "Reload skills", rMcp: "Reload MCP servers", rConv: "New conversation", rWorking: "Checking…",
+  rTools: (n, max) => `${n}/${max} tools load on the next message`, rNoSkills: "No skills in this workspace.",
+  rProblem: "Not loaded: ", rWarn: "Warning: ", rOk: n => plural(n, "tool", "tools"), rRemote: "not checked",
+  rExternal: e => `Other MCP servers: ${e}`, rSkipped: list => `Not started, the rules block them: ${list}`,
 };
 const nameOf = sc => (sc && sc.name) || "tanka";
 const ui = { tab: "chat", mode: "tanka", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
@@ -1418,6 +1423,48 @@ function rulesCard(sc, d) {
       el("button", { type: "button", class: "ghost", on: { click: undoForm } }, TW.reset)));
 }
 
+// The reload card: what the next message will load, checked now; and a fresh conversation.
+async function reloadDo(sc, what) {
+  wsv.reload = { what, busy: true };
+  wsv.formTick = (wsv.formTick || 0) + 1; render();
+  try {
+    wsv.reload = { what, data: await api("/api/workspace/reload", { scope: sc.scope, what, mode: ui.mode }) };
+    if (what === "skills") { cmdv.at = {}; cmdv.data = {}; }  // the / menu reads the skills again
+  } catch (e) { wsv.reload = { what, error: e.message }; }
+  wsv.formTick = (wsv.formTick || 0) + 1; render();
+}
+
+function reloadResult() {
+  const r = wsv.reload;
+  if (!r) return null;
+  if (r.busy) return el("p", { class: "meta" }, TW.rWorking);
+  if (r.error) return el("p", { class: "problem" }, r.error);
+  const d = r.data || {};
+  if (r.what === "conversation") return el("p", { class: "meta" }, d.message || "");
+  if (r.what === "skills") return el("div", {},
+    el("p", { class: "meta" }, TW.rTools(d.tools, d.tools_max)),
+    (d.skills || []).length ? el("ul", { class: "steps" }, d.skills.map(x => el("li", {}, el("strong", {}, x.name), x.tools.length ? " · " + x.tools.join(", ") : ""))) : el("p", { class: "meta" }, TW.rNoSkills),
+    (d.problems || []).map(x => el("p", { class: "problem" }, TW.rProblem + x)),
+    (d.warnings || []).map(x => el("p", { class: "meta" }, TW.rWarn + x)));
+  return el("div", {},
+    el("ul", { class: "fixes" }, (d.servers || []).map(x => el("li", { "data-outcome": x.ok === true ? "worked" : x.ok === false ? "failed" : "pending" },
+      el("span", { class: "mk" }, x.ok === true ? "✓" : x.ok === false ? "✗" : "–"),
+      el("span", {}, el("strong", {}, x.name), x.ok ? ` · ${TW.rOk(x.tools.length)}` : ""),
+      x.ok ? (x.tools.length ? el("span", { class: "why" }, x.tools.join(", ")) : null)
+        : el("span", { class: "why" }, x.ok === null ? `${TW.rRemote}: ${x.error}` : x.error)))),
+    el("p", { class: "meta" }, TW.rExternal(d.external)),
+    (d.skipped || []).length ? el("p", { class: "meta" }, TW.rSkipped(d.skipped.join(", "))) : null);
+}
+
+function reloadCard(sc) {
+  const btn = (what, label) => el("button", { type: "button", class: "btn", disabled: !!(wsv.reload && wsv.reload.busy),
+    on: { click: () => reloadDo(sc, what) } }, label);
+  return el("section", { class: "card" }, el("h2", {}, TW.reload),
+    el("p", { class: "meta" }, TW.reloadHint),
+    el("div", { class: "save-row" }, btn("skills", TW.rSkills), btn("mcp", TW.rMcp), btn("conversation", TW.rConv)),
+    reloadResult());
+}
+
 // A new workspace is `tanka init`, run by the page; it opens on it once it exists.
 function newWorkspaceCard() {
   if (!ui.newWs) return null;
@@ -1446,7 +1493,7 @@ function newWorkspaceCard() {
 
 function workspaceView(sc) {
   if (wsv.scope !== sc.scope) {
-    Object.assign(wsv, { scope: sc.scope, data: null, err: "", msg: "", out: "", after: false, confirm: null, name: null, focus: null });
+    Object.assign(wsv, { scope: sc.scope, data: null, err: "", msg: "", out: "", after: false, confirm: null, name: null, focus: null, reload: null });
     clearTimeout(wsv.timer);
   }
   const d = wsv.data && wsv.data.scope === sc.scope ? wsv.data : null;
@@ -1476,6 +1523,7 @@ function workspaceView(sc) {
       el("h2", {}, TW.tools, el("span", { class: "meta" }, TW.budget(d.tools_used, d.tools_max))),
       el("div", { class: "budget" + (full ? " full" : ""), role: "img", "aria-label": TW.budget(d.tools_used, d.tools_max) }, bar),
       el("p", { class: "meta" }, TW.budgetHint(d.tools_max))),
+    reloadCard(sc),
     el("section", { class: "card" }, el("h2", {}, TW.skills),
       d.skills.length ? el("div", { class: "items" }, d.skills.map(s => skillItem(sc, s))) : el("p", { class: "meta" }, TW.noSkills)),
     el("section", { class: "card" }, el("h2", {}, TW.modules),

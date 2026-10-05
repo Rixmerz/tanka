@@ -110,6 +110,130 @@ def set_name(scope: str, name) -> str:
     return name
 
 
+# ------------------------------------------------------------ reload: skills, MCP servers, the conversation
+# Each chat message is a new `claude -p` process, so it already loads the skills and starts the MCP servers
+# as they are on disk. What these give the user is proof of it before the next message, and a way out of a
+# conversation that keeps an old belief ("I have no skill for that") after the skill was added.
+MCP_PROBE_SECONDS = float(os.environ.get("TANKA_PAGE_MCP_PROBE_SECONDS", "10"))
+MCP_PROTOCOL = "2025-06-18"
+
+
+def reload_skills(ws: Path) -> dict:
+    import tanka_tools as tt
+    tools, problems = tt.scan(ws)
+    by_skill: dict[str, list[str]] = {}
+    for name, m in sorted(tools.items()):
+        by_skill.setdefault(m["_skill"], []).append(name)
+    skills = [{"name": s, "tools": by_skill.get(s, [])} for s in tt.skill_names(ws)]
+    return {"skills": skills, "tools": len(tools), "tools_max": tt.MAX_TOOLS_TOTAL, "problems": problems,
+            "warnings": tt.skill_warnings(ws)}
+
+
+def probe_mcp(name: str, spec: dict, cwd: Path, timeout: float = MCP_PROBE_SECONDS) -> dict:
+    """Start one stdio MCP server the way Claude Code will, ask for its tools, and stop it."""
+    import queue as queue_mod
+    if not isinstance(spec, dict):
+        return {"name": name, "ok": False, "error": "its entry is not an object"}
+    if spec.get("url") or spec.get("type") in ("http", "sse"):
+        return {"name": name, "ok": None, "error": "a remote server: Claude Code connects to it; the page does not"}
+    command = spec.get("command")
+    if not command:
+        return {"name": name, "ok": False, "error": "no command"}
+    argv = [str(command), *[str(a) for a in spec.get("args") or []]]
+    env = dict(os.environ, **{str(k): str(v) for k, v in (spec.get("env") or {}).items()})
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,  # noqa: S603
+                                cwd=str(cwd), env=env, text=True, start_new_session=True)
+    except OSError as e:
+        return {"name": name, "ok": False, "error": f"could not start {command}: {e}"}
+    lines: "queue_mod.Queue[str | None]" = queue_mod.Queue()
+    threading.Thread(target=lambda: [lines.put(x) for x in proc.stdout] + [lines.put(None)], daemon=True).start()
+    deadline = time.monotonic() + timeout
+
+    def ask(msg_id: int, method: str, params: dict) -> dict:
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}) + "\n")
+        proc.stdin.flush()
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(f"no answer to {method} within {timeout:.0f} s")
+            try:
+                line = lines.get(timeout=left)
+            except queue_mod.Empty:
+                continue
+            if line is None:
+                try:
+                    code = proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    code = None
+                err = (proc.stderr.read() or "").strip()[-300:]
+                raise ConnectionError(f"it exited (code {code})" + (f": {err}" if err else " without answering"))
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue  # a server may log to stdout; only its answers count
+            if msg.get("id") == msg_id:
+                if "error" in msg:
+                    raise ConnectionError(str(msg["error"].get("message") or msg["error"]))
+                return msg.get("result") or {}
+
+    try:
+        ask(1, "initialize", {"protocolVersion": MCP_PROTOCOL, "capabilities": {},
+                              "clientInfo": {"name": "tanka-page", "version": "1"}})
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        proc.stdin.flush()
+        tools = [t.get("name", "") for t in ask(2, "tools/list", {}).get("tools", [])]
+        return {"name": name, "ok": True, "tools": tools}
+    except (TimeoutError, ConnectionError, OSError, ValueError) as e:
+        return {"name": name, "ok": False, "error": str(e)}
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+
+def reload_mcp(ws: Path) -> dict:
+    """The servers the next message starts: Tanka's own, then .tanka/mcp.json's when the rules let them load."""
+    servers = [probe_mcp("tanka (this workspace's tools)",
+                         {"command": sys.executable, "args": [str(kit.REPO / "plugin" / "scripts" / "tanka_mcp.py"), str(ws)]}, ws)]
+    policy = tc.load_policy(ws)
+    external = kit.read_json(tc.tanka_dir(ws) / "mcp.json", {})
+    configured = (external.get("mcpServers") or {}) if isinstance(external, dict) else {}
+    loads = policy.get("external_mcp", "deny") != "deny"
+    if loads:
+        servers += [probe_mcp(n, spec, ws) for n, spec in sorted(configured.items())]
+    return {"servers": servers, "external": "loaded" if loads else "blocked by the rules",
+            "skipped": [] if loads else sorted(configured)}
+
+
+def reload_action(scope: str, body: dict) -> dict:
+    ws = kit.ws_dir(scope)
+    what = str(body.get("what", ""))
+    if what == "skills":
+        return dict(reload_skills(ws), ok=True)
+    if what == "mcp":
+        return dict(reload_mcp(ws), ok=True)
+    if what == "conversation":
+        mode = str(body.get("mode") or "tanka")
+        if mode not in chat.MODES:
+            raise ToolError(f"The chat is {' or '.join(chat.MODES)}.")
+        if chat.busy(scope):
+            raise ToolError("It is still answering; wait for it.")
+        chat.keep_session(scope, None, mode)
+        return {"ok": True, "message": "The next message starts a new conversation."}
+    raise ToolError("Reload skills, mcp or conversation.")
+
+
 # ------------------------------------------------------------ files dropped on the chat
 def safe_filename(name: str) -> str:
     """A file name that stays one file in one folder: no path, no control characters, no leading dot."""
@@ -420,6 +544,8 @@ def workspace_action(action: str, body: dict) -> dict:
     scope = known_scope(str(body.get("scope", "")))
     if action == "settings":
         return save_settings(scope, body)
+    if action == "reload":
+        return reload_action(scope, body)
     ws = kit.ws_dir(scope)
     if action == "install":
         return manage(tm.install, str(body.get("module", "")), ws, scope)
