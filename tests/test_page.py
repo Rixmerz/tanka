@@ -378,6 +378,41 @@ class TestChat(PageCase):
         self.assertIn("still answering", json.loads(data)["error"])
         self.assertEqual(self.runs, [])
 
+    def test_a_message_sent_while_it_answers_stops_that_answer_and_resumes_its_session(self):
+        stopped, started = threading.Event(), threading.Event()
+
+        def slow(scope, text, extra):
+            self.runs.append((scope, text, list(extra)))
+            if len(self.runs) == 1:
+                chat._drafts[scope] = {"text": "Revisando los correos de ayer", "tool": None}
+                chat._stops[scope] = stopped.set
+                started.set()
+                stopped.wait(5)
+                chat._stops.pop(scope, None)
+                raise chat.Interrupted()
+            return 0, "Ok, primero los de hoy.", ""
+        self.patch(chat, "run_tanka", slow)
+        self.call("POST", "/api/chat", {"scope": "duck", "text": "revisa los correos"})
+        self.assertTrue(started.wait(5))
+        status, data = self.say("mejor primero los de hoy")
+        self.assertEqual(status, 200, data)
+        (_, _, first), (_, text, second) = self.runs
+        self.assertEqual(second, ["--resume", first[1]])
+        self.assertTrue(text.startswith(chat.REDIRECT))
+        self.assertIn("mejor primero los de hoy", text)
+        said = [(m["who"], m.get("code")) for m in self.stream() if not m.get("module")]
+        self.assertEqual(said[-4:], [("you", None), ("notice", "stopped"), ("you", None), ("tanka", None)])
+        self.assertIn("Revisando los correos", [m for m in self.stream() if m.get("code") == "stopped"][0]["text"])
+
+    def test_a_message_to_the_other_chat_waits(self):
+        chat._busy["duck"], chat._busy_mode["duck"] = time.time(), "dev"
+        chat._stops["duck"] = lambda: self.fail("dev was stopped")
+        for d in (chat._busy, chat._busy_mode, chat._stops):
+            self.addCleanup(d.pop, "duck", None)
+        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": "hola"})
+        self.assertEqual(status, 400)
+        self.assertIn("Dev is still answering", json.loads(data)["error"])
+
     def test_a_failed_run_says_so_and_a_lost_session_starts_again(self):
         self.replies = [(1, "", "Error: Reached max turns (10)")]
         self.say("haz algo largo")

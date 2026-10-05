@@ -28,6 +28,7 @@ import importlib.util
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -75,6 +76,19 @@ _lock = threading.Lock()
 _busy: dict[str, float] = {}
 _busy_mode: dict[str, str] = {}
 _drafts: dict[str, dict] = {}   # scope -> {"text": what the answer says so far, "tool": the tool it is using}
+_stops: dict[str, object] = {}  # scope -> stops the run in flight (run_stream sets it, tests may too)
+_interrupted: set[str] = set()  # scopes whose run was stopped for a newer message
+_threads: dict[str, threading.Thread] = {}
+STOP_GRACE_S = 5
+# A stopped run never reports its cost; dev's daily cap counts this much for it instead.
+DEV_STOPPED_USD = float(os.environ.get("TANKA_DEV_STOPPED_USD", "0.5"))
+REDIRECT = ("The user sent this while you were still working on their previous message, so that work was "
+            "stopped where it was. This message takes priority: it may change what to do first, add to the "
+            "task or replace it. Check what you already did before redoing anything.")
+
+
+class Interrupted(Exception):
+    """The run was stopped because the user sent a newer message."""
 
 
 # ---------------------------------------------------------------- the modules that plug in
@@ -332,10 +346,13 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
     Returns (exit code, the answer, stderr)."""
     answer_text, failed = None, ""
     with tempfile.TemporaryFile("w+", encoding="utf-8") as err:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL, cwd=cwd)
+        # Its own process group: `tanka run` starts claude as a child, and a stop must reach both.
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL, cwd=cwd,
+                             start_new_session=True)
         killed = threading.Event()
-        timer = threading.Timer(timeout, lambda: (killed.set(), p.kill()))
+        timer = threading.Timer(timeout, lambda: (killed.set(), kill_group(p, signal.SIGKILL)))
         timer.start()
+        _stops[scope] = lambda: stop_group(p)
         try:
             for line in p.stdout:
                 try:
@@ -354,12 +371,31 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
             code = p.wait()
         finally:
             timer.cancel()
+            _stops.pop(scope, None)
             p.stdout.close()
+        if scope in _interrupted:
+            raise Interrupted()
         if killed.is_set():
             raise subprocess.TimeoutExpired(cmd, timeout)
         err.seek(0)
         stderr = err.read() or failed
     return code, answer_text or "", stderr
+
+
+def kill_group(p: subprocess.Popen, sig: int) -> None:
+    try:
+        os.killpg(p.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def stop_group(p: subprocess.Popen) -> None:
+    """Ask the run to stop, so it leaves its session whole enough to resume; force it after a grace period."""
+    kill_group(p, signal.SIGTERM)
+    try:
+        p.wait(STOP_GRACE_S)
+    except subprocess.TimeoutExpired:
+        kill_group(p, signal.SIGKILL)
 
 
 def costs_file(scope: str) -> Path:
@@ -437,8 +473,10 @@ def prompt_for(scope: str, text: str, at: float, new_session: bool | str | None,
     return "\n\n".join(parts + ["The user's message:\n" + text]) if parts else text
 
 
-def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka") -> None:
+def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", redirect: bool = False) -> None:
     extra, sid, why = session_args(scope, mode)
+    if redirect:
+        text = REDIRECT + "\n\n" + text
     at = at if at is not None else time.time()
     if why == "tools":
         append(scope, "notice", "The assistant's skills or tools changed, so it starts a new conversation; "
@@ -460,6 +498,14 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka") 
             last = (err.strip().splitlines() or [f"exit {code}"])[-1]
             append(scope, "error", f"It did not answer ({last[:300]}). Write again, or check `tanka doctor {scope}`.",
                    code="noanswer", detail=last[:300], **tag)
+    except Interrupted:
+        # The session keeps what it did so far: the next message resumes it, even on the day's first one.
+        keep_session(scope, sid, mode)
+        said = ((_drafts.get(scope) or {}).get("text") or "").strip()
+        append(scope, "notice", "Stopped to take your new message." + (f" It had written: {quote(said)}" if said else ""),
+               code="stopped", **tag)
+        if mode == "dev":
+            tc.record_cost(kit.ws_dir(scope), "dev", "dev", DEV_STOPPED_USD)
     except subprocess.TimeoutExpired:
         append(scope, "error", f"It took more than {timeout // 60} min and was stopped. Write again with a shorter request.",
                code="timeout", detail=str(timeout // 60), **tag)
@@ -470,6 +516,7 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka") 
             _busy.pop(scope, None)
             _busy_mode.pop(scope, None)
             _drafts.pop(scope, None)
+            _interrupted.discard(scope)
 
 
 def attached(scope: str, files: list[str]) -> list[str]:
@@ -496,6 +543,7 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
         raise ToolError("Write a message first.")
     if len(text) > TEXT_CHARS:
         raise ToolError(f"Keep a message under {TEXT_CHARS} characters.")
+    redirect = interrupt(scope, mode)
     with _lock:
         if scope in _busy:
             raise ToolError("It is still answering the last message; wait for it.")
@@ -516,10 +564,32 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
             "them, and when a tool takes a file, pass it this exact full path: "
             + ", ".join(str(where / f) for f in files))
     if background:
-        threading.Thread(target=answer, args=(scope, prompt, msg["t"], mode), daemon=True).start()
+        t = threading.Thread(target=answer, args=(scope, prompt, msg["t"], mode, redirect), daemon=True)
+        _threads[scope] = t
+        t.start()
     else:
-        answer(scope, prompt, msg["t"], mode)
+        answer(scope, prompt, msg["t"], mode, redirect)
     return msg
+
+
+def interrupt(scope: str, mode: str) -> bool:
+    """Stop the answer in flight so a newer message can take its place. True when one was stopped.
+    Only the same chat is stopped: a message to the assistant never cuts dev short, nor the other way."""
+    with _lock:
+        if scope not in _busy or scope in _interrupted:
+            return False
+        if _busy_mode.get(scope) != mode:
+            other = "Dev" if _busy_mode.get(scope) == "dev" else "The assistant"
+            raise ToolError(f"{other} is still answering; wait for it.")
+        stop = _stops.get(scope)
+        if stop is None:  # between runs: nothing to stop yet
+            return False
+        _interrupted.add(scope)
+    stop()
+    t = _threads.get(scope)
+    if t is not None and t is not threading.current_thread():
+        t.join(STOP_GRACE_S * 3)
+    return True
 
 
 def busy(scope: str) -> float | None:

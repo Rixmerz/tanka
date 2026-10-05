@@ -612,7 +612,7 @@ const T = {
   live: "Live", liveNoDaemon: "Daemon not polling", liveOff: "Offline", loading: "Loading…",
   liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The automation daemon is not polling: reminders and routines will not run. Open Health.",
   workspace: "Workspace",
-  placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
+  placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering… write to redirect it`, send: "Send",
   accessTitle: n => `${n} asks to read a folder outside its workspace`, accessFile: f => `It tried to open ${f}`,
   accessApprove: "Approve, read only", accessDeny: "Deny", accessHint: "It can read, never change, what is in it. You can remove it later in Workspace → Rules.",
   accessApproved: "Approved: it reads this folder from your next message. Ask it again.", accessDenied: "Denied.",
@@ -1158,7 +1158,9 @@ function updateComposer() {
   renderFiles();  // the chips of the workspace on screen
   const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
   const files = sc ? ui.files[sc.scope] || [] : [];
-  sendBtn.disabled = busy || (!say.value.trim() && !files.some(f => f.path)) || files.some(f => f.busy);
+  // While it answers, a message to the same chat stops that answer and takes its place; the other chat waits.
+  const other = !!(sc && sc.busy) && (sc.busy_mode || "tanka") !== ui.mode;
+  sendBtn.disabled = ui.sending || other || (!say.value.trim() && !files.some(f => f.path)) || files.some(f => f.busy);
   const name = nameOf(sc), dev = ui.mode === "dev";
   say.placeholder = busy ? T.placeholderBusy(sc && sc.busy_mode === "dev" ? T.devName : name) : dev ? T.devPlaceholder(name) : T.placeholder(name);
   say.setAttribute("aria-label", dev ? T.devPlaceholder(name) : T.placeholder(name));
@@ -1178,7 +1180,7 @@ function updateComposer() {
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
   const files = typed && sc ? (ui.files[sc.scope] || []).filter(f => f.path).map(f => f.path) : [];
-  if (!sc || (!text && !files.length) || ui.sending || sc.busy || (typed && (ui.files[sc.scope] || []).some(f => f.busy))) return;
+  if (!sc || (!text && !files.length) || ui.sending || (sc.busy && (sc.busy_mode || "tanka") !== ui.mode) || (typed && (ui.files[sc.scope] || []).some(f => f.busy))) return;
   ui.sending = true; ui.stick = true;
   $("cmsg").textContent = "";
   updateComposer();
