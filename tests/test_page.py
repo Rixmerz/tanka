@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_case import WorkspaceCase, c, d, kit, out_of  # noqa: E402
 import tanka_chat as chat  # noqa: E402
 import tanka_page as page  # noqa: E402
+import tanka_common as tc  # noqa: E402
 
 
 class PageCase(WorkspaceCase):
@@ -403,6 +404,49 @@ class TestChat(PageCase):
         said = [(m["who"], m.get("code")) for m in self.stream() if not m.get("module")]
         self.assertEqual(said[-4:], [("you", None), ("notice", "stopped"), ("you", None), ("tanka", None)])
         self.assertIn("Revisando los correos", [m for m in self.stream() if m.get("code") == "stopped"][0]["text"])
+
+    def fake_stream(self, context):
+        """A run that reports the context it read, and compacts when asked to."""
+        def run(scope, text, extra):
+            self.runs.append((scope, text, list(extra)))
+            if text.startswith("/compact"):
+                chat.on_stream(scope, {"type": "system", "subtype": "compact_boundary",
+                                       "compact_metadata": {"pre_tokens": context, "post_tokens": 12000}})
+                return 0, "", ""
+            chat.on_stream(scope, {"type": "assistant", "message": {"content": [], "usage": {
+                "input_tokens": 10, "cache_read_input_tokens": context, "cache_creation_input_tokens": 0, "output_tokens": 5}}})
+            return 0, "Hecho.", ""
+        self.patch(chat, "run_tanka", run)
+
+    def test_a_long_conversation_is_compacted_before_the_next_message_keeping_the_task(self):
+        self.fake_stream(chat.COMPACT_TOKENS + 1000)
+        self.say("revisa los correos")
+        self.assertEqual(len(self.runs), 1)  # a new session: nothing to compact yet
+        self.say("sigue")
+        (_, _, first), (_, compact, extra), (_, text, _) = self.runs
+        self.assertTrue(compact.startswith("/compact " + chat.COMPACT_FOCUS))
+        self.assertEqual(extra, ["--resume", first[1]])
+        self.assertTrue(text.endswith("sigue"))
+        note = [m for m in self.stream() if m.get("code") == "compacted"][0]
+        self.assertIn("91k to 12k tokens", note["text"])
+
+    def test_compact_typed_in_the_chat_compacts_with_what_the_user_adds(self):
+        self.fake_stream(30000)
+        self.say("/compact")
+        self.assertEqual(self.runs, [])  # no conversation today yet
+        self.say("hola")
+        self.say("/compact keep the invoice numbers")
+        compact = self.runs[-1][1]
+        self.assertTrue(compact.startswith("/compact ") and compact.endswith("The user adds: keep the invoice numbers"))
+        self.assertTrue([m for m in self.stream() if m.get("code") == "compacted"])
+        self.assertIn("/compact", [c["name"] for c in chat.commands("duck")["tanka"]])
+
+    def test_the_daily_cap_is_money_not_messages(self):
+        tc.record_cost(self.ws, "chat", "chat", chat.DAY_USD)
+        status, data = self.say("hola")
+        self.assertEqual(status, 400)
+        self.assertIn("TANKA_PAGE_DAY_USD", data["error"])
+        self.assertEqual(self.runs, [])
 
     def test_a_message_to_the_other_chat_waits(self):
         chat._busy["duck"], chat._busy_mode["duck"] = time.time(), "dev"

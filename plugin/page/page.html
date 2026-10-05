@@ -620,7 +620,7 @@ const T = {
   attach: "Add files to the workspace", dropHere: "Drop to copy into the workspace", copying: "copying…", removeFile: n => `Leave ${n} out of the message`,
   tooMany: n => `At most ${n} files in one message.`,
   commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: " · each message is one run of your assistant (at most US$0.30)",
-  left: n => ` · ${n} left today`,
+  left: n => ` · US$${Math.max(n, 0).toFixed(2)} left today`,
   thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
   hello: n => `Hi, I'm ${n}`,
@@ -1014,6 +1014,7 @@ function chatView(sc) {
 }
 
 function usingLabel(name) {
+  if (name === "compact") return "Compacting the conversation…";
   for (const spec of Object.values(MODS)) { const s = spec.using && spec.using(name); if (s) return s; }
   return T.usingTool;
 }
@@ -1175,7 +1176,7 @@ function updateComposer() {
   renderCommands();
   $("suggest").hidden = !!say.value.trim() || busy || !$("cmds").hidden;
   $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.per_message_usd, sc.dev.left_usd)
-    : T.hintCost + (sc && sc.chat_left != null && sc.chat_left < 10 ? T.left(sc.chat_left) : "");
+    : T.hintCost + (sc && sc.chat_left_usd != null && sc.chat_left_usd < 2 ? T.left(sc.chat_left_usd) : "");
 }
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();

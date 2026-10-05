@@ -56,7 +56,7 @@ USAGE
   list_workspaces
   cat <<USAGE
 
-Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), TANKA_PAGE_DAY_USD (5), TANKA_COMPACT_TOKENS (90000), CLAUDE_BIN
 USAGE
 }
 

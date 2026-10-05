@@ -12,7 +12,10 @@ like "done" has something to refer to; and the first message of a day reads the 
 days' chat. The run streams (`--output-format stream-json`), so the page shows the answer while it
 is written.
 
-One message answers at a time per workspace, and at most MAX_PER_DAY a day.
+One message answers at a time per workspace, and the assistant spends at most DAY_USD a day there.
+A message sent while it answers stops that answer and resumes its session with the new one.
+When the session's context grows past COMPACT_TOKENS, it is compacted before the next message, keeping
+the task in hand and the decisions taken; `/compact` in the chat does it on demand.
 
 A selector on the page sends a message to **dev** instead: the user's strong model, building what the
 assistant uses (boards, lenses, simple tools) for this workspace. It has its own session of the day,
@@ -46,7 +49,15 @@ from tanka_kit import ToolError  # noqa: E402
 TEXT_CHARS = 1000
 FILES_DIR = "files"  # where files dropped on the page land, inside the workspace
 MAX_FILES = 10       # per message
-MAX_PER_DAY = 40
+# The assistant's daily cap is money, not messages: a short question and a long task cost differently.
+DAY_USD = float(os.environ.get("TANKA_PAGE_DAY_USD", "5"))
+# A session past this many tokens of context is compacted before the next message. Claude's own
+# autocompact (TANKA_AUTOCOMPACT_PCT) still runs later as a backstop, without Tanka's focus.
+COMPACT_TOKENS = int(os.environ.get("TANKA_COMPACT_TOKENS", "90000"))
+COMPACT_FOCUS = ("Keep, in this order: the task in hand and its remaining steps; every decision taken and why; "
+                 "the priority changes the user asked for, newest last, including messages that stopped an answer "
+                 "to redirect it; the ids of the items, files and people the work refers to; and what was already "
+                 "done, so it is not redone. Drop greetings, tool output already acted on and finished side topics.")
 MAX_TURNS = 10
 BUDGET_USD = 0.30
 TIMEOUT_S = 240
@@ -82,6 +93,7 @@ _threads: dict[str, threading.Thread] = {}
 STOP_GRACE_S = 5
 # A stopped run never reports its cost; dev's daily cap counts this much for it instead.
 DEV_STOPPED_USD = float(os.environ.get("TANKA_DEV_STOPPED_USD", "0.5"))
+STOPPED_USD = float(os.environ.get("TANKA_STOPPED_USD", "0.1"))
 REDIRECT = ("The user sent this while you were still working on their previous message, so that work was "
             "stopped where it was. This message takes priority: it may change what to do first, add to the "
             "task or replace it. Check what you already did before redoing anything.")
@@ -200,11 +212,28 @@ def session_args(scope: str, mode: str = "tanka") -> tuple[list[str], str, str |
     return ["--session-id", sid], sid, why
 
 
-def keep_session(scope: str, sid: str | None, mode: str = "tanka") -> None:
-    """Remember today's session, with the tools it began with. None starts a new one on the next message."""
+def keep_session(scope: str, sid: str | None, mode: str = "tanka", context: int | None = None) -> None:
+    """Remember today's session, with the tools it began with and the context its last run carried.
+    None starts a new one on the next message."""
     session_file(scope, mode).parent.mkdir(parents=True, exist_ok=True)
-    data = {"day": today(), "reset": True} if sid is None else {"id": sid, "day": today(), "tools": tools_signature(scope)}
+    if context is None and sid is not None:
+        context = context_tokens(scope, mode)
+    data = {"day": today(), "reset": True} if sid is None else {"id": sid, "day": today(), "tools": tools_signature(scope),
+                                                               "context": context or 0}
     session_file(scope, mode).write_text(json.dumps(data), encoding="utf-8")
+
+
+def chat_left(scope: str) -> float:
+    return round(DAY_USD - tc.spent_today(kit.ws_dir(scope), "chat")[0], 2)
+
+
+def context_tokens(scope: str, mode: str = "tanka") -> int:
+    """How much context today's session carried on its last run, as kept with the session."""
+    try:
+        s = json.loads(session_file(scope, mode).read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return 0
+    return int(s.get("context") or 0) if s.get("day") == today() else 0
 
 
 def sent_today(scope: str) -> int:
@@ -232,7 +261,15 @@ def on_stream(scope: str, ev: dict) -> str | None:
         elif e.get("type") == "content_block_delta" and (e.get("delta") or {}).get("type") == "text_delta":
             d["text"] = (d["text"] + e["delta"].get("text", ""))[-4000:]
             d["tool"] = None
+    elif kind == "system" and ev.get("subtype") == "compact_boundary":
+        m = ev.get("compact_metadata") or {}
+        d["compacted"] = (int(m.get("pre_tokens") or 0), int(m.get("post_tokens") or 0))
+        d["context"] = int(m.get("post_tokens") or 0)
     elif kind == "assistant":
+        u = (ev.get("message") or {}).get("usage") or {}
+        if u:  # one model call: what it read is the context the session carries now
+            d["context"] = sum(int(u.get(k) or 0) for k in
+                               ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
         tools = [b.get("name") for b in (ev.get("message") or {}).get("content", []) if b.get("type") == "tool_use"]
         if tools:
             d["tool"] = tools[-1]
@@ -280,9 +317,11 @@ def commands(scope: str) -> dict:
         return out
 
     ws = kit.ws_dir(scope)
-    return {"tanka": listed((kit.REPO / "plugin" / "skills").glob("*/SKILL.md"), "tanka:", "tanka")
+    own = {"name": "/compact", "hint": "[what to keep]", "origin": "tanka",
+           "description": "Compact today's conversation, keeping the task in hand and the decisions taken."}
+    return {"tanka": [own] + listed((kit.REPO / "plugin" / "skills").glob("*/SKILL.md"), "tanka:", "tanka")
             + listed((ws / ".claude" / "skills").glob("*/SKILL.md"), "", "workspace"),
-            "dev": listed((kit.REPO / "builder" / "skills").glob("*/SKILL.md"), "tanka-dev:", "dev")}
+            "dev": [own] + listed((kit.REPO / "builder" / "skills").glob("*/SKILL.md"), "tanka-dev:", "dev")}
 
 
 def hint(scope: str) -> str:
@@ -473,8 +512,47 @@ def prompt_for(scope: str, text: str, at: float, new_session: bool | str | None,
     return "\n\n".join(parts + ["The user's message:\n" + text]) if parts else text
 
 
+def compact(scope: str, extra: list[str], mode: str, focus: str = "", auto: bool = True) -> None:
+    """Compact the session it resumes, keeping what Tanka needs to carry on, and say so in the chat."""
+    run = run_dev if mode == "dev" else run_tanka
+    tag = {"mode": "dev"} if mode == "dev" else {}
+    _drafts[scope] = {"text": "", "tool": "compact"}
+    code, _, err = run(scope, "/compact " + COMPACT_FOCUS + (" The user adds: " + focus if focus else ""), extra)
+    got = (_drafts.get(scope) or {}).get("compacted")
+    if got:
+        keep_session(scope, extra[1], mode, context=got[1])
+        why = "The conversation grew long, so it was" if auto else "The conversation was"
+        append(scope, "notice", f"{why} compacted ({got[0] // 1000}k to {got[1] // 1000}k tokens), keeping the task "
+               "in hand and the decisions taken.", code="compacted", **tag)
+    elif not auto:
+        last = (err.strip().splitlines() or [f"exit {code}"])[-1]
+        append(scope, "error", f"Could not compact the conversation ({last[:300]}).", code="nocompact", detail=last[:300], **tag)
+    _drafts[scope] = {"text": "", "tool": None}
+
+
+def is_compact(text: str) -> bool:
+    return text == "/compact" or text.startswith("/compact ")
+
+
 def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", redirect: bool = False) -> None:
     extra, sid, why = session_args(scope, mode)
+    if is_compact(text.strip()):
+        try:
+            if extra[0] == "--resume":
+                compact(scope, extra, mode, text.strip()[len("/compact"):].strip(), auto=False)
+            else:
+                append(scope, "notice", "There is no conversation today to compact yet.", **({"mode": "dev"} if mode == "dev" else {}))
+        except Interrupted:
+            pass
+        except (subprocess.TimeoutExpired, OSError) as e:
+            append(scope, "error", f"Could not compact the conversation ({e}).", code="nocompact", detail=str(e)[:300])
+        finally:
+            with _lock:
+                _busy.pop(scope, None)
+                _busy_mode.pop(scope, None)
+                _drafts.pop(scope, None)
+                _interrupted.discard(scope)
+        return
     if redirect:
         text = REDIRECT + "\n\n" + text
     at = at if at is not None else time.time()
@@ -485,6 +563,11 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
     tag = {"mode": "dev"} if mode == "dev" else {}
     timeout = DEV_TIMEOUT_S if mode == "dev" else TIMEOUT_S
     try:
+        if extra[0] == "--resume" and context_tokens(scope, mode) > COMPACT_TOKENS:
+            try:
+                compact(scope, extra, mode)
+            except subprocess.TimeoutExpired:
+                pass  # a compaction that does not finish leaves the session as it was: answer anyway
         code, out, err = run(scope, prompt_for(scope, text, at, why, mode), extra)
         if code and extra[0] == "--resume" and not out.strip():  # today's session is gone: start a new one
             sid = str(uuid.uuid4())
@@ -493,7 +576,7 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
             code, out, err = run(scope, prompt_for(scope, text, at, "tools", mode), extra)
         if out.strip():
             append(scope, "dev" if mode == "dev" else "tanka", out.strip())
-            keep_session(scope, sid, mode)
+            keep_session(scope, sid, mode, context=(_drafts.get(scope) or {}).get("context"))
         else:
             last = (err.strip().splitlines() or [f"exit {code}"])[-1]
             append(scope, "error", f"It did not answer ({last[:300]}). Write again, or check `tanka doctor {scope}`.",
@@ -504,8 +587,8 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
         said = ((_drafts.get(scope) or {}).get("text") or "").strip()
         append(scope, "notice", "Stopped to take your new message." + (f" It had written: {quote(said)}" if said else ""),
                code="stopped", **tag)
-        if mode == "dev":
-            tc.record_cost(kit.ws_dir(scope), "dev", "dev", DEV_STOPPED_USD)
+        tc.record_cost(kit.ws_dir(scope), mode if mode == "dev" else "chat", mode if mode == "dev" else "chat",
+                       DEV_STOPPED_USD if mode == "dev" else STOPPED_USD)
     except subprocess.TimeoutExpired:
         append(scope, "error", f"It took more than {timeout // 60} min and was stopped. Write again with a shorter request.",
                code="timeout", detail=str(timeout // 60), **tag)
@@ -547,8 +630,9 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
     with _lock:
         if scope in _busy:
             raise ToolError("It is still answering the last message; wait for it.")
-        if mode == "tanka" and sent_today(scope) >= MAX_PER_DAY:
-            raise ToolError(f"{MAX_PER_DAY} messages today in {scope}, the daily limit; each one is a model run.")
+        if mode == "tanka" and chat_left(scope) <= 0:
+            raise ToolError(f"The assistant spent its {DAY_USD:.2f} USD for today in {scope}. Raise "
+                            "TANKA_PAGE_DAY_USD to give it more.")
         if mode == "dev" and dev_left(scope) <= 0:
             raise ToolError(f"Dev spent its {DEV_DAY_USD:.2f} USD for today in {scope}. Use `tanka dev {scope}` "
                             "in a terminal, or raise TANKA_DEV_PAGE_DAY_USD.")
