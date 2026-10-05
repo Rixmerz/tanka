@@ -49,6 +49,8 @@ AVATAR_BODY_MAX = 800_000      # a 512 KB picture in base64, inside JSON
 AVATAR_MAX = 512 * 1024
 AVATAR_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
 NAME_MAX = 40
+# Files dropped on the chat are copied into the workspace, where the assistant reads them with Read.
+UPLOAD_MAX = int(float(os.environ.get("TANKA_PAGE_UPLOAD_MAX_MB", "25")) * 1024 * 1024)
 _manage = threading.Lock()  # one install or removal at a time, and its output captured apart
 
 
@@ -106,6 +108,42 @@ def set_name(scope: str, name) -> str:
     persona["name"] = name
     kit.write_json(persona_file(ws), persona)
     return name
+
+
+# ------------------------------------------------------------ files dropped on the chat
+def safe_filename(name: str) -> str:
+    """A file name that stays one file in one folder: no path, no control characters, no leading dot."""
+    name = Path(str(name or "").replace("\\", "/")).name
+    name = "".join("_" if (ord(ch) < 32 or ch in '<>:"|?*/') else ch for ch in name).strip().lstrip(".").strip()
+    if len(name) > 120:
+        stem, dot, ext = name.rpartition(".")
+        name = (stem[:110] + "." + ext[:9]) if dot and len(ext) <= 9 else name[:120]
+    return name or "file"
+
+
+def save_upload(scope: str, name: str, data: bytes) -> dict:
+    """Copy a dropped file into <workspace>/files/, never over another one: a second report.pdf is report (2).pdf."""
+    ws = kit.ws_dir(known_scope(scope))
+    folder = ws / chat.FILES_DIR
+    if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
+        raise ToolError(f"{folder} is not a plain folder; fix it by hand.")
+    folder.mkdir(exist_ok=True)
+    base = safe_filename(name)
+    stem, dot, ext = base.rpartition(".")
+    if not dot or not stem:
+        stem, ext = base, ""
+    for n in range(1, 1000):
+        candidate = base if n == 1 else (f"{stem} ({n}).{ext}" if ext else f"{stem} ({n})")
+        dest = folder / candidate
+        try:
+            with open(dest, "xb") as fh:  # exclusive: two drops at once never share a name
+                fh.write(data)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise ToolError("Too many files with that name; rename it first.")
+    return {"path": f"{chat.FILES_DIR}/{dest.name}", "name": dest.name, "size": len(data)}
 
 
 # ------------------------------------------------------------ settings the user edits by hand
@@ -492,9 +530,32 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return self.json(404, {"error": "not found"})
 
+    def upload(self):
+        """The raw bytes of one dropped file. Not JSON, so a page of another origin cannot send it without a
+        preflight this server never grants, as with the token header itself."""
+        if self.headers.get("Content-Type", "").split(";")[0] != "application/octet-stream":
+            return self.json(415, {"error": "send the file's bytes"})
+        try:
+            length = int(self.headers.get("Content-Length") or -1)
+        except ValueError:
+            length = -1
+        if length < 0:
+            return self.json(411, {"error": "say how long the file is"})
+        if length > UPLOAD_MAX:
+            self.close_connection = True  # the body is never read
+            return self.json(413, {"error": f"The file is larger than {UPLOAD_MAX // (1024 * 1024)} MB."})
+        q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+        data = self.rfile.read(length)
+        try:
+            return self.json(200, save_upload(q.get("scope", ""), q.get("name", ""), data))
+        except (ToolError, OSError) as e:
+            return self.json(400, {"error": str(e)})
+
     def do_POST(self):  # noqa: N802
         if not self.allowed_host() or not self.has_token(self.headers.get("X-Tanka-Token")):
             return self.json(403, {"error": "forbidden"})
+        if urlparse(self.path).path == "/api/files":
+            return self.upload()
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.json(415, {"error": "send JSON"})
         try:
@@ -520,7 +581,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, workspace_action(self.path[len("/api/workspace/"):], body))
             if self.path == "/api/chat":
                 scope = known_scope(str(body.get("scope", "")))
-                return self.json(200, {"message": chat.send(scope, str(body.get("text", "")), mode=str(body.get("mode") or "tanka"))})
+                files = body.get("files") or []
+                if not isinstance(files, list):
+                    raise ToolError("files must be a list")
+                return self.json(200, {"message": chat.send(scope, str(body.get("text", "")), mode=str(body.get("mode") or "tanka"),
+                                                            files=[str(f) for f in files])})
             if self.path.startswith("/api/m/"):
                 return self.json(200, module_call("ACTIONS", self.path, str(body.get("scope", "")), body))
         except (ToolError, ValueError) as e:

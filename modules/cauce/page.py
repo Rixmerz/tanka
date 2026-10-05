@@ -40,6 +40,8 @@ def ended(scope: str) -> list[dict]:
     since = time.time() - STREAM_HOURS * 3600
     seen, out = set(), []
     for t in b["needs_you"] + b["done"]:
+        if t.get("source") not in cl.CAUCE_SOURCES:
+            continue  # a prompt answered in the user's own session is not a task cauce ran
         at = cl.epoch(t.get("updated_at"))
         if at < since or t["id"] in seen:
             continue

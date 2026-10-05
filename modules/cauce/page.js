@@ -242,7 +242,7 @@
       ...section(T.agents, agents.map(t => agent(sc, t, cancel(t))), null, T.noAgents),
       ...(between.length ? section(T.between, between.map(t => card(sc, t, T.planning, cancel(t)))) : []),
       ...section(T.queued, lanes, pending),
-      ...section(T.done, (b.done || []).filter(keep).map(t => card(sc, t, `${T.passedAt(t.final_cell || "")} · ${T.cost(t.cost_usd)}`))),
+      ...section(T.done, (b.done || []).filter(t => keep(t) && (t.source === "cauce" || t.source === "queue")).map(t => card(sc, t, `${T.passedAt(t.final_cell || "")} · ${T.cost(t.cost_usd)}`))),
       ...(sessions.length ? section(T.inSessions, sessions.map(t => card(sc, t, t.kind || ""))) : []),
     ];
   }

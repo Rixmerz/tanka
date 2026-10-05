@@ -42,6 +42,17 @@ The chat file holds the user's messages (`who: "you"`), the answers (`"tanka"`),
 (`"error"`), and whatever a module writes there with `tanka_common.chat_event` (a fired reminder,
 the brief).
 
+## Files
+
+A file dropped on the chat, or picked with the clip beside the box, is copied at once into the workspace's
+`files/` folder (`POST /api/files?scope=&name=`, the file's raw bytes as `application/octet-stream`, at
+most `TANKA_PAGE_UPLOAD_MAX_MB`, 25). It never lands over another file (a second `report.pdf` is
+`report (2).pdf`), and its name cannot leave the folder or hide (`../x` is `x`, `.env` is `env`). Until the
+message goes, each file shows as a chip; the message names them (`files` in `POST /api/chat`, at most 10,
+each one a file in `files/`), the bubble shows them, and the assistant is told to read them with Read.
+Taking a chip off the message leaves the file in the workspace. Reading a file the user added needs no
+skill, and the per-turn reminder says so.
+
 ## Commands
 
 Typing `/` as the first thing in the box, or the **/** button beside it, opens the commands that mode can

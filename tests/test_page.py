@@ -179,6 +179,46 @@ class TestModules(PageCase):
         self.assertIn("Codepanion tap", labels)
 
 
+class TestFiles(PageCase):
+    """Files dropped on the chat: copied into the workspace's files/ folder, never over another, never outside it."""
+
+    def upload(self, name, data, ctype="application/octet-stream", token=True, scope="duck"):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        headers = {"Host": f"127.0.0.1:{self.port}", "Content-Type": ctype, "Content-Length": str(len(data))}
+        if token:
+            headers["X-Tanka-Token"] = self.token
+        from urllib.parse import quote
+        conn.request("POST", f"/api/files?scope={scope}&name={quote(name)}", body=data, headers=headers)
+        r = conn.getresponse()
+        body = r.read()
+        conn.close()
+        return r.status, json.loads(body or b"{}")
+
+    def test_a_dropped_file_lands_in_files_and_never_over_another(self):
+        status, got = self.upload("report.pdf", b"%PDF-1.4 one")
+        self.assertEqual((status, got), (200, {"path": "files/report.pdf", "name": "report.pdf", "size": 12}))
+        self.assertEqual((self.ws / "files" / "report.pdf").read_bytes(), b"%PDF-1.4 one")
+        self.assertEqual(self.upload("report.pdf", b"two")[1]["path"], "files/report (2).pdf")
+        self.assertEqual((self.ws / "files" / "report.pdf").read_bytes(), b"%PDF-1.4 one")
+
+    def test_a_name_cannot_leave_the_folder_or_hide(self):
+        for name, want in (("../../escape.txt", "escape.txt"), ("..\\..\\win.txt", "win.txt"), (".env", "env"),
+                           ("a\nb.txt", "a_b.txt"), ("", "file")):
+            with self.subTest(name=name):
+                self.assertEqual(self.upload(name, b"x")[1]["name"], want)
+        self.assertFalse((self.tmp / "escape.txt").exists())
+        self.assertEqual(sorted(p.parent for p in (self.ws / "files").iterdir()), [self.ws / "files"] * 5)
+
+    def test_what_is_refused(self):
+        self.assertEqual(self.upload("a.txt", b"x", token=False)[0], 403)
+        self.assertEqual(self.upload("a.txt", b"x", ctype="application/json")[0], 415)
+        self.assertEqual(self.upload("a.txt", b"x", scope="nobody")[0], 400)
+        self.patch(page, "UPLOAD_MAX", 4)
+        status, got = self.upload("big.bin", b"12345")
+        self.assertEqual(status, 413)
+        self.assertFalse((self.ws / "files" / "big.bin").exists())
+
+
 class TestChat(PageCase):
     """The page's chat, with the model run replaced: what reaches `tanka run`, and what comes back."""
 
@@ -193,6 +233,23 @@ class TestChat(PageCase):
         self.patch(chat, "run_tanka", fake)
         os.environ["TANKA_CODEPANION_BACKTEST"] = "1"  # no desktop notification from a test
         self.addCleanup(os.environ.pop, "TANKA_CODEPANION_BACKTEST", None)
+
+    def test_a_message_names_the_files_and_the_assistant_is_told_to_read_them(self):
+        (self.ws / "files").mkdir()
+        (self.ws / "files" / "notes.pdf").write_bytes(b"%PDF")
+        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": "", "files": ["files/notes.pdf"]})
+        self.assertEqual(status, 200, data)
+        for _ in range(100):
+            if not chat.busy("duck"):
+                break
+            time.sleep(0.05)
+        self.assertIn("read them with Read", self.runs[-1][1])
+        self.assertIn("files/notes.pdf", self.runs[-1][1])
+        mine = [m for m in chat.read("duck") if m.get("who") == "you"][-1]
+        self.assertEqual((mine["text"], mine["files"]), ("", ["files/notes.pdf"]))
+        for bad in (["../.tanka/policy.json"], ["files/missing.pdf"], [".tanka/persona.json"], ["files/x"] * 11):
+            with self.subTest(files=bad):
+                self.assertEqual(self.call("POST", "/api/chat", {"scope": "duck", "text": "hi", "files": bad})[0], 400)
 
     def say(self, text):
         status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": text})

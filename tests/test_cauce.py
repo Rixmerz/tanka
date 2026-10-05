@@ -324,8 +324,10 @@ class TestPage(CauceCase):
         state = self.page.state("duck", self.ws)
         self.assertEqual(state["repos"], ["app"])
         self.assertEqual(state["board"]["counts"]["needs_you"], 1)
+        self.answer(board=self.board(done=[task(4, "done", branch="cauce/task-4"),
+                                           task(5, "done", source="hook")]))
         items = self.page.stream("duck", self.ws)
-        self.assertEqual([(i["id"], i["status"]) for i in items], [(1, "failed"), (4, "done")])
+        self.assertEqual([(i["id"], i["status"]) for i in items], [(1, "failed"), (4, "done")])  # not the session's #5
         self.assertEqual(items[1]["branch"], "cauce/task-4")
         lines = self.page.context("duck", self.ws, time.time() - 3600, time.time() + 60)
         self.assertIn("cauce task #1 in app ended failed", lines[0][1])

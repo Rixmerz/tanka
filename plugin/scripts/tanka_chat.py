@@ -42,6 +42,8 @@ import tanka_kit as kit  # noqa: E402
 from tanka_kit import ToolError  # noqa: E402
 
 TEXT_CHARS = 1000
+FILES_DIR = "files"  # where files dropped on the page land, inside the workspace
+MAX_FILES = 10       # per message
 MAX_PER_DAY = 40
 MAX_TURNS = 10
 BUDGET_USD = 0.30
@@ -428,11 +430,27 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka") 
             _drafts.pop(scope, None)
 
 
-def send(scope: str, text: str, background: bool = True, mode: str = "tanka") -> dict:
+def attached(scope: str, files: list[str]) -> list[str]:
+    """The files a message names, each one a file the page copied into the workspace's files/ folder."""
+    if len(files) > MAX_FILES:
+        raise ToolError(f"At most {MAX_FILES} files in one message.")
+    folder = (kit.ws_dir(scope) / FILES_DIR).resolve()
+    out = []
+    for f in files:
+        rel = str(f).replace("\\", "/")
+        path = (kit.ws_dir(scope) / rel).resolve()
+        if path.parent != folder or not path.is_file():
+            raise ToolError(f"{rel} is not a file the page added to this workspace.")
+        out.append(f"{FILES_DIR}/{path.name}")
+    return out
+
+
+def send(scope: str, text: str, background: bool = True, mode: str = "tanka", files: list[str] | None = None) -> dict:
     text = text.strip()
     if mode not in MODES:
         raise ToolError(f"The chat is {' or '.join(MODES)}.")
-    if not text:
+    files = attached(scope, files or [])
+    if not text and not files:
         raise ToolError("Write a message first.")
     if len(text) > TEXT_CHARS:
         raise ToolError(f"Keep a message under {TEXT_CHARS} characters.")
@@ -446,11 +464,16 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka") ->
                             "in a terminal, or raise TANKA_DEV_PAGE_DAY_USD.")
         _busy[scope] = time.time()
         _busy_mode[scope] = mode
-    msg = append(scope, "you", text, **({"mode": "dev"} if mode == "dev" else {}))
+    extra = {**({"mode": "dev"} if mode == "dev" else {}), **({"files": files} if files else {})}
+    msg = append(scope, "you", text, **extra)
+    prompt = text
+    if files:
+        prompt = ((text + "\n\n") if text else "") + ("The user added these files to the workspace from the page; read them "
+                                                       "with Read when the message is about them: " + ", ".join(files))
     if background:
-        threading.Thread(target=answer, args=(scope, text, msg["t"], mode), daemon=True).start()
+        threading.Thread(target=answer, args=(scope, prompt, msg["t"], mode), daemon=True).start()
     else:
-        answer(scope, text, msg["t"], mode)
+        answer(scope, prompt, msg["t"], mode)
     return msg
 
 

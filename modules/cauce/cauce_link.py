@@ -43,6 +43,7 @@ TITLE_CHARS, TEXT_CHARS = 120, 4000
 DONE_SHOWN = 5             # finished tasks the board tool lists
 
 NEEDS_STATES = ("failed", "blocked", "replan", "needs_approval", "interrupted")
+CAUCE_SOURCES = ("cauce", "queue")  # tasks cauce ran; "hook" ones are prompts answered in a session
 
 
 # ---------------------------------------------------------------- the program
@@ -394,7 +395,7 @@ def board_text(scope: str, name: str | None = None) -> str:
         if lane.get("paused"):
             out.append(f"{lane.get('repo_name') or '?'} is paused: {lane.get('reason') or 'a task did not pass'}")
         out += [line(t, "queued") for t in lane["tasks"]]
-    done = [t for t in b["done"] if keep(t)][:DONE_SHOWN]
+    done = [t for t in b["done"] if keep(t) and t.get("source") in CAUCE_SOURCES][:DONE_SHOWN]
     out.append("Done recently:")
     out += [line(t, f"passed at {cell_of(t)}", tries(t), f"branch {t['branch']}" if t.get("branch") else "")
             for t in done] or ["(nothing)"]

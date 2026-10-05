@@ -327,6 +327,21 @@ img.face { width: 100%; height: 100%; object-fit: cover; display: block; border-
 pre.out { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; }
 p.problem, p.warning { margin: 6px 0 0; white-space: pre-wrap; }
 
+/* ---------- files dropped on the chat */
+.attached { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 3px 6px 3px 11px; font-size: 13px; }
+.file-chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.file-chip .sz { color: var(--muted); font-size: 12px; }
+.file-chip.busy { color: var(--muted); }
+.file-chip.bad { border-color: var(--bad); color: var(--bad); }
+.file-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; }
+.msg .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; justify-content: flex-end; }
+.chat.dropping::after { content: attr(data-drop); position: absolute; inset: 10px; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 18px; background: color-mix(in srgb, var(--accent-soft) 80%, transparent); color: var(--ink); font-size: 16px; font-weight: 650; pointer-events: none; z-index: 5; }
+.chat { position: relative; }
+.attach { width: 30px; height: 30px; flex: none; align-self: center; border: 1px solid var(--line); border-radius: 50%; background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.attach:hover { border-color: var(--accent); color: var(--ink); }
+.attach svg { width: 15px; height: 15px; }
+
 /* ---------- workspace settings, edited by hand */
 .settings { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 9px 14px; align-items: center; }
 .settings > label, .settings > .lbl { color: var(--muted); font-size: 13.5px; }
@@ -565,8 +580,10 @@ tr.rdetail td { background: var(--bubble); padding: 2px 18px 18px; border-bottom
         <div class="modes" id="modes" role="radiogroup"></div>
         <div class="suggest" id="suggest"></div>
         <div class="cmds" id="cmds" role="listbox" hidden></div>
+        <div class="attached" id="attached" hidden></div>
         <div class="box">
           <button class="slash" id="slash" type="button" aria-haspopup="listbox" aria-controls="cmds" aria-expanded="false">/</button>
+          <button class="attach" id="attach" type="button"></button>
           <textarea id="say" rows="1" maxlength="1000"></textarea>
           <button class="send" id="send" type="button" disabled></button>
         </div>
@@ -591,7 +608,9 @@ const T = {
   liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The automation daemon is not polling: reminders and routines will not run. Open Health.",
   workspace: "Workspace",
   placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
-  hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCommands: " commands",
+  hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCommands: " commands", hintDrop: " · drop files to add them",
+  attach: "Add files to the workspace", dropHere: "Drop to copy into the workspace", copying: "copying…", removeFile: n => `Leave ${n} out of the message`,
+  tooMany: n => `At most ${n} files in one message.`,
   commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: " · each message is one run of your assistant (at most US$0.30)",
   left: n => ` · ${n} left today`,
   thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
@@ -657,7 +676,7 @@ const TW = {
 const nameOf = sc => (sc && sc.name) || "tanka";
 const ui = { tab: "chat", mode: "tanka", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
              rows: null, nodes: [], logScope: null, stick: true, sideSig: "", wsSig: "", tabSig: "", suggestSig: "",
-             flash: null, showDay: false };
+             flash: null, showDay: false, files: {} };
 try {
   ui.tab = new URLSearchParams(location.search).get("tab") || localStorage.getItem("tanka.tab") || "chat";
   ui.scope = new URLSearchParams(location.search).get("ws") || localStorage.getItem("tanka.scope");
@@ -864,7 +883,8 @@ function message(sc, m, first) {
   if (m.who === "report") return reportEvent(m);
   if (m.who === "you") return el("div", { class: "msg you" + (m.mode === "dev" ? " dev" : "") + (first ? " first" : "") },
     el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t), m.mode === "dev" ? el("span", { class: "to" }, " · " + T.toDev) : null) : null,
-      el("div", { class: "bubble", title: hm(m.t) }, m.text)));
+      m.text ? el("div", { class: "bubble", title: hm(m.t) }, m.text) : null,
+      (m.files || []).length ? el("div", { class: "files" }, m.files.map(f => el("span", { class: "file-chip", title: f }, el("span", { class: "nm" }, f.split("/").pop())))) : null));
   if (m.who === "error") {
     const txt = m.code && T.err[m.code] ? T.err[m.code](m.detail || "") : m.text;
     return el("div", { class: "msg them first" }, el("span", { class: "avatar err", "aria-hidden": "true" }, "!"),
@@ -1036,9 +1056,71 @@ function commandKeys(e) {
   return false;
 }
 
+// ------------------------------------------------------------ files dropped on the chat
+// A file dropped on the chat, or picked with the clip, is copied into the workspace's files/ folder at once
+// (POST /api/files, the raw bytes); it shows as a chip until the message goes, and the message names it so
+// the assistant reads it. Leaving a chip out of the message keeps the file in the workspace.
+const MAX_FILES = 10;
+const size = n => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+function renderFiles() {
+  const sc = current(), box = $("attached"), list = sc ? ui.files[sc.scope] || [] : [];
+  box.hidden = !list.length;
+  box.replaceChildren(...list.map((f, i) => el("span", { class: "file-chip" + (f.busy ? " busy" : "") + (f.error ? " bad" : ""), title: f.error || f.path || f.name },
+    el("span", { class: "nm" }, f.name), el("span", { class: "sz" }, f.busy ? T.copying : f.error ? f.error : size(f.size)),
+    f.busy ? null : el("button", { type: "button", "aria-label": T.removeFile(f.name), on: { click: () => { list.splice(i, 1); renderFiles(); updateComposer(); } } }, "×"))));
+}
+async function addFiles(fileList) {
+  const sc = current();
+  if (!sc || !fileList || !fileList.length) return;
+  const list = ui.files[sc.scope] = ui.files[sc.scope] || [];
+  const picked = [...fileList];
+  if (list.length + picked.length > MAX_FILES) { $("cmsg").textContent = " · " + T.tooMany(MAX_FILES); picked.length = Math.max(0, MAX_FILES - list.length); }
+  const items = picked.map(f => ({ name: f.name, size: f.size, busy: true, file: f }));
+  list.push(...items);
+  renderFiles(); updateComposer();
+  await Promise.all(items.map(async it => {
+    try {
+      const r = await fetch(`/api/files?scope=${encodeURIComponent(sc.scope)}&name=${encodeURIComponent(it.name)}`, {
+        method: "POST", headers: { "X-Tanka-Token": TOKEN, "Content-Type": "application/octet-stream" }, body: it.file });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "HTTP " + r.status);
+      Object.assign(it, { path: data.path, name: data.name, size: data.size });
+    } catch (e) { it.error = e.message; }
+    it.busy = false; delete it.file;
+    renderFiles(); updateComposer();
+  }));
+}
+function setupDrop() {
+  const pane = $("chat");
+  pane.dataset.drop = T.dropHere;
+  let depth = 0;
+  const hasFiles = e => [...(e.dataTransfer && e.dataTransfer.types || [])].includes("Files");
+  pane.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; pane.classList.add("dropping"); });
+  pane.addEventListener("dragover", e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
+  pane.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); if (!depth) pane.classList.remove("dropping"); });
+  pane.addEventListener("drop", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; pane.classList.remove("dropping");
+    if (ui.tab !== "chat") return;
+    addFiles(e.dataTransfer.files); say.focus();
+  });
+  // A file dropped anywhere else must not make the browser leave the page to open it.
+  window.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener("drop", e => { if (hasFiles(e)) e.preventDefault(); });
+  const pickBtn = $("attach");
+  pickBtn.append(svg(ICON.upload)); pickBtn.title = T.attach; pickBtn.setAttribute("aria-label", T.attach);
+  pickBtn.addEventListener("click", () => {
+    const input = el("input", { type: "file", multiple: true });
+    input.addEventListener("change", () => addFiles(input.files));
+    input.click();
+  });
+}
+
 function updateComposer() {
+  renderFiles();  // the chips of the workspace on screen
   const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
-  sendBtn.disabled = busy || !say.value.trim();
+  const files = sc ? ui.files[sc.scope] || [] : [];
+  sendBtn.disabled = busy || (!say.value.trim() && !files.some(f => f.path)) || files.some(f => f.busy);
   const name = nameOf(sc), dev = ui.mode === "dev";
   say.placeholder = busy ? T.placeholderBusy(sc && sc.busy_mode === "dev" ? T.devName : name) : dev ? T.devPlaceholder(name) : T.placeholder(name);
   say.setAttribute("aria-label", dev ? T.devPlaceholder(name) : T.placeholder(name));
@@ -1057,13 +1139,14 @@ function updateComposer() {
 }
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
-  if (!sc || !text || ui.sending || sc.busy) return;
+  const files = typed && sc ? (ui.files[sc.scope] || []).filter(f => f.path).map(f => f.path) : [];
+  if (!sc || (!text && !files.length) || ui.sending || sc.busy || (typed && (ui.files[sc.scope] || []).some(f => f.busy))) return;
   ui.sending = true; ui.stick = true;
   $("cmsg").textContent = "";
   updateComposer();
   try {
-    await api("/api/chat", { scope: sc.scope, text, mode: ui.mode });
-    if (typed) { say.value = ""; grow(); }
+    await api("/api/chat", { scope: sc.scope, text, mode: ui.mode, files });
+    if (typed) { say.value = ""; grow(); ui.files[sc.scope] = []; renderFiles(); }
   } catch (e) { $("cmsg").textContent = " · " + e.message; }
   ui.sending = false;
   await refresh();
@@ -1090,13 +1173,14 @@ function setupComposer() {
   sendBtn.setAttribute("aria-label", T.send);
   sendBtn.title = T.send;
   const [k1, t1, k2, t2] = T.hint;
-  $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, " · ", el("kbd", {}, "/"), T.hintCommands,
+  $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, " · ", el("kbd", {}, "/"), T.hintCommands, T.hintDrop,
     el("span", { id: "left" }), el("span", { class: "err", id: "cmsg" }));
   say.addEventListener("input", () => { cmdv.active = 0; grow(); updateComposer(); });
   say.addEventListener("keydown", e => {
     if (commandKeys(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
   });
+  setupDrop();
   $("slash").title = T.commands; $("slash").setAttribute("aria-label", T.commands);
   $("slash").addEventListener("click", () => { cmdv.open = $("cmds").hidden; cmdv.dismissed = null; renderCommands(); say.focus(); });
   document.addEventListener("click", e => { if (!e.target.closest(".composer") && cmdv.open) { cmdv.open = false; renderCommands(); } });

@@ -496,7 +496,8 @@ def skills_line(root: Path) -> str:
     return ("Skills first: before answering, match the request to one of these skills and follow it: "
             + (", ".join(parts) if parts else "none installed yet")
             + ". Built in: /tanka:draft, /tanka:triage, /tanka:plan, /tanka:setup, /tanka:status. "
-            "If nothing covers the request, say so and stop; never work around a missing tool.")
+            "Files the user adds from the page land in files/: reading one with Read when the message is about it "
+            "needs no skill. If nothing covers the request, say so and stop; never work around a missing tool.")
 
 
 def classify_tool(tool_name: str, policy: dict, root: Path | None = None) -> str:
