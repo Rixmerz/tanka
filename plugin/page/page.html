@@ -166,6 +166,16 @@ details.ev pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; whi
 /* ---------- composer */
 .composer { flex: none; padding: 6px 24px 16px; }
 .composer .lane { padding: 0; }
+.cmds { max-height: 264px; overflow-y: auto; margin-bottom: 8px; background: var(--raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px; }
+.cmd { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; column-gap: 8px; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); font: inherit; padding: 7px 10px; border-radius: 10px; cursor: pointer; }
+.cmd.on, .cmd:hover { background: var(--bubble); }
+.cmd .n { font-family: var(--mono); font-size: 13px; font-weight: 650; }
+.cmd .h { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cmd .tag { justify-self: start; }
+.cmd .d { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cmd-empty { padding: 8px 10px; font-size: 13px; color: var(--muted); }
+.slash { width: 30px; height: 30px; flex: none; align-self: center; margin-left: -10px; border: 1px solid var(--line); border-radius: 50%; background: none; color: var(--muted); font-family: var(--mono); font-size: 15px; font-weight: 650; cursor: pointer; }
+.slash:hover, .slash[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
 .suggest { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .suggest button { border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
 .suggest button:hover { border-color: var(--accent); }
@@ -495,7 +505,9 @@ tr.rdetail td { background: var(--bubble); padding: 2px 18px 18px; border-bottom
       <div class="lane">
         <div class="modes" id="modes" role="radiogroup"></div>
         <div class="suggest" id="suggest"></div>
+        <div class="cmds" id="cmds" role="listbox" hidden></div>
         <div class="box">
+          <button class="slash" id="slash" type="button" aria-haspopup="listbox" aria-controls="cmds" aria-expanded="false">/</button>
           <textarea id="say" rows="1" maxlength="1000"></textarea>
           <button class="send" id="send" type="button" disabled></button>
         </div>
@@ -520,7 +532,8 @@ const T = {
   liveTitle: t => `Updated at ${t}`, noDaemonTitle: "The automation daemon is not polling: reminders and routines will not run. Open Health.",
   workspace: "Workspace",
   placeholder: n => `Message ${n}…`, placeholderBusy: n => `${n} is answering…`, send: "Send",
-  hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCost: " · each message is one run of your assistant (at most US$0.30)",
+  hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCommands: " commands",
+  commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: " · each message is one run of your assistant (at most US$0.30)",
   left: n => ` · ${n} left today`,
   thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
@@ -888,6 +901,63 @@ function suggestions(sc) {
     if (now) send(); else { say.focus(); say.setSelectionRange(text.length, text.length); }
   } } }, text.trim())));
 }
+// ------------------------------------------------------------ commands
+// What can follow a / in the box: the harness's skills and the workspace's for the assistant, the builder's
+// for Dev (GET /api/commands). It opens when the box holds only "/word" or from the / button, filters as you
+// type, and picking one puts it in the box for you to finish and send: it never sends on its own.
+const cmdv = { data: {}, at: {}, open: false, active: 0, list: [], dismissed: null };
+async function loadCommands(scope) {
+  if (cmdv.at[scope] && Date.now() - cmdv.at[scope] < 60000) return;
+  cmdv.at[scope] = Date.now();
+  try { cmdv.data[scope] = await api(`/api/commands?scope=${encodeURIComponent(scope)}`); }
+  catch (e) { cmdv.data[scope] = { tanka: [], dev: [] }; }
+  renderCommands();
+}
+function commandQuery() { const m = /^\/(\S*)$/.exec(say.value); return m ? m[1].toLowerCase() : null; }
+function renderCommands() {
+  const sc = current(), box = $("cmds"), q = commandQuery();
+  const show = !!sc && (cmdv.open || (q !== null && say.value !== cmdv.dismissed));
+  $("slash").setAttribute("aria-expanded", String(show));
+  if (!show) { box.hidden = true; cmdv.list = []; return; }
+  loadCommands(sc.scope);
+  box.hidden = false;
+  const all = (cmdv.data[sc.scope] || {})[ui.mode === "dev" ? "dev" : "tanka"];
+  if (!all) { box.replaceChildren(el("div", { class: "cmd-empty" }, T.cmdLoading)); return; }
+  const query = q || "";
+  // The command's own name first (what follows the last ":"), then the whole name, then its description.
+  const rank = c => {
+    const n = c.name.toLowerCase(), own = n.slice(n.lastIndexOf(":") + 1).replace(/^\//, "");
+    return own.startsWith(query) ? 0 : n.includes(query) ? 1 : c.description.toLowerCase().includes(query) ? 2 : 3;
+  };
+  cmdv.list = all.map((c, i) => [rank(c), i, c]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , c]) => c);
+  cmdv.active = Math.min(cmdv.active, Math.max(0, cmdv.list.length - 1));
+  box.replaceChildren(...(cmdv.list.length ? cmdv.list.map((c, i) => el("button", {
+    type: "button", role: "option", class: "cmd" + (i === cmdv.active ? " on" : ""), "aria-selected": String(i === cmdv.active),
+    on: { mousedown: e => e.preventDefault(), click: () => pickCommand(c) } },
+    el("span", { class: "n" }, c.name), el("span", { class: "h" }, c.hint || ""),
+    c.origin === "workspace" ? el("span", { class: "tag" }, T.cmdWorkspace) : el("span", {}),
+    c.description ? el("span", { class: "d" }, c.description) : null)) : [el("div", { class: "cmd-empty" }, T.cmdNone)]));
+  const on = box.querySelector(".cmd.on");
+  if (on) on.scrollIntoView({ block: "nearest" });
+}
+function pickCommand(c) {
+  say.value = c.name + " "; cmdv.open = false; cmdv.dismissed = null; grow(); updateComposer();
+  say.focus(); say.setSelectionRange(say.value.length, say.value.length);
+}
+// Arrows move, Enter or Tab picks, Escape closes; true when the key was the menu's.
+function commandKeys(e) {
+  if ($("cmds").hidden || e.isComposing) return false;
+  if (e.key === "Escape") { e.preventDefault(); cmdv.open = false; cmdv.dismissed = say.value; renderCommands(); updateComposer(); return true; }
+  if (!cmdv.list.length) return false;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    cmdv.active = (cmdv.active + (e.key === "ArrowDown" ? 1 : -1) + cmdv.list.length) % cmdv.list.length;
+    renderCommands(); return true;
+  }
+  if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") { e.preventDefault(); pickCommand(cmdv.list[cmdv.active]); return true; }
+  return false;
+}
+
 function updateComposer() {
   const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
   sendBtn.disabled = busy || !say.value.trim();
@@ -902,7 +972,8 @@ function updateComposer() {
   $("helloP").textContent = [T.helloText, ...active(sc).map(([, s, mod]) => s.hello ? s.hello(sc, mod) : "")].filter(Boolean).join(" ");
   $("typingName").textContent = sc && sc.busy_mode === "dev" ? T.devName : name;
   suggestions(sc);
-  $("suggest").hidden = !!say.value.trim() || busy;
+  renderCommands();
+  $("suggest").hidden = !!say.value.trim() || busy || !$("cmds").hidden;
   $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.per_message_usd, sc.dev.left_usd)
     : T.hintCost + (sc && sc.chat_left != null && sc.chat_left < 10 ? T.left(sc.chat_left) : "");
 }
@@ -941,9 +1012,16 @@ function setupComposer() {
   sendBtn.setAttribute("aria-label", T.send);
   sendBtn.title = T.send;
   const [k1, t1, k2, t2] = T.hint;
-  $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, el("span", { id: "left" }), el("span", { class: "err", id: "cmsg" }));
-  say.addEventListener("input", () => { grow(); updateComposer(); });
-  say.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, " · ", el("kbd", {}, "/"), T.hintCommands,
+    el("span", { id: "left" }), el("span", { class: "err", id: "cmsg" }));
+  say.addEventListener("input", () => { cmdv.active = 0; grow(); updateComposer(); });
+  say.addEventListener("keydown", e => {
+    if (commandKeys(e)) return;
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  });
+  $("slash").title = T.commands; $("slash").setAttribute("aria-label", T.commands);
+  $("slash").addEventListener("click", () => { cmdv.open = $("cmds").hidden; cmdv.dismissed = null; renderCommands(); say.focus(); });
+  document.addEventListener("click", e => { if (!e.target.closest(".composer") && cmdv.open) { cmdv.open = false; renderCommands(); } });
   sendBtn.addEventListener("click", send);
   $("jump").replaceChildren(icon("down"), " " + T.newMessages);
   $("jump").addEventListener("click", scrollEnd);

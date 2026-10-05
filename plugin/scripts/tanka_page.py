@@ -294,6 +294,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/api/state":
                 return self.json(200, {"health": health(), "scopes": [scope_state(s) for s in kit.scopes()]})
+            if url.path == "/api/commands":
+                return self.json(200, chat.commands(known_scope(q.get("scope", ""))))
             if url.path == "/api/workspace":
                 return self.json(200, workspace_report(q.get("scope", "")))
             if url.path == "/api/persona/avatar":

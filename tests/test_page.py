@@ -84,6 +84,42 @@ class TestPrivacy(PageCase):
             self.assertNotIn(sink, text.replace("never touch innerHTML", ""))
 
 
+class TestCommands(PageCase):
+    def test_the_commands_each_mode_can_type(self):
+        skills = self.ws / ".claude" / "skills"
+        (skills / "library").mkdir(parents=True)
+        (skills / "library" / "SKILL.md").write_text(
+            '---\nname: library\ndescription: "Loans and holds\n  of the library."\nargument-hint: "[book]"\n---\n# Library\n')
+        (skills / "quiet").mkdir()
+        (skills / "quiet" / "SKILL.md").write_text("---\nname: quiet\ndescription: x\nuser-invocable: false\n---\n")
+        (skills / "folded").mkdir()
+        (skills / "folded" / "SKILL.md").write_text("---\nname: folded\ndescription: >\n  One line\n  and another.\n---\n")
+        (skills / "bare").mkdir()
+        (skills / "bare" / "SKILL.md").write_text("# no frontmatter\n")
+        status, data, _ = self.call("GET", "/api/commands?scope=duck")
+        self.assertEqual(status, 200)
+        cmds = json.loads(data)
+        tanka = {c["name"]: c for c in cmds["tanka"]}
+        self.assertEqual(tanka["/tanka:plan"]["hint"], "[task description | close | show]")
+        self.assertEqual(tanka["/tanka:plan"]["origin"], "tanka")
+        self.assertEqual(tanka["/library"]["origin"], "workspace")
+        self.assertEqual(tanka["/library"]["hint"], "[book]")
+        self.assertEqual(tanka["/library"]["description"], "Loans and holds of the library.")
+        self.assertNotIn("/quiet", tanka)
+        self.assertEqual(tanka["/folded"]["description"], "One line and another.")
+        self.assertNotIn("/bare", tanka)
+        self.assertTrue(all(len(c["description"]) <= chat.COMMAND_DESC_CHARS for c in cmds["tanka"] + cmds["dev"]))
+        self.assertIn("/tanka-dev:new-skill", {c["name"] for c in cmds["dev"]})
+        self.assertNotIn("/library", {c["name"] for c in cmds["dev"]})
+        self.assertEqual(self.call("GET", "/api/commands?scope=nobody")[0], 400)
+        self.assertEqual(self.call("GET", "/api/commands?scope=duck", token=False)[0], 403)
+
+    def test_the_page_carries_the_menu(self):
+        html = self.call("GET", "/")[1].decode()
+        self.assertIn('id="cmds"', html)
+        self.assertIn('id="slash"', html)
+
+
 class TestModules(PageCase):
     def test_state_carries_each_installed_module(self):
         duck = self.scope()

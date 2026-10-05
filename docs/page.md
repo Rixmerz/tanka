@@ -42,6 +42,15 @@ The chat file holds the user's messages (`who: "you"`), the answers (`"tanka"`),
 (`"error"`), and whatever a module writes there with `tanka_common.chat_event` (a fired reminder,
 the brief).
 
+## Commands
+
+Typing `/` as the first thing in the box, or the **/** button beside it, opens the commands that mode can
+use, each with what it takes and what it is for (`GET /api/commands?scope=`): Tanka's own skills
+(`/tanka:plan`, `/tanka:draft`…) and the workspace's skills for the assistant, the builder's
+(`/tanka-dev:new-skill`, `/tanka-dev:new-view`…) for Dev. Typing filters them, the command's own name first;
+arrows move, Enter or Tab picks and Escape closes. Picking one puts it in the box for the user to finish
+and send; the menu never sends. A skill whose frontmatter says `user-invocable: false` is left out.
+
 ## Dev, from the chat
 
 A selector over the chat's box picks who answers: **Tanka**, the workspace's assistant, or **Dev**, the

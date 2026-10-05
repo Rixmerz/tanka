@@ -203,6 +203,52 @@ def on_stream(scope: str, ev: dict) -> str | None:
     return None
 
 
+COMMAND_DESC_CHARS = 240
+
+
+def skill_meta(path: Path) -> dict:
+    """The frontmatter keys a command needs, read from a SKILL.md; {} when it has none."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    if not lines or lines[0].strip() != "---":
+        return {}
+    meta, last = {}, None
+    for raw in lines[1:]:
+        if raw.strip() == "---":
+            return {k: v.strip().strip('"').strip("'") for k, v in meta.items()}
+        if raw.startswith((" ", "\t")) and last:  # a folded or quoted value goes on over indented lines
+            meta[last] = (meta[last] + " " + raw.strip()).strip()
+            continue
+        key, sep, value = raw.partition(":")
+        if sep and key:
+            last = key.strip()
+            meta[last] = "" if value.strip() in (">", "|", ">-", "|-") else value.strip()
+    return {}
+
+
+def commands(scope: str) -> dict:
+    """What can be typed after a / in the page's chat, per mode: the harness's own skills and the
+    workspace's for the assistant, the builder's for Dev. A skill marked user-invocable: false is left out."""
+    def listed(paths, prefix: str, origin: str) -> list[dict]:
+        out = []
+        for f in sorted(paths):
+            meta = skill_meta(f)
+            name = meta.get("name") or f.parent.name
+            if not meta or meta.get("user-invocable", "").lower() == "false":
+                continue
+            desc = " ".join(meta.get("description", "").split())
+            out.append({"name": f"/{prefix}{name}", "hint": meta.get("argument-hint", ""), "origin": origin,
+                        "description": desc if len(desc) <= COMMAND_DESC_CHARS else desc[:COMMAND_DESC_CHARS - 1] + "…"})
+        return out
+
+    ws = kit.ws_dir(scope)
+    return {"tanka": listed((kit.REPO / "plugin" / "skills").glob("*/SKILL.md"), "tanka:", "tanka")
+            + listed((ws / ".claude" / "skills").glob("*/SKILL.md"), "", "workspace"),
+            "dev": listed((kit.REPO / "builder" / "skills").glob("*/SKILL.md"), "tanka-dev:", "dev")}
+
+
 def hint(scope: str) -> str:
     """The core hint, then what each installed module adds about its own tools."""
     return " ".join([HINT] + [h for _, h in each(scope, "hint") if h])
