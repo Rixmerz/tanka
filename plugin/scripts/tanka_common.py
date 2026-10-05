@@ -423,10 +423,15 @@ def save_session(root: Path, st: dict) -> None:
 
 
 def ensure_turn(st: dict, prompt_id: str | None) -> None:
-    """Reset the per-turn counters whenever prompt_id changes."""
+    """Reset the per-turn counters whenever prompt_id changes.
+
+    The failures in a row reset too: they stop the model from retrying on its own within a turn, and a
+    new message is the user asking again, often after fixing what failed (a tool changed, a file added).
+    The per-session cap still bounds the whole session."""
     if prompt_id and st.get("turn", {}).get("prompt_id") != prompt_id:
         st["turn"] = {"calls": [], "prompt_id": prompt_id}
         st["current_prompt_id"] = prompt_id
+        st["consecutive_failures"] = {}
 
 
 def input_hash(tool_name: str, tool_input) -> str:

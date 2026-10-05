@@ -316,11 +316,50 @@ class TestReload(WorkspacePageCase):
     def test_a_new_conversation(self):
         import tanka_chat as chat
         chat.keep_session("duck", "abc")
-        self.assertEqual(chat.session_args("duck")[0], ["--resume", "abc"])
+        self.assertEqual(chat.session_args("duck")[:2], (["--resume", "abc"], "abc"))
         self.assertEqual(self.reload("conversation")[0], 200)
-        self.assertEqual(chat.session_args("duck")[0][0], "--session-id")
+        extra, _, why = chat.session_args("duck")
+        self.assertEqual((extra[0], why), ("--session-id", "reset"))
+        self.assertEqual(chat.read("duck")[-1]["who"], "notice")
         self.assertEqual(self.reload("conversation", mode="nope")[0], 400)
         self.assertEqual(self.reload("everything")[0], 400)
+
+
+class TestConversationAndTools(WorkspacePageCase):
+    """The day's conversation resumes only while the assistant's skills and tools are the ones it began with."""
+
+    def test_a_changed_tool_starts_a_new_conversation_with_what_was_said(self):
+        import tanka_chat as chat
+        write_skill(tt.skills_dir(self.ws), "grading", tools=1)
+        chat.append("duck", "you", "review the first test against its answer key")
+        chat.append("duck", "tanka", "I cannot: the tool has no parameter for an answer key.")
+        chat.keep_session("duck", "s1")
+        self.assertEqual(chat.session_args("duck")[2], None)  # same tools: it resumes
+        manifest = tt.skills_dir(self.ws) / "grading" / "tools" / "grading_tool0.json"
+        m = json.loads(manifest.read_text())
+        m["params"] = {"key": {"type": "string", "description": "Path of the answer key file to grade against."}}
+        manifest.write_text(json.dumps(m))
+        self.assertEqual(self.reload("skills")[1]["restarts"], True)
+        runs = []
+        self.patch(chat, "run_tanka", lambda scope, text, extra: runs.append((text, extra)) or (0, "Done.", ""))
+        chat.send("duck", "try again", background=False)
+        prompt, extra = runs[0]
+        self.assertEqual(extra[0], "--session-id")
+        self.assertIn("restarted because your skills or tools changed", prompt)
+        self.assertIn("no parameter for an answer key", prompt)  # quoted as context, flagged as possibly stale
+        self.assertTrue(prompt.endswith("try again"))
+        notices = [m for m in chat.read("duck") if m.get("who") == "notice"]
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(chat.session_args("duck")[2], None)  # and the new one resumes from now on
+
+    def test_a_session_from_before_this_change_still_resumes(self):
+        import tanka_chat as chat
+        chat.session_file("duck", "tanka").parent.mkdir(parents=True, exist_ok=True)
+        chat.session_file("duck", "tanka").write_text(json.dumps({"id": "old", "day": chat.today()}))
+        self.assertEqual(chat.session_args("duck")[:2], (["--resume", "old"], "old"))
+
+    def reload(self, what):
+        return self.call("POST", "/api/workspace/reload", {"scope": "duck", "what": what})
 
 
 class TestManager(WorkspacePageCase):

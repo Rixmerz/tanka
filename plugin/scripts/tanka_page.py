@@ -220,7 +220,8 @@ def reload_action(scope: str, body: dict) -> dict:
     ws = kit.ws_dir(scope)
     what = str(body.get("what", ""))
     if what == "skills":
-        return dict(reload_skills(ws), ok=True)
+        # A conversation that began with other tools restarts by itself on the next message; say so.
+        return dict(reload_skills(ws), ok=True, restarts=chat.session_args(scope)[2] == "tools")
     if what == "mcp":
         return dict(reload_mcp(ws), ok=True)
     if what == "conversation":
@@ -230,6 +231,8 @@ def reload_action(scope: str, body: dict) -> dict:
         if chat.busy(scope):
             raise ToolError("It is still answering; wait for it.")
         chat.keep_session(scope, None, mode)
+        chat.append(scope, "notice", "A new conversation starts with the next message; what was said stays here.",
+                    **({"mode": "dev"} if mode == "dev" else {}))
         return {"ok": True, "message": "The next message starts a new conversation."}
     raise ToolError("Reload skills, mcp or conversation.")
 

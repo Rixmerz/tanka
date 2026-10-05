@@ -130,7 +130,7 @@ Fail-closed mode: anything that would ask for confirmation is denied, `may_send`
 
 | Observed limitation | Mechanism |
 |---|---|
-| Repeats a call even after the tool says it is already done | `PreToolUse` denies the third identical call in a turn; per-turn and per-session action budgets; three consecutive failures stop the retry |
+| Repeats a call even after the tool says it is already done | `PreToolUse` denies the third identical call in a turn; per-turn and per-session action budgets; three consecutive failures stop the retry until the user writes again |
 | Invents parameters (recipient, date) instead of asking | Outgoing-message validation: placeholders, minimum body, secrets, blocked or non-allowlisted recipients |
 | Claims "sent" without having called the tool | The `Stop` hook blocks closure without a successful `tool_result` of that class |
 | Forgets rules in long conversations | Hard rules re-injected every turn; objective persisted to a file; forced output style |

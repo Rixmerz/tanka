@@ -33,7 +33,10 @@ forged without going through a tool.
 
 Each message is one `tanka run` in the workspace (at most 10 turns and 0.30 USD, one at a time, 40 a
 day). The day's messages share one Claude Code session, so it remembers what was said earlier today;
-a new day starts a new session opened with the end of the earlier chat. Each message also carries
+a new day starts a new session opened with the end of the earlier chat. A session also starts over when
+the assistant's skills or tools changed since it began (a tool Dev just built, a module installed): resuming
+would keep it answering from the old ones, as in "that parameter does not exist". The new one opens with the
+conversation so far, flagged as possibly stale about tools, and the chat shows a line saying it restarted. Each message also carries
 what the page showed on its own since the user's last one (a fired reminder, a note, a report), with
 ids, so a reply like "done" has something to refer to. The run streams; the page shows the answer as
 it is written.

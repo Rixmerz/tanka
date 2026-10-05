@@ -247,6 +247,16 @@ class TestLoopGuard(HookTestCase):
         self.assertEqual(decision(out), "deny")
         self.assertIn("failed", reason(out))
 
+    def test_a_new_message_lets_a_failed_tool_be_tried_again(self):
+        """The user asking again (often after fixing what failed) is not the model looping on its own."""
+        for i in range(3):
+            self.pre("mcp__cal__list_events", {"day": str(i)}, tool_use_id=f"t{i}")
+            self.post("mcp__cal__list_events", {"day": str(i)}, tool_use_id=f"t{i}", ok=False)
+        code, out, _ = self.pre("mcp__cal__list_events", {"day": "9"}, tool_use_id="t9")
+        self.assertEqual(decision(out), "deny")
+        code, out, _ = self.pre("mcp__cal__list_events", {"day": "9"}, tool_use_id="t10", pid="prompt-2")
+        self.assertEqual(decision(out), "allow")
+
     def test_failure_counter_resets_on_success(self):
         for i in range(2):
             self.pre("mcp__cal__list_events", {"day": str(i)}, tool_use_id=f"t{i}")

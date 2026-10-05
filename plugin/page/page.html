@@ -327,6 +327,8 @@ img.face { width: 100%; height: 100%; object-fit: cover; display: block; border-
 pre.out { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; }
 p.problem, p.warning { margin: 6px 0 0; white-space: pre-wrap; }
 
+.sep.notice { font-size: 12.5px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+
 /* ---------- files dropped on the chat */
 .attached { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 3px 6px 3px 11px; font-size: 13px; }
@@ -676,6 +678,7 @@ const TW = {
   rSkills: "Reload skills", rMcp: "Reload MCP servers", rConv: "New conversation", rWorking: "Checking…",
   rTools: (n, max) => `${n}/${max} tools load on the next message`, rNoSkills: "No skills in this workspace.",
   rProblem: "Not loaded: ", rWarn: "Warning: ", rOk: n => plural(n, "tool", "tools"), rRemote: "not checked",
+  rRestarts: "The assistant's conversation began with other tools: its next message starts a new one by itself.",
   rExternal: e => `Other MCP servers: ${e}`, rSkipped: list => `Not started, the rules block them: ${list}`,
 };
 const nameOf = sc => (sc && sc.name) || "tanka";
@@ -885,6 +888,7 @@ function message(sc, m, first) {
     const spec = MODS[m.module], render = spec && spec.items && spec.items[m.who];
     return render ? render(sc, m, modOf(sc, m.module)) : null;
   }
+  if (m.who === "notice") return el("div", { class: "sep notice", role: "note" }, m.text);
   if (m.who === "report") return reportEvent(m);
   if (m.who === "you") return el("div", { class: "msg you" + (m.mode === "dev" ? " dev" : "") + (first ? " first" : "") },
     el("div", { class: "col" }, first ? el("div", { class: "who" }, hm(m.t), m.mode === "dev" ? el("span", { class: "to" }, " · " + T.toDev) : null) : null,
@@ -1443,6 +1447,7 @@ function reloadResult() {
   if (r.what === "conversation") return el("p", { class: "meta" }, d.message || "");
   if (r.what === "skills") return el("div", {},
     el("p", { class: "meta" }, TW.rTools(d.tools, d.tools_max)),
+    d.restarts ? el("div", { class: "note-banner" }, TW.rRestarts) : null,
     (d.skills || []).length ? el("ul", { class: "steps" }, d.skills.map(x => el("li", {}, el("strong", {}, x.name), x.tools.length ? " · " + x.tools.join(", ") : ""))) : el("p", { class: "meta" }, TW.rNoSkills),
     (d.problems || []).map(x => el("p", { class: "problem" }, TW.rProblem + x)),
     (d.warnings || []).map(x => el("p", { class: "meta" }, TW.rWarn + x)));
