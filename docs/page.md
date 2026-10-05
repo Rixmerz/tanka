@@ -146,6 +146,12 @@ stops them; a remote server is named but not contacted. *New conversation* drops
 mode on screen, so the next message starts one. `POST /api/workspace/reload {scope, what: skills|mcp|conversation, mode?}`.
 Open terminal sessions are not reached: there, a new skill still needs `/reload-skills`.
 
+*Restart everything* reloads absolutely all of it, for when something still behaves as before: every
+conversation of the workspace (the assistant's and Dev's) starts over, the automation daemon restarts, and
+the page's own process is replaced by a new one on the same port and with the same token
+(`POST /api/restart {scope}`), so its code and every module's `page.py` load again. The open tab waits
+for it to come back and reloads itself. It is refused while an answer is running, which it would cut off.
+
 **A new workspace.** The workspace switcher ends in *New workspace*: a folder name and the assistant's
 name, and the page runs `tanka init` exactly as a terminal would (`POST /api/workspace/create`), then
 opens on it.
@@ -184,6 +190,7 @@ terminal sessions update their tools by themselves, and a new skill needs `/relo
 | `POST /api/workspace/create` `{scope, name?}` | a new workspace (`tanka init`) with its assistant's name |
 | `POST /api/workspace/reload` `{scope, what, mode?}` | rescan the skills, start and ask the MCP servers, or start a new conversation |
 | `POST /api/access` `{scope, id, decision, dir?}` | approve (read only) or deny the assistant's request to read a folder |
+| `POST /api/restart` `{scope}` | restart the conversations, the automation daemon and the page itself |
 | `POST /api/persona/name` `{scope, name}` | rename the persona |
 | `POST /api/persona/avatar` `{scope, type, data}` | set the picture |
 | `POST /api/persona/avatar-remove` `{scope}` | remove the picture |

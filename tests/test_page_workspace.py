@@ -6,6 +6,8 @@ from __future__ import annotations
 import base64
 import http.client
 import json
+import time
+import os
 import sys
 import threading
 import unittest
@@ -412,6 +414,53 @@ class TestAccess(WorkspacePageCase):
         for bad in ([str(Path.home())], [str(Path.home() / ".ssh")], ["relative/path"], [str(self.tmp / "nowhere")], ["/"]):
             with self.subTest(bad=bad):
                 self.assertEqual(self.call("POST", "/api/workspace/settings", {"scope": "duck", "policy": {"read_dirs": bad}})[0], 400)
+
+
+class TestRestartEverything(WorkspacePageCase):
+    """Restart: every conversation starts over, the daemon restarts, and a new page process takes the same
+    port and token once this one is gone."""
+
+    def test_it_restarts_the_conversations_the_daemon_and_the_page(self):
+        import tanka_chat as chat
+        chat.keep_session("duck", "a")
+        chat.keep_session("duck", "d", "dev")
+        spawned, stopped = [], []
+        self.patch(page.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw)))
+        self.patch(page.ta, "daemon_pid", lambda: 4242)
+        self.patch(page.ta, "restart", lambda: 4343)
+
+        class FakeServer:
+            server_address = ("127.0.0.1", 50123)
+            RequestHandlerClass = type("H", (), {"token": "tok-123"})
+
+            def shutdown(self):
+                stopped.append(True)
+
+        got = page.restart_everything("duck", FakeServer())
+        self.assertEqual(got["daemon"], 4343)
+        self.assertEqual([chat.session_args("duck", m)[2] for m in chat.MODES], ["reset", "reset"])
+        self.assertEqual(chat.read("duck")[-1]["who"], "notice")
+        argv, kw = spawned[0]
+        self.assertEqual(argv[-4:], ["--port", "50123", "--after-pid", str(os.getpid())])
+        self.assertEqual(kw["env"]["TANKA_PAGE_TOKEN"], "tok-123")  # the open tab's token keeps working
+        for _ in range(20):
+            if stopped:
+                break
+            time.sleep(0.05)
+        self.assertEqual(stopped, [True])
+
+    def test_it_waits_for_an_answer_to_finish(self):
+        import tanka_chat as chat
+        chat._busy["duck"] = time.time()
+        self.addCleanup(chat._busy.pop, "duck", None)
+        status, data = self.call("POST", "/api/restart", {"scope": "duck"})
+        self.assertEqual(status, 400)
+        self.assertIn("still answering", data["error"])
+
+    def test_a_restarted_page_keeps_the_token(self):
+        srv = page.make_server(0, "same-token")
+        self.addCleanup(srv.server_close)
+        self.assertEqual(srv.RequestHandlerClass.token, "same-token")
 
 
 class TestManager(WorkspacePageCase):

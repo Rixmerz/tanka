@@ -769,6 +769,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, {"name": set_name(str(body.get("scope", "")), body.get("name"))})
             if self.path.startswith("/api/workspace/"):
                 return self.json(200, workspace_action(self.path[len("/api/workspace/"):], body))
+            if self.path == "/api/restart":
+                return self.json(200, restart_everything(str(body.get("scope", "")), self.server))
             if self.path == "/api/access":
                 return self.json(200, decide_access(str(body.get("scope", "")), body))
             if self.path == "/api/chat":
@@ -787,8 +789,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.json(404, {"error": "not found"})
 
 
-def make_server(port: int = 0) -> ThreadingHTTPServer:
-    handler = type("BoundHandler", (Handler,), {"token": secrets.token_urlsafe(24)})
+def make_server(port: int = 0, token: str | None = None) -> ThreadingHTTPServer:
+    handler = type("BoundHandler", (Handler,), {"token": token or secrets.token_urlsafe(24)})
     srv = ThreadingHTTPServer(("127.0.0.1", port), handler)
     handler.port = srv.server_address[1]
     return srv
@@ -807,8 +809,8 @@ def running() -> dict | None:
         return None
 
 
-def serve(port: int, open_browser: bool, scope: str | None) -> int:
-    srv = make_server(port)
+def serve(port: int, open_browser: bool, scope: str | None, token: str | None = None) -> int:
+    srv = make_server(port, token)
     chat.hooks()  # load the modules now, so the files they bring are part of what this page runs
     files = ta.loaded_code()
     info = {"port": srv.server_address[1], "token": srv.RequestHandlerClass.token, "pid": os.getpid(),
@@ -829,6 +831,50 @@ def serve(port: int, open_browser: bool, scope: str | None) -> int:
         if (running() or {}).get("pid") == os.getpid():
             ui_file().unlink(missing_ok=True)
     return 0
+
+
+RESTART_WAIT_SECONDS = 15
+
+
+def restart_everything(scope: str, server) -> dict:
+    """Reload absolutely everything the page runs: every conversation of this workspace starts over, the
+    automation daemon restarts, and the page's own process is replaced by a new one on the same port with
+    the same token, so the open tab reconnects and reloads by itself. Refused while an answer is running,
+    which the restart would cut off."""
+    known_scope(scope)
+    busy = [s for s in kit.scopes() if chat.busy(s)]
+    if busy:
+        raise ToolError(f"It is still answering in {', '.join(busy)}; wait for it, then restart.")
+    for mode in chat.MODES:
+        chat.keep_session(scope, None, mode)
+    chat.append(scope, "notice", "Everything restarted: the page, the automation daemon and the conversations. "
+                "The next message starts a new one; what was said stays here.")
+    daemon = None
+    try:
+        daemon = ta.restart() if ta.daemon_pid() else ta.start_detached()
+    except (OSError, ValueError) as e:
+        daemon = f"not restarted: {e}"
+    port, token = server.server_address[1], server.RequestHandlerClass.token
+    kit.PAGE_HOME.mkdir(parents=True, exist_ok=True)
+    log = (kit.PAGE_HOME / "ui.log").open("a", encoding="utf-8")
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--no-open", "--no-daemon", "--port", str(port),
+                      "--after-pid", str(os.getpid())], stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                     start_new_session=True, env=dict(os.environ, TANKA_PAGE_TOKEN=token))
+    threading.Timer(0.4, server.shutdown).start()  # after this answer has gone out
+    return {"ok": True, "daemon": daemon, "message": "Restarting: the page comes back in a few seconds."}
+
+
+def wait_for_exit(pid: int, seconds: float = RESTART_WAIT_SECONDS) -> None:
+    """A restarted page binds the port only once the process it replaces is gone."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            return
+        time.sleep(0.1)
 
 
 def ensure_daemon() -> None:
@@ -869,7 +915,11 @@ def stop() -> int:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["stop"]:
         return stop()
-    names = [a for i, a in enumerate(argv) if not a.startswith("--") and (i == 0 or argv[i - 1] != "--port")]
+    names = [a for i, a in enumerate(argv) if not a.startswith("--") and (i == 0 or argv[i - 1] not in ("--port", "--after-pid"))]
+    if "--after-pid" in argv:  # a restart: the page this one replaces is on its way out
+        wait_for_exit(int(argv[argv.index("--after-pid") + 1]))
+        port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 0
+        return serve(port, False, None, os.environ.pop("TANKA_PAGE_TOKEN", None) or None)
     scope = known_scope(names[0]) if names else None
     if "--no-daemon" not in argv:
         ensure_daemon()

@@ -687,6 +687,9 @@ const TW = {
   rTools: (n, max) => `${n}/${max} tools load on the next message`, rNoSkills: "No skills in this workspace.",
   rProblem: "Not loaded: ", rWarn: "Warning: ", rOk: n => plural(n, "tool", "tools"), rRemote: "not checked",
   rRestarts: "The assistant's conversation began with other tools: its next message starts a new one by itself.",
+  rRestart: "Restart everything", rRestartConfirm: "Confirm restart",
+  rRestartHint: "Restart everything reloads absolutely all of it: the page's own code and its modules, the automation daemon, and every conversation of this workspace. It waits for nothing to be answering.",
+  rRestarting: "Restarting… the page reloads by itself when it is back.", rRestartLate: "The page did not come back within 30 seconds: run tanka ui in a terminal and see its ui.log.",
   rExternal: e => `Other MCP servers: ${e}`, rSkipped: list => `Not started, the rules block them: ${list}`,
 };
 const nameOf = sc => (sc && sc.name) || "tanka";
@@ -1470,7 +1473,7 @@ async function reloadDo(sc, what) {
 function reloadResult() {
   const r = wsv.reload;
   if (!r) return null;
-  if (r.busy) return el("p", { class: "meta" }, TW.rWorking);
+  if (r.busy) return el("p", { class: "meta" }, r.what === "restart" ? TW.rRestarting : TW.rWorking);
   if (r.error) return el("p", { class: "problem" }, r.error);
   const d = r.data || {};
   if (r.what === "conversation") return el("p", { class: "meta" }, d.message || "");
@@ -1490,12 +1493,36 @@ function reloadResult() {
     (d.skipped || []).length ? el("p", { class: "meta" }, TW.rSkipped(d.skipped.join(", "))) : null);
 }
 
+// Restart everything: the server answers, goes away and comes back on the same port and token; the tab
+// waits for it to be back and reloads, so the page's own code is new too.
+async function restartAll(sc) {
+  wsv.reload = { what: "restart", busy: true };
+  wsv.formTick = (wsv.formTick || 0) + 1; render();
+  try { await api("/api/restart", { scope: sc.scope }); }
+  catch (e) { wsv.reload = { what: "restart", error: e.message }; wsv.formTick++; render(); return; }
+  const started = Date.now();
+  let wentAway = false;
+  const tick = async () => {
+    try {
+      const r = await fetch("/api/state", { headers: { "X-Tanka-Token": TOKEN }, cache: "no-store" });
+      if (r.ok && (wentAway || Date.now() - started > 4000)) { location.reload(); return; }
+    } catch (e) { wentAway = true; }
+    if (Date.now() - started > 30000) { wsv.reload = { what: "restart", error: TW.rRestartLate }; wsv.formTick++; render(); return; }
+    setTimeout(tick, 500);
+  };
+  setTimeout(tick, 600);
+}
+
 function reloadCard(sc) {
   const btn = (what, label) => el("button", { type: "button", class: "btn", disabled: !!(wsv.reload && wsv.reload.busy),
     on: { click: () => reloadDo(sc, what) } }, label);
   return el("section", { class: "card" }, el("h2", {}, TW.reload),
     el("p", { class: "meta" }, TW.reloadHint),
-    el("div", { class: "save-row" }, btn("skills", TW.rSkills), btn("mcp", TW.rMcp), btn("conversation", TW.rConv)),
+    el("div", { class: "save-row" }, btn("skills", TW.rSkills), btn("mcp", TW.rMcp), btn("conversation", TW.rConv),
+      el("button", { type: "button", class: wsv.confirm === "restart" ? "btn primary" : "btn", disabled: !!(wsv.reload && wsv.reload.busy),
+        on: { click: () => { if (wsv.confirm === "restart") { wsv.confirm = null; restartAll(sc); } else { wsv.confirm = "restart"; render(); } } } },
+        wsv.confirm === "restart" ? TW.rRestartConfirm : TW.rRestart)),
+    el("p", { class: "meta" }, TW.rRestartHint),
     reloadResult());
 }
 
