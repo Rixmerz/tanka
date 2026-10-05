@@ -31,8 +31,10 @@ forged without going through a tool.
 
 ## The chat
 
-Each message is one `tanka run` in the workspace (at most 10 turns and 0.30 USD, one at a time, 40 a
-day). The day's messages share one Claude Code session, so it remembers what was said earlier today;
+Each message is one `tanka run` in the workspace. Nothing is limited per message: the assistant spends at
+most `TANKA_PAGE_DAY_USD` a day (5), and a run may use what is left of it. A message sent while it answers
+stops that answer and takes its place; past `TANKA_COMPACT_TOKENS` of context (90000) the session is
+compacted before the next message, keeping the task and the decisions, and `/compact` does it on demand. The day's messages share one Claude Code session, so it remembers what was said earlier today;
 a new day starts a new session opened with the end of the earlier chat. A session also starts over when
 the assistant's skills or tools changed since it began (a tool Dev just built, a module installed): resuming
 would keep it answering from the old ones, as in "that parameter does not exist". The new one opens with the
@@ -88,8 +90,7 @@ and send; the menu never sends. A skill whose frontmatter says `user-invocable: 
 A selector over the chat's box picks who answers: **Tanka**, the workspace's assistant, or **Dev**, the
 user's strong model (`TANKA_DEV_MODEL`, default `opus`), which builds what the assistant uses. It starts
 on Tanka each time the page opens. Dev has its own session of the day and its own conversation in the
-same chat, costs at most `TANKA_DEV_PAGE_BUDGET_USD` a message (2) and `TANKA_DEV_PAGE_DAY_USD` a day
-(10), and what it makes shows on the page at once: a board within seconds, a new tool on the
+same chat, spends at most `TANKA_DEV_PAGE_DAY_USD` a day (10), and what it makes shows on the page at once: a board within seconds, a new tool on the
 assistant's next message.
 
 What dev may touch is decided by a PreToolUse hook, [`tanka_dev_guard.py`](../plugin/scripts/tanka_dev_guard.py):

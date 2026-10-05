@@ -20,7 +20,10 @@ the task in hand and the decisions taken; `/compact` in the chat does it on dema
 A selector on the page sends a message to **dev** instead: the user's strong model, building what the
 assistant uses (boards, lenses, simple tools) for this workspace. It has its own session of the day,
 may write only the workspace's views, skills, lenses and settings and run the commands that check
-them, and costs at most DEV_BUDGET_USD a message and DEV_DAY_USD a day.
+them, and spends at most DEV_DAY_USD a day.
+
+Neither is limited per message: a run may spend what is left of the day, so a long task is not cut
+short halfway. MAX_TURNS and the timeouts only catch a run that loops.
 
 This file also loads the modules that plug into the page: each `modules/<name>/page.py`.
 """
@@ -58,9 +61,8 @@ COMPACT_FOCUS = ("Keep, in this order: the task in hand and its remaining steps;
                  "the priority changes the user asked for, newest last, including messages that stopped an answer "
                  "to redirect it; the ids of the items, files and people the work refers to; and what was already "
                  "done, so it is not redone. Drop greetings, tool output already acted on and finished side topics.")
-MAX_TURNS = 10
-BUDGET_USD = 0.30
-TIMEOUT_S = 240
+MAX_TURNS = 200
+TIMEOUT_S = 1800
 STREAM_ITEMS = 150
 CONTEXT_ITEMS = 10     # what was said on its own, at most this many, goes with the next message
 RECAP_ITEMS = 8        # the earlier days' last messages that open a new day's session
@@ -71,10 +73,9 @@ CORE_WHO = ("you", "tanka", "dev", "error", "notice")
 MODES = ("tanka", "dev")
 DEV_MODEL = os.environ.get("TANKA_DEV_MODEL", "opus")
 DEV_EFFORT = os.environ.get("TANKA_DEV_EFFORT", "high")
-DEV_BUDGET_USD = float(os.environ.get("TANKA_DEV_PAGE_BUDGET_USD", "2"))
 DEV_DAY_USD = float(os.environ.get("TANKA_DEV_PAGE_DAY_USD", "10"))
-DEV_MAX_TURNS = 40
-DEV_TIMEOUT_S = 900
+DEV_MAX_TURNS = 200
+DEV_TIMEOUT_S = 1800
 
 HINT = ("You are answering in the chat of the user's local page: they read your reply there, not in a terminal. "
         "Reply in plain text with no Markdown (the page shows it as typed), in one to three short sentences unless "
@@ -236,12 +237,6 @@ def context_tokens(scope: str, mode: str = "tanka") -> int:
     return int(s.get("context") or 0) if s.get("day") == today() else 0
 
 
-def sent_today(scope: str) -> int:
-    """The assistant's messages today (dev is limited by what it spends instead)."""
-    day = kit.today_start(time.time())
-    return sum(1 for m in read(scope) if m.get("who") == "you" and mode_of(m) == "tanka" and m.get("t", 0) >= day)
-
-
 def dev_left(scope: str) -> float:
     return round(DEV_DAY_USD - tc.spent_today(kit.ws_dir(scope), "dev")[0], 2)
 
@@ -332,7 +327,7 @@ def hint(scope: str) -> str:
 def run_tanka(scope: str, text: str, extra: list[str]) -> tuple[int, str, str]:
     """One run of the workspace's assistant. Tests replace this."""
     cmd = [str(TANKA_BIN), "run", text, str(kit.ws_dir(scope)), "--max-turns", str(MAX_TURNS),
-           "--budget", f"{BUDGET_USD:.2f}", "--", *extra, "--append-system-prompt", hint(scope), *STREAM_ARGS]
+           "--budget", f"{max(chat_left(scope), 0.01):.2f}", "--", *extra, "--append-system-prompt", hint(scope), *STREAM_ARGS]
     return run_stream(scope, cmd, extra, "chat", TIMEOUT_S)
 
 
@@ -371,7 +366,7 @@ def dev_cmd(scope: str, text: str, extra: list[str]) -> list[str]:
             "--settings", json.dumps(settings), "--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task",
             "--setting-sources", "project,local", "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}',
             "--plugin-dir", str(kit.REPO / "builder"), "--add-dir", ws,
-            "--max-turns", str(DEV_MAX_TURNS), "--max-budget-usd", f"{DEV_BUDGET_USD:.2f}", *extra,
+            "--max-turns", str(DEV_MAX_TURNS), "--max-budget-usd", f"{max(dev_left(scope), 0.01):.2f}", *extra,
             "--append-system-prompt", DEV_HINT.format(name=scope, ws=ws, repo=repo), *STREAM_ARGS]
 
 

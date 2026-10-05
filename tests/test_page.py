@@ -508,7 +508,6 @@ class TestDev(PageCase):
         lines = [(m["who"], m.get("mode")) for m in self.scope()["chat"] if not m.get("module")]
         self.assertEqual(lines, [("you", None), ("tanka", None), ("you", "dev"), ("dev", None), ("you", "dev"), ("dev", None),
                                  ("you", None), ("tanka", None)])
-        self.assertEqual(chat.sent_today("duck"), 2)  # dev is capped by money, not by messages
 
     def test_a_new_day_recaps_each_conversation_apart(self):
         yesterday = time.time() - 86400
@@ -536,7 +535,7 @@ class TestDev(PageCase):
         self.assertIn("tanka_dev_guard.py", hook["hooks"][0]["command"])
         self.assertIn(str(self.ws.resolve()), hook["hooks"][0]["command"])
         self.assertIn("--setting-sources project,local", joined)  # none of the user's hooks or MCP servers
-        self.assertIn(f"--max-budget-usd {chat.DEV_BUDGET_USD:.2f}", joined)
+        self.assertIn(f"--max-budget-usd {chat.dev_left('duck'):.2f}", joined)  # what is left today, not per message
         self.assertIn("WebFetch", cmd[cmd.index("--disallowedTools") + 1:])
 
     def test_state_says_what_dev_may_still_spend(self):

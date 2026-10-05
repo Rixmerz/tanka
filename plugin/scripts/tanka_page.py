@@ -629,7 +629,7 @@ def scope_state(scope: str) -> dict:
             "modules": dict(chat.each(scope, "state")), "chat": chat.stream(scope), "busy": chat.busy(scope),
             "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope),
             "chat_left_usd": chat.chat_left(scope), "context_tokens": chat.context_tokens(scope),
-            "dev": {"left_usd": chat.dev_left(scope), "per_message_usd": chat.DEV_BUDGET_USD, "model": chat.DEV_MODEL},
+            "dev": {"left_usd": chat.dev_left(scope), "model": chat.DEV_MODEL},
             "spent_today": tc.spent_today(ws)}
 
 

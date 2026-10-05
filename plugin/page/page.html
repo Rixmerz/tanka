@@ -619,7 +619,7 @@ const T = {
   hint: ["Enter", " sends · ", "Shift+Enter", " new line"], hintCommands: " commands", hintDrop: " · drop files to add them",
   attach: "Add files to the workspace", dropHere: "Drop to copy into the workspace", copying: "copying…", removeFile: n => `Leave ${n} out of the message`,
   tooMany: n => `At most ${n} files in one message.`,
-  commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: " · each message is one run of your assistant (at most US$0.30)",
+  commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: "",
   left: n => ` · US$${Math.max(n, 0).toFixed(2)} left today`,
   thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
@@ -632,7 +632,7 @@ const T = {
   noScope: "No workspace yet. Create one with: tanka start <name>",
   modes: "Who answers", devName: "Dev", toDev: "to Dev",
   devPlaceholder: n => `Ask dev to build or change something for ${n}…`,
-  devHint: (per, left) => ` · dev runs your strong model: at most US$${per.toFixed(2)} a message, US$${Math.max(left, 0).toFixed(2)} left today`,
+  devHint: left => ` · dev runs your strong model, US$${Math.max(left, 0).toFixed(2)} left today`,
   devTitle: "Dev builds what the assistant uses (boards, lenses, simple tools) and checks it. It does not do your tasks.",
   devUsing: name => /^(Edit|Write|MultiEdit)$/.test(name) ? "writing…" : name === "Bash" ? "checking…" : /^(Read|Glob)$/.test(name) ? "reading…" : "working…",
   devSuggest: [["Create a board for ", false], ["Add a field to the board ", false], ["Why can't the assistant record on ", false]],
@@ -1175,8 +1175,8 @@ function updateComposer() {
   suggestions(sc);
   renderCommands();
   $("suggest").hidden = !!say.value.trim() || busy || !$("cmds").hidden;
-  $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.per_message_usd, sc.dev.left_usd)
-    : T.hintCost + (sc && sc.chat_left_usd != null && sc.chat_left_usd < 2 ? T.left(sc.chat_left_usd) : "");
+  $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.left_usd)
+    : T.hintCost + (sc && sc.chat_left_usd != null ? T.left(sc.chat_left_usd) : "");
 }
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
