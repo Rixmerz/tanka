@@ -159,6 +159,23 @@ class TestCalls(CauceCase):
         with self.assertRaisesRegex(cl.ToolError, "not a repository"):
             cl.board_text("duck", "other")
 
+    def test_prompts_answered_in_sessions_are_not_cards(self):
+        """A newer cauce lists the sessions answering apart; an older one mixed every
+        prompt into running and done, which must not bury the board in turns."""
+        cl.allow("duck", str(self.app))
+        prompts = [task(10 + i, "done", source="hook") for i in range(5)]
+        self.answer(board=self.board(done=[task(4, "done")] + prompts,
+                                     running=[task(2, "running", flow=FLOW), task(9, "running", source="hook")]))
+        b = cl.board("duck")
+        self.assertEqual([t["id"] for t in b["done"]], [4])
+        self.assertEqual([t["id"] for t in b["running"]], [2])
+        self.assertEqual([t["id"] for t in b["answering"]], [9])
+        self.assertEqual((b["counts"]["done"], b["counts"]["running"], b["counts"]["answering"]), (1, 1, 1))
+        self.answer(board=self.board(answering=[task(9, "running", source="hook")]))
+        b = cl.board("duck", fresh=True)
+        self.assertEqual(([t["id"] for t in b["running"]], [t["id"] for t in b["answering"]]), ([2], [9]))
+        self.assertIn("answering", load_page().state("duck", self.tmp)["board"])
+
     def test_a_task_with_its_attempts(self):
         cl.allow("duck", str(self.app))
         self.answer(**{"show:1": {"task": task(1, "failed"), "branch": None, "attempts": [

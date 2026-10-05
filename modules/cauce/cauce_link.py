@@ -154,8 +154,8 @@ def board(scope: str, fresh: bool = False) -> dict:
     """cauce's board for this workspace's repositories, each task named by its repository's name here."""
     mine = repos(scope)
     if not mine:
-        return {"repos": {}, "keys": {}, "counts": {"needs_you": 0, "running": 0, "queued": 0, "done": 0},
-                "needs_you": [], "running": [], "queued": [], "done": []}
+        return {"repos": {}, "keys": {}, "counts": {"needs_you": 0, "running": 0, "queued": 0, "done": 0, "answering": 0},
+                "needs_you": [], "running": [], "answering": [], "queued": [], "done": []}
     key = json.dumps([scope, sorted(mine.items())])
     with _lock:
         hit = _cache.get(key)
@@ -171,15 +171,25 @@ def board(scope: str, fresh: bool = False) -> dict:
     def named(task: dict) -> dict:
         return dict(task, repo_name=names.get(task.get("repo"), ""))
 
+    # Prompts answered in a session are not cards. cauce 0.1.2 keeps them off the
+    # board and lists the ones in flight as "answering"; an older cauce mixed them
+    # into running and done, so they are sorted out here too.
+    ours = [t for t in data.get("running", []) if t.get("source", "cauce") in CAUCE_SOURCES]
+    answering = data.get("answering")
+    if answering is None:
+        answering = [t for t in data.get("running", []) if t.get("source", "cauce") not in CAUCE_SOURCES]
+    done = [t for t in data.get("done", []) if t.get("source", "cauce") in CAUCE_SOURCES]
+    counts = dict(data.get("counts", {}), running=len(ours), done=len(done), answering=len(answering))
     out = {
         "repos": mine,
         "keys": names,
-        "counts": data.get("counts", {}),
+        "counts": counts,
         "needs_you": [named(t) for t in data.get("needs_you", [])],
-        "running": [named(t) for t in data.get("running", [])],
+        "running": [named(t) for t in ours],
+        "answering": [named(t) for t in answering],
         "queued": [dict(lane, repo_name=names.get(lane.get("repo"), ""), tasks=[named(t) for t in lane.get("tasks", [])])
                    for lane in data.get("queued", [])],
-        "done": [named(t) for t in data.get("done", [])],
+        "done": [named(t) for t in done],
     }
     with _lock:
         _cache[key] = (time.monotonic(), out)
@@ -395,7 +405,7 @@ def board_text(scope: str, name: str | None = None) -> str:
         if lane.get("paused"):
             out.append(f"{lane.get('repo_name') or '?'} is paused: {lane.get('reason') or 'a task did not pass'}")
         out += [line(t, "queued") for t in lane["tasks"]]
-    done = [t for t in b["done"] if keep(t) and t.get("source") in CAUCE_SOURCES][:DONE_SHOWN]
+    done = [t for t in b["done"] if keep(t)][:DONE_SHOWN]
     out.append("Done recently:")
     out += [line(t, f"passed at {cell_of(t)}", tries(t), f"branch {t['branch']}" if t.get("branch") else "")
             for t in done] or ["(nothing)"]

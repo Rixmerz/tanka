@@ -223,7 +223,7 @@
     const keep = t => !st.project || t.repo_name === st.project;
     const cancel = t => guarded("cancel:" + t.id, T.cancel, T.confirmCancel, () => post(sc, "cancel", { id: t.id }));
     const running = (b.running || []).filter(keep);
-    const agents = running.filter(t => t.worker), between = running.filter(t => t.flow && !t.worker), sessions = running.filter(t => !t.flow);
+    const agents = running.filter(t => t.worker), between = running.filter(t => t.flow && !t.worker), sessions = (b.answering || []).filter(keep);
     const lanes = (mod.repos || []).filter(n => !st.project || n === st.project).map(name => {
       const lane = (b.queued || []).find(l => l.repo_name === name) || { tasks: [], paused: false };
       if (!lane.tasks.length && !lane.paused && !working.has(name)) return null;
@@ -242,7 +242,7 @@
       ...section(T.agents, agents.map(t => agent(sc, t, cancel(t))), null, T.noAgents),
       ...(between.length ? section(T.between, between.map(t => card(sc, t, T.planning, cancel(t)))) : []),
       ...section(T.queued, lanes, pending),
-      ...section(T.done, (b.done || []).filter(t => keep(t) && (t.source === "cauce" || t.source === "queue")).map(t => card(sc, t, `${T.passedAt(t.final_cell || "")} · ${T.cost(t.cost_usd)}`))),
+      ...section(T.done, (b.done || []).filter(keep).map(t => card(sc, t, `${T.passedAt(t.final_cell || "")} · ${T.cost(t.cost_usd)}`))),
       ...(sessions.length ? section(T.inSessions, sessions.map(t => card(sc, t, t.kind || ""))) : []),
     ];
   }

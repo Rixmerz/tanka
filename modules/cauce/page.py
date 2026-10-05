@@ -26,7 +26,7 @@ def state(scope: str, ws: Path) -> dict:
         b = cl.board(scope)
     except cl.ToolError as e:
         return dict(base, board=None, error=str(e))
-    return dict(base, board={k: b[k] for k in ("counts", "needs_you", "running", "queued")} | {"done": b["done"][:DONE_ON_PAGE]})
+    return dict(base, board={k: b[k] for k in ("counts", "needs_you", "running", "answering", "queued")} | {"done": b["done"][:DONE_ON_PAGE]})
 
 
 def ended(scope: str) -> list[dict]:
