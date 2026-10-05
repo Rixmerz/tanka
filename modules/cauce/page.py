@@ -61,7 +61,8 @@ def context(scope: str, ws: Path, since: float, until: float) -> list[tuple[floa
 
 def hint(scope: str, ws: Path) -> str:
     return ("The user's coding tasks run in cauce and show in the Code tab of their page. cauce_board lists them, "
-            "cauce_task explains one, cauce_queue queues a new one in a repository this workspace may use. You cannot "
+            "cauce_task explains one, cauce_memory says what was tried on a problem before, cauce_queue queues a new "
+            "one in a repository this workspace may use. You cannot "
             "run the queue, cancel or merge: the user does that with the buttons in the Code tab.")
 
 
@@ -83,6 +84,25 @@ def task_detail(scope: str, ws: Path, q: dict) -> dict:
             "attempts": [{k: a.get(k) for k in keep} for a in d.get("attempts", [])]}
 
 
+def project_list(scope: str, ws: Path, q: dict) -> dict:
+    return {"projects": cl.projects(scope)}
+
+
+def session_list(scope: str, ws: Path, q: dict) -> dict:
+    name = str(q.get("repo", "") or "")
+    return {"sessions": cl.sessions(scope, name or None)}
+
+
+def problem_list(scope: str, ws: Path, q: dict) -> dict:
+    """The page is the user's: it may read cauce's whole memory (all=1), not only this workspace's."""
+    return {"problems": cl.problems(scope, str(q.get("q", "") or ""), everywhere=str(q.get("all", "")) == "1")}
+
+
+def queue_task(scope: str, ws: Path, body: dict) -> dict:
+    check = str(body.get("check", "") or "").strip()
+    return cl.queue(scope, str(body.get("repo", "")), str(body.get("text", "")), check or None)
+
+
 def _id(body: dict) -> int:
     try:
         return int(body.get("id", ""))
@@ -94,5 +114,8 @@ ACTIONS = {
     "cancel": lambda scope, ws, body: cl.cancel(scope, _id(body)),
     "unpause": lambda scope, ws, body: cl.unpause(scope, str(body.get("repo", ""))),
     "work": lambda scope, ws, body: cl.work(scope, str(body.get("repo", ""))),
+    "queue": queue_task,
+    "allow": lambda scope, ws, body: {"allowed": cl.allow_known(scope, str(body.get("dir", "")),
+                                                                str(body.get("name", "") or "") or None)},
 }
-GETS = {"task": task_detail}
+GETS = {"task": task_detail, "projects": project_list, "sessions": session_list, "problems": problem_list}

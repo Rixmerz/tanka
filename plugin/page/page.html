@@ -363,6 +363,33 @@ tr.detail .k { color: var(--muted); font-size: 12px; font-weight: 650; text-tran
 @media (prefers-reduced-motion: reduce) { .flow .step.now { animation: none; } }
 .agent .cell { font-family: var(--mono); font-size: 13px; font-weight: 700; }
 .agent .caps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.projbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.projbar .chip { font: inherit; font-size: 13px; padding: 3px 12px; background: var(--raised); cursor: pointer; }
+.projbar .chip .badge { margin-left: 6px; }
+.views { margin-bottom: 14px; }
+.known { list-style: none; padding: 0; margin: 0 0 14px; }
+.known li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.known .dir { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; flex: 1; min-width: 200px; }
+.desc { margin: 2px 0 6px; font-size: 13.5px; color: var(--muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.desc.full { display: block; -webkit-line-clamp: unset; }
+.qform { display: grid; gap: 8px; }
+.qform textarea, .qform input, .qform select, .psearch input { font: inherit; font-size: 14px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; width: 100%; box-sizing: border-box; }
+.qform textarea { min-height: 64px; resize: vertical; }
+.qform .row input { flex: 1; min-width: 160px; width: auto; }
+.cmdline { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.cmdline code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; background: var(--bubble); border-radius: 8px; padding: 6px 9px; overflow-x: auto; white-space: nowrap; }
+.psearch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.psearch input { flex: 1; min-width: 180px; width: auto; }
+.chip.solved { border-color: var(--good); color: var(--good); }
+.chip.open { border-color: var(--warn); color: var(--warn); }
+.chip.recurring { border-color: var(--bad); color: var(--bad); }
+.fixes { list-style: none; padding: 0; margin: 10px 0 0; }
+.fixes li { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; margin: 7px 0; font-size: 14px; }
+.fixes .mk { font-weight: 700; color: var(--muted); }
+.fixes [data-outcome="worked"] .mk { color: var(--good); }
+.fixes [data-outcome="failed"] .mk, .fixes [data-outcome="disproved"] .mk { color: var(--bad); }
+.fixes [data-outcome="partial"] .mk { color: var(--warn); }
+.fixes .why, .fixes .refs { grid-column: 2; color: var(--muted); font-size: 13px; }
 .steps { margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
 .steps li { margin: 3px 0; }
 .steps .why { color: var(--muted); }

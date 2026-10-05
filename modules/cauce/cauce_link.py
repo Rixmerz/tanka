@@ -196,6 +196,79 @@ def task(scope: str, task_id: int) -> dict:
     return detail
 
 
+def keys(scope: str) -> dict[str, str]:
+    """{cauce repository key: name here} for this workspace's repositories."""
+    return board(scope)["keys"] if repos(scope) else {}
+
+
+def projects(scope: str) -> list[dict]:
+    """Every repository cauce has worked in, each marked with its name here when this workspace may use it.
+    The user picks among them on the page; the assistant never sees this list."""
+    mine, named = repos(scope), keys(scope)
+    by_dir = {str(Path(d).resolve()): n for n, d in mine.items()}
+    out = []
+    for p in call_json("projects", "--json"):
+        name = named.get(p.get("repo")) or by_dir.get(str(p.get("dir") or ""))
+        out.append(dict(p, name=name, allowed=bool(name)))
+    return out
+
+
+def allow_known(scope: str, where: str, name: str | None = None) -> str:
+    """Allow, from the page, a repository cauce has already worked in: only a directory cauce knows."""
+    known = {str(p.get("dir")) for p in call_json("projects", "--json") if p.get("exists")}
+    if str(where) not in known:
+        raise ToolError("cauce has not worked in that directory; allow it from a terminal with tanka cauce allow")
+    named = allow(scope, where, name)
+    _cache.clear()
+    return named
+
+
+def sessions(scope: str, name: str | None = None) -> list[dict]:
+    """The Claude Code sessions cauce saw in this workspace's repositories (or one of them)."""
+    mine = repos(scope)
+    dirs = [directory(scope, name)] if name else list(mine.values())
+    if not dirs:
+        return []
+    args = ["sessions", "--json"]
+    for d in dirs:
+        args += ["--repo", d]
+    named = keys(scope)
+    return [dict(x, repo_name=named.get(x.get("repo"), "")) for x in call_json(*args)]
+
+
+def problems(scope: str, query: str = "", everywhere: bool = False, limit: int = 40) -> list[dict]:
+    """What cauce remembers: problems and every fix tried on them. `everywhere` is cauce's whole memory,
+    for the user's page; otherwise only this workspace's repositories, which is all a tool may read."""
+    args = ["memory", "list", "--json", "--limit", str(int(limit))]
+    if query.strip():
+        args += ["--query", " ".join(query.split())[:200]]
+    if not everywhere:
+        mine = repos(scope)
+        if not mine:
+            return []
+        for d in mine.values():
+            args += ["--repo", d]
+    named = keys(scope)
+    return [dict(x, repo_name=named.get(x.get("repo"), "")) for x in call_json(*args)]
+
+
+def memory_text(scope: str, query: str = "") -> str:
+    if not repos(scope):
+        raise ToolError("This workspace may not use any repository yet. Tell the user to allow one with: "
+                        "tanka cauce allow <workspace> <directory>")
+    found = problems(scope, query)
+    if not found:
+        return "cauce remembers no problem" + (f" matching '{query}'" if query else "") + " in these repositories."
+    out = []
+    for x in found[:15]:
+        out.append(f"problem #{x['id']} [{x.get('state')}] {clip(x.get('title'), TITLE_CHARS)} ({x.get('repo_name') or '?'})")
+        for f in x.get("fixes", []):
+            outcome = "disproved" if f.get("invalidated_on") else f.get("outcome")
+            why = f" — {clip(f['why'], 160)}" if f.get("why") else ""
+            out.append(f"  {outcome}: {clip(f.get('description'), 200)}{why}")
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------- acting
 
 def queue(scope: str, name: str, text: str, verify: str | None = None) -> dict:

@@ -247,6 +247,59 @@ class TestTools(CauceCase):
         text, err = self.call("cauce_queue", {"repo": "other", "task": "add a test for the empty cart"})
         self.assertTrue(err)
         self.assertIn("may use: app", text)
+        self.answer(memory=[{"id": 2, "repo": "github.com/o/app", "title": "slow import", "state": "open", "fixes": []}])
+        text, err = self.call("cauce_memory", {"query": "slow import"})
+        self.assertFalse(err, text)
+        self.assertIn("problem #2 [open] slow import (app)", text)
+
+
+class TestProjectsSessionsProblems(CauceCase):
+    def setUp(self):
+        super().setUp()
+        cl.allow("duck", str(self.app))
+        self.answer(
+            projects=[{"repo": "github.com/o/app", "dir": str(self.app), "exists": True, "sessions": 2, "tasks": {},
+                       "last_seen": NOW},
+                      {"repo": "github.com/o/other", "dir": str(self.other), "exists": True, "sessions": 1, "tasks": {},
+                       "last_seen": NOW}],
+            sessions=[{"id": "s-1", "repo": "github.com/o/app", "cwd": str(self.app), "prompts": 3,
+                       "last_prompt": "fix the cart", "resume": f"cd {self.app} && claude --resume s-1"}],
+            memory=[{"id": 1, "repo": "github.com/o/app", "title": "cart total off by one", "state": "solved",
+                     "fixes": [{"description": "round first", "outcome": "failed", "why": "still off"},
+                               {"description": "sum in cents", "outcome": "worked", "why": "",
+                                "invalidated_on": NOW}]}])
+
+    def test_projects_are_marked_and_only_known_ones_are_allowed_from_the_page(self):
+        found = {p["dir"]: p for p in cl.projects("duck")}
+        self.assertEqual(found[str(self.app)]["name"], "app")
+        self.assertFalse(found[str(self.other)]["allowed"])
+        with self.assertRaisesRegex(cl.ToolError, "has not worked in that directory"):
+            cl.allow_known("duck", str(self.tmp))
+        self.assertEqual(cl.allow_known("duck", str(self.other)), "other")
+        self.assertEqual(sorted(cl.repos("duck")), ["app", "other"])
+
+    def test_sessions_ask_for_the_allowed_repositories(self):
+        found = cl.sessions("duck")
+        self.assertEqual(found[0]["repo_name"], "app")
+        self.assertIn(["sessions", "--json", "--repo", str(self.app)], self.calls())
+        with self.assertRaisesRegex(cl.ToolError, "not a repository"):
+            cl.sessions("duck", "other")
+        self.assertEqual(cl.sessions("goose"), [])
+
+    def test_problems_everywhere_for_the_page_and_scoped_for_tools(self):
+        cl.problems("duck", "cart", everywhere=True)
+        self.assertIn(["memory", "list", "--json", "--limit", "40", "--query", "cart"], self.calls())
+        cl.problems("duck")
+        self.assertIn(["memory", "list", "--json", "--limit", "40", "--repo", str(self.app)], self.calls())
+        before = len(self.calls())
+        self.assertEqual(cl.problems("goose"), [])
+        self.assertEqual(len(self.calls()), before)
+        text = cl.memory_text("duck", "cart")
+        self.assertIn("problem #1 [solved] cart total off by one (app)", text)
+        self.assertIn("failed: round first — still off", text)
+        self.assertIn("disproved: sum in cents", text)
+        with self.assertRaisesRegex(cl.ToolError, "tanka cauce allow"):
+            cl.memory_text("goose")
 
 
 def load_page():
@@ -303,6 +356,19 @@ class TestPage(CauceCase):
                 break
             time.sleep(0.05)
         self.assertIn(["work", "--repo", str(self.app)], self.calls())
+
+    def test_the_page_lists_and_queues_by_the_user_s_hand(self):
+        cl.allow("duck", str(self.app))
+        self.answer(projects=[], sessions=[], memory=[], queue={"id": 9, "title": "write the docs", "status": "queued"})
+        self.assertEqual(self.page.GETS["projects"]("duck", self.ws, {}), {"projects": []})
+        self.assertEqual(self.page.GETS["sessions"]("duck", self.ws, {"repo": "app"}), {"sessions": []})
+        self.page.GETS["problems"]("duck", self.ws, {"q": "x", "all": "1"})
+        self.assertIn(["memory", "list", "--json", "--limit", "40", "--query", "x"], self.calls())
+        t = self.page.ACTIONS["queue"]("duck", self.ws, {"repo": "app", "text": "write the docs for the cart", "check": ""})
+        self.assertEqual(t["id"], 9)
+        self.assertIn(["queue", "add", "write the docs for the cart", "--repo", str(self.app), "--json"], self.calls())
+        with self.assertRaisesRegex(cl.ToolError, "has not worked"):
+            self.page.ACTIONS["allow"]("duck", self.ws, {"dir": str(self.other)})
 
 
 if __name__ == "__main__":

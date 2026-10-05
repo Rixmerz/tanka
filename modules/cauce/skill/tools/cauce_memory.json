@@ -1,0 +1,18 @@
+{
+  "name": "cauce_memory",
+  "effect": "read",
+  "description": "Searches what cauce remembers about problems in the repositories this workspace may use: each problem with every fix tried on it, whether it worked, failed or worked and then stopped, and why. Use it when the user asks whether something happened before, what was tried for an error, or what worked; and before cauce_queue when the task is a known problem, to add what failed to the task. It does not list tasks (that is cauce_board). Returns one line per problem and one per fix; say the dead ends first.",
+  "params": {
+    "query": {
+      "type": "string",
+      "pattern": "^[^\\n]{2,200}$",
+      "description": "Words of the problem, as the user or an error says them (e.g. login redirect drops query). Leave it out for the latest problems."
+    }
+  },
+  "examples": [
+    {},
+    {"query": "login redirect drops query"}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_memory.py"]
+}

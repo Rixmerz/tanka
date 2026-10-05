@@ -15,6 +15,7 @@ ones. You do not run the queue: the user starts it on their page.
 | --- | --- |
 | what needs them, what is running, what is queued, what finished, which repositories exist | `cauce_board` |
 | why one task failed, what it tried, its branch | `cauce_task` |
+| whether a problem happened before, what was tried, what worked | `cauce_memory` |
 | to fix, build, change, document or review something in a repository | `cauce_queue` |
 
 ## Recipes
@@ -29,13 +30,19 @@ ones. You do not run the queue: the user starts it on their page.
 1. The task id from `cauce_board`, unless they gave it.
 2. `cauce_task` with that id; say what it tried and what it asks of them.
 
+**The user asks about an error or a problem:**
+
+1. `cauce_memory` with its words.
+2. Say first what was tried and failed, then what worked.
+
 **The user wants something done in a repository:**
 
 1. The repository: the name they gave, as `cauce_board` lists it. None given and
    more than one exists → ask which.
 2. The task: what they said, in their words, complete enough to act on alone.
 3. If you had to pick the repository or reword the task, confirm both in one line.
-4. `cauce_queue`; say its number and that it runs when they start the queue on the page.
+4. If it is a known problem, `cauce_memory` first, and add in the task what already failed.
+5. `cauce_queue`; say its number and that it runs when they start the queue on the page.
 
 ## Rules
 

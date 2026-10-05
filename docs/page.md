@@ -11,7 +11,7 @@ modules plug into it.
 | [`boards`](../modules/boards/README.md) | **Boards**: tables the assistant or the workspace's own tools fill (a course's grades, a client pipeline), declared in `.claude/views/` |
 | [`whatsapp`](../modules/whatsapp/README.md) | **People**: the contacts of the workspace's roles, grouped, with what the assistant keeps about each, and their roles and permissions |
 | [`codepanion`](../modules/codepanion/README.md) | **Notes**, **Sessions** and **Lenses**: what it noticed in your coding sessions, and their timelines |
-| [`cauce`](../modules/cauce/README.md) | **Code**: the coding tasks [cauce](https://github.com/Rixmerz/cauce) runs in the repositories you allow — what needs you, the workers out now, what is pending per repository, what is done, each with its way through the model × effort ladder — and finished or stuck tasks in the chat |
+| [`cauce`](../modules/cauce/README.md) | **Code**: the coding tasks [cauce](https://github.com/Rixmerz/cauce) runs, per project — what needs you, the workers out now, what is pending, what is done, each with its description and its way through the model × effort ladder; the Claude Code sessions seen in each project, with the command that resumes them; and cauce's memory of problems and fixes — and finished or stuck tasks in the chat |
 
 A workspace with none of them still has the chat.
 
