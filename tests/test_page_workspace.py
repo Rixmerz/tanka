@@ -201,6 +201,81 @@ class TestPersonaName(WorkspacePageCase):
         self.assertIn("not a JSON object", self.report()["persona"]["problem"])  # the tab still shows
 
 
+class TestSettings(WorkspacePageCase):
+    """Every parameter of the workspace by hand: the persona, the rules the hooks enforce, the advisor."""
+
+    def save(self, **body):
+        return self.call("POST", "/api/workspace/settings", {"scope": "duck", **body})
+
+    def policy(self):
+        return json.loads((self.ws / ".tanka" / "policy.json").read_text())
+
+    def test_the_report_carries_every_setting_with_the_defaults(self):
+        st = self.report()["settings"]
+        self.assertEqual(st["persona"]["name"], "")
+        self.assertEqual(st["policy"]["decisions"], {"read": "allow", "draft": "allow", "modify": "ask", "send": "ask",
+                                                     "unknown": "ask"})
+        self.assertNotIn("destructive", st["policy"]["decisions"])
+        self.assertEqual(st["policy"]["loop_guard"]["max_calls_per_turn"], 25)
+        self.assertEqual(st["advisor_model"], "sonnet")
+
+    def test_the_persona_is_saved_whole_and_keeps_what_the_page_does_not_show(self):
+        (self.ws / ".tanka" / "persona.json").write_text(json.dumps({"name": "Old", "configured": False, "extra": 1}))
+        status, data = self.save(persona={"name": "Nova", "language": "español", "timezone": "America/Santiago",
+                                          "signature": "Nova\nassistant of the team", "notes": "  no calls before 9  "})
+        self.assertEqual(status, 200, data)
+        persona = json.loads((self.ws / ".tanka" / "persona.json").read_text())
+        self.assertEqual(persona["name"], "Nova")
+        self.assertEqual(persona["signature"], "Nova\nassistant of the team")
+        self.assertEqual(persona["notes"], "no calls before 9")
+        self.assertTrue(persona["configured"])  # a language set by hand answers the first-run question
+        self.assertEqual(persona["extra"], 1)
+        for bad in ({"timezone": "Mars/Olympus"}, {"name": ""}, {"tone": "two\nlines"}, {"notes": "x" * 2001}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.save(persona={"name": "Nova", **bad})[0], 400)
+        self.assertEqual(json.loads((self.ws / ".tanka" / "persona.json").read_text())["name"], "Nova")
+
+    def test_the_rules_are_checked_and_destructive_stays_denied(self):
+        (self.ws / ".tanka" / "policy.json").write_text(json.dumps({"tool_classes": {"send": ["x"]}}))
+        status, data = self.save(policy={
+            "decisions": {"modify": "allow", "send": "ask"}, "external_mcp": "policy",
+            "send_validation": {"require_subject": True, "max_recipients": 3, "recipient_allowlist": ["@team\\.com$", ""],
+                                "internal_domains": ["Team.com"]},
+            "loop_guard": {"max_calls_per_turn": 40}, "closing_report": False})
+        self.assertEqual(status, 200, data)
+        pol = self.policy()
+        self.assertEqual(pol["tool_classes"], {"send": ["x"]})  # what the page does not show stays
+        self.assertEqual(pol["decisions"], {"modify": "allow", "send": "ask"})
+        self.assertEqual(pol["send_validation"]["recipient_allowlist"], ["@team\\.com$"])
+        self.assertEqual(pol["send_validation"]["internal_domains"], ["team.com"])
+        self.assertEqual(pol["loop_guard"], {"max_calls_per_turn": 40})
+        self.assertFalse(pol["objective"]["require_closing_report_when_tools_used"])
+        self.assertEqual(self.report()["settings"]["policy"]["decisions"]["modify"], "allow")
+        for bad in ({"decisions": {"destructive": "allow"}}, {"decisions": {"send": "maybe"}},
+                    {"external_mcp": "all"}, {"loop_guard": {"max_calls_per_turn": 0}},
+                    {"loop_guard": {"max_calls_per_turn": "9"}}, {"send_validation": {"recipient_blocklist": ["(["]}},
+                    {"send_validation": {"internal_domains": ["not a domain"]}}):
+            with self.subTest(bad=bad):
+                status, data = self.save(policy=bad)
+                self.assertEqual(status, 400, data)
+        self.assertEqual(self.policy(), pol)
+
+    def test_the_advisor_model(self):
+        self.assertEqual(self.save(advisor_model="opus")[0], 200)
+        self.assertEqual(json.loads((self.ws / ".claude" / "settings.json").read_text())["advisorModel"], "opus")
+        self.assertEqual(self.save(advisor_model="gpt")[0], 400)
+
+    def test_a_new_workspace_from_the_page(self):
+        status, data = self.call("POST", "/api/workspace/create", {"scope": "shop", "name": "Clara"})
+        self.assertEqual(status, 200, data)
+        self.assertIn("shop", kit.scopes())
+        self.assertTrue((self.wsdir / "shop" / ".tanka" / "policy.json").is_file())
+        self.assertEqual(self.scope("shop")["name"], "Clara")
+        for bad in ("shop", "Bad Name", "", "ui", "-x"):
+            with self.subTest(name=bad):
+                self.assertEqual(self.call("POST", "/api/workspace/create", {"scope": bad})[0], 400)
+
+
 class TestManager(WorkspacePageCase):
     def act(self, action, **body):
         return self.call("POST", f"/api/workspace/{action}", dict(body, scope="duck"))

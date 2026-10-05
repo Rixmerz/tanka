@@ -80,7 +80,7 @@ Every workspace has a **Workspace** tab, after the modules' tabs and before Heal
 page, not a module, and loads its data on its own while it is open (`GET /api/workspace`), so
 `/api/state` stays small.
 
-**The persona.** Its picture, its name and its language (read-only). The name is saved into
+**The persona.** Its picture and its name. The name is saved into
 `<workspace>/.tanka/persona.json` (1 to 40 characters, one line), keeping every other key there. The
 picture is uploaded as base64 (`POST /api/persona/avatar`) and kept by what its bytes are, whatever the
 upload claims: PNG, JPEG or WebP, at most 512 KB; SVG, GIF and anything else are refused, and a body over
@@ -91,6 +91,21 @@ workspace, so the assistant cannot change its own face. `/api/state` carries onl
 (`GET /api/persona/avatar` returns a `data:` URL, the only images the CSP allows) and shows it wherever
 the persona appears: its messages, the typing indicator, the greeting of an empty chat and the workspace
 switcher. `POST /api/persona/avatar-remove` goes back to the initial.
+
+**Profile and Rules.** Every parameter of the workspace, by hand. *Profile* is the rest of
+`.tanka/persona.json` — your name, the language (set here, the first session no longer asks), time zone,
+tone, personality, answer format, signature, notes — and the advisor model in `.claude/settings.json`.
+*Rules* is `.tanka/policy.json`: what the assistant may do without asking for each class of tool (read,
+drafts, changes, sending, unclassified), whether other MCP servers load, the checks before anything is
+sent (subject, shortest message, most recipients, allowed and blocked recipients, your own domains), the
+limits against loops, and the closing status line. `POST /api/workspace/settings` checks every value
+before it writes anything, and keeps every key the page does not show. Destructive tools are not
+offered: they are always denied, and a request to allow them is refused. A field being typed in survives
+the page's polls; Save loads the tab again from what was written.
+
+**A new workspace.** The workspace switcher ends in *New workspace*: a folder name and the assistant's
+name, and the page runs `tanka init` exactly as a terminal would (`POST /api/workspace/create`), then
+opens on it.
 
 **The tools and skills.** A bar with the tools in use out of 15, and every skill in
 `.claude/skills/` (on) and `.claude/skills.off/` (off), with its tools and where it came from: a
@@ -118,10 +133,12 @@ terminal sessions update their tools by themselves, and a new skill needs `/relo
 
 | Route | What it does |
 | --- | --- |
-| `GET /api/workspace?scope=` | the persona, `tools_used`/`tools_max`, `skills`, `modules` |
+| `GET /api/workspace?scope=` | the persona, `settings` (profile, rules, advisor), `tools_used`/`tools_max`, `skills`, `modules` |
 | `POST /api/workspace/install` `{scope, module}` | install a module (and what it needs) |
 | `POST /api/workspace/uninstall` `{scope, module}` | remove a module's skill |
 | `POST /api/workspace/skill` `{scope, skill, enabled}` | turn an own skill on or off |
+| `POST /api/workspace/settings` `{scope, persona?, policy?, advisor_model?}` | save the profile, the rules or the advisor |
+| `POST /api/workspace/create` `{scope, name?}` | a new workspace (`tanka init`) with its assistant's name |
 | `POST /api/persona/name` `{scope, name}` | rename the persona |
 | `POST /api/persona/avatar` `{scope, type, data}` | set the picture |
 | `POST /api/persona/avatar-remove` `{scope}` | remove the picture |

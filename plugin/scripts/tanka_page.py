@@ -21,6 +21,7 @@ import hmac
 import io
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -107,6 +108,181 @@ def set_name(scope: str, name) -> str:
     return name
 
 
+# ------------------------------------------------------------ settings the user edits by hand
+# Everything a workspace is configured with that a person may change from the page: the persona, the rules
+# the hooks enforce, and the advisor model. Each value is checked here, whatever the page sent; a rule the
+# harness never relaxes (destructive tools are always denied) is not offered and not accepted.
+PERSONA_FIELDS = {  # key: (max characters, more than one line allowed)
+    "name": (NAME_MAX, False), "user_name": (60, False), "language": (40, False), "tone": (120, False),
+    "personality": (600, True), "output_format": (400, True), "signature": (600, True), "timezone": (64, False),
+    "notes": (2000, True),
+}
+DECISIONS = ("allow", "ask", "deny")
+DECIDED_CLASSES = ("read", "draft", "modify", "send", "unknown")  # destructive is always deny
+LOOP_LIMITS = {"max_identical_calls_per_turn": (1, 10), "max_calls_per_turn": (1, 200),
+               "max_same_tool_per_turn": (1, 100), "max_consecutive_failures": (1, 20),
+               "max_calls_per_session": (10, 5000)}
+SEND_LIMITS = {"min_body_chars": (0, 2000), "max_recipients": (1, 100)}
+PATTERN_LISTS = ("recipient_allowlist", "recipient_blocklist")
+ADVISOR_MODELS = ("sonnet", "opus")
+DOMAIN_RE = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+
+
+def settings_file(ws: Path) -> Path:
+    return ws / ".claude" / "settings.json"
+
+
+def settings_report(ws: Path) -> dict:
+    persona = read_persona(ws)
+    policy = tc.load_policy(ws)
+    sv, lg = policy["send_validation"], policy["loop_guard"]
+    advisor = kit.read_json(settings_file(ws), {})
+    return {
+        "persona": {k: str(persona.get(k) or "") for k in PERSONA_FIELDS},
+        "policy": {
+            "decisions": {k: policy["decisions"].get(k, "ask") for k in DECIDED_CLASSES},
+            "external_mcp": policy.get("external_mcp", "deny"),
+            "send_validation": {"require_subject": bool(sv.get("require_subject")),
+                                **{k: int(sv.get(k) or 0) for k in SEND_LIMITS},
+                                **{k: list(sv.get(k) or []) for k in (*PATTERN_LISTS, "internal_domains")}},
+            "loop_guard": {k: int(lg.get(k) or 0) for k in LOOP_LIMITS},
+            "closing_report": bool(policy.get("objective", {}).get("require_closing_report_when_tools_used", True)),
+        },
+        "advisor_model": str(advisor.get("advisorModel") or "sonnet") if isinstance(advisor, dict) else "sonnet",
+        "limits": {"loop_guard": LOOP_LIMITS, "send_validation": SEND_LIMITS, "persona": {k: v[0] for k, v in PERSONA_FIELDS.items()}},
+    }
+
+
+def _text(key: str, value) -> str:
+    limit, multiline = PERSONA_FIELDS[key]
+    text = str(value or "").strip()
+    if len(text) > limit:
+        raise ToolError(f"{key} must have at most {limit} characters.")
+    if any((ord(ch) < 32 and not (multiline and ch in "\n\t")) or ord(ch) == 127 for ch in text):
+        raise ToolError(f"{key} must be {'text' if multiline else 'one line of text'}.")
+    return text
+
+
+def _int(where: str, value, low: int, high: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise ToolError(f"{where} must be a whole number from {low} to {high}.")
+    return value
+
+
+def _patterns(where: str, value) -> list[str]:
+    if not isinstance(value, list) or len(value) > 50:
+        raise ToolError(f"{where} must be a list of at most 50 patterns.")
+    out = []
+    for item in value:
+        item = str(item or "").strip()
+        if not item:
+            continue
+        if len(item) > 200:
+            raise ToolError(f"{where}: a pattern has more than 200 characters.")
+        try:
+            re.compile(item)
+        except re.error as e:
+            raise ToolError(f"{where}: '{item}' is not a valid pattern ({e}).") from e
+        out.append(item)
+    return out
+
+
+def save_settings(scope: str, body: dict) -> dict:
+    """Write what the page sent into persona.json, policy.json and settings.json, keeping every key the page
+    does not show. All of it is checked before anything is written."""
+    ws = kit.ws_dir(known_scope(scope))
+    persona_in, policy_in = body.get("persona"), body.get("policy")
+    persona = read_persona(ws)
+    if persona_in is not None:
+        if not isinstance(persona_in, dict):
+            raise ToolError("persona must be an object.")
+        for key in PERSONA_FIELDS:
+            if key in persona_in:
+                persona[key] = _text(key, persona_in[key])
+        if not persona.get("name"):
+            raise ToolError("The assistant needs a name.")
+        if persona.get("timezone"):
+            try:
+                import zoneinfo
+                zoneinfo.ZoneInfo(persona["timezone"])
+            except (zoneinfo.ZoneInfoNotFoundError, ValueError) as e:
+                raise ToolError(f"'{persona['timezone']}' is not a time zone (e.g. America/Santiago).") from e
+        if persona.get("language"):
+            persona["configured"] = True  # the first-run language question has its answer
+    raw = kit.read_json(tc.tanka_dir(ws) / tc.POLICY_FILE, {})
+    if not isinstance(raw, dict):
+        raise ToolError("policy.json is not a JSON object; fix it by hand.")
+    if policy_in is not None:
+        if not isinstance(policy_in, dict):
+            raise ToolError("policy must be an object.")
+        decisions = policy_in.get("decisions") or {}
+        if "destructive" in decisions and decisions["destructive"] != "deny":
+            raise ToolError("Destructive tools are always denied; that rule cannot be changed.")
+        for cls in DECIDED_CLASSES:
+            if cls in decisions:
+                if decisions[cls] not in DECISIONS:
+                    raise ToolError(f"The decision for {cls} must be allow, ask or deny.")
+                raw.setdefault("decisions", {})[cls] = decisions[cls]
+        if "external_mcp" in policy_in:
+            if policy_in["external_mcp"] not in ("deny", "policy"):
+                raise ToolError("external_mcp must be deny or policy.")
+            raw["external_mcp"] = policy_in["external_mcp"]
+        sv_in = policy_in.get("send_validation") or {}
+        sv = raw.setdefault("send_validation", {})
+        if "require_subject" in sv_in:
+            sv["require_subject"] = sv_in["require_subject"] is True
+        for key, (low, high) in SEND_LIMITS.items():
+            if key in sv_in:
+                sv[key] = _int(key, sv_in[key], low, high)
+        for key in PATTERN_LISTS:
+            if key in sv_in:
+                sv[key] = _patterns(key, sv_in[key])
+        if "internal_domains" in sv_in:
+            domains = [str(d or "").strip().lower() for d in sv_in["internal_domains"] or [] if str(d or "").strip()]
+            bad = [d for d in domains if not DOMAIN_RE.fullmatch(d)]
+            if bad or len(domains) > 50:
+                raise ToolError(f"Not a domain: {', '.join(bad[:3])}." if bad else "At most 50 internal domains.")
+            sv["internal_domains"] = domains
+        lg_in = policy_in.get("loop_guard") or {}
+        for key, (low, high) in LOOP_LIMITS.items():
+            if key in lg_in:
+                raw.setdefault("loop_guard", {})[key] = _int(key, lg_in[key], low, high)
+        if "closing_report" in policy_in:
+            raw.setdefault("objective", {})["require_closing_report_when_tools_used"] = policy_in["closing_report"] is True
+    settings = None
+    if "advisor_model" in body:
+        if body["advisor_model"] not in ADVISOR_MODELS:
+            raise ToolError(f"The advisor must be one of {', '.join(ADVISOR_MODELS)}.")
+        settings = kit.read_json(settings_file(ws), {})
+        if not isinstance(settings, dict):
+            raise ToolError("settings.json is not a JSON object; fix it by hand.")
+        settings["advisorModel"] = body["advisor_model"]
+    if persona_in is not None:
+        kit.write_json(persona_file(ws), persona)
+    if policy_in is not None:
+        kit.write_json(tc.tanka_dir(ws) / tc.POLICY_FILE, raw)
+    if settings is not None:
+        kit.write_json(settings_file(ws), settings)
+    return {"ok": True, "message": "Saved. The assistant uses it from its next message."}
+
+
+def create_workspace(body: dict) -> dict:
+    """A new workspace, made by `tanka init` exactly as from a terminal, with its assistant's name."""
+    scope = str(body.get("scope", "")).strip()
+    if not kit.SCOPE_RE.fullmatch(scope) or len(scope) > 40:
+        raise ToolError("The workspace name is its folder: lowercase letters, digits, - and _, starting with a "
+                        "letter or digit, at most 40 characters.")
+    if scope in kit.scopes():
+        raise ToolError(f"There is already a workspace named {scope}.")
+    p = subprocess.run([str(kit.REPO / "bin" / "tanka"), "init", scope], capture_output=True, text=True,
+                       timeout=60, check=False)
+    if p.returncode != 0:
+        raise ToolError((p.stderr or p.stdout).strip().removeprefix("x ") or "tanka init did not work.")
+    if str(body.get("name", "")).strip():
+        set_name(scope, body["name"])
+    return {"ok": True, "scope": scope, "message": f"Created {scope}."}
+
+
 # The picture lives with the page, outside every workspace, so the assistant cannot change its own face.
 def avatar_files(scope: str) -> list[Path]:
     root = kit.PAGE_HOME / "avatars"
@@ -177,7 +353,11 @@ def workspace_report(scope: str) -> dict:
         language, problem = str(read_persona(ws).get("language") or ""), ""
     except ToolError as e:  # the tab still shows; the persona card says what is wrong
         language, problem = "", str(e)
-    return dict(tm.report(ws), scope=scope,
+    try:
+        settings = settings_report(ws)
+    except ToolError as e:
+        settings = {"problem": str(e)}
+    return dict(tm.report(ws), scope=scope, settings=settings,
                 persona={"name": kit.persona_name(ws), "language": language, "problem": problem})
 
 
@@ -197,7 +377,11 @@ def manage(fn, *args) -> dict:
 
 
 def workspace_action(action: str, body: dict) -> dict:
+    if action == "create":
+        return create_workspace(body)
     scope = known_scope(str(body.get("scope", "")))
+    if action == "settings":
+        return save_settings(scope, body)
     ws = kit.ws_dir(scope)
     if action == "install":
         return manage(tm.install, str(body.get("module", "")), ws, scope)

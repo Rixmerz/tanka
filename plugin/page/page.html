@@ -327,6 +327,20 @@ img.face { width: 100%; height: 100%; object-fit: cover; display: block; border-
 pre.out { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; }
 p.problem, p.warning { margin: 6px 0 0; white-space: pre-wrap; }
 
+/* ---------- workspace settings, edited by hand */
+.settings { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 9px 14px; align-items: center; }
+.settings > label, .settings > .lbl { color: var(--muted); font-size: 13.5px; }
+.settings input, .settings select, .settings textarea { font: inherit; font-size: 14px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 9px; padding: 5px 9px; width: 100%; box-sizing: border-box; }
+.settings input[type="checkbox"] { width: auto; justify-self: start; }
+.settings textarea { min-height: 58px; resize: vertical; }
+.settings .hint { grid-column: 2; margin-top: -5px; color: var(--muted); font-size: 12.5px; text-align: left; }
+.settings .warn { grid-column: 2; margin-top: -5px; color: var(--warn); font-size: 12.5px; }
+.settings h3 { grid-column: 1 / -1; margin: 10px 0 0; font-size: 14px; }
+.save-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.newws { border-color: var(--accent); }
+.wsopt.new { color: var(--muted); }
+@media (max-width: 640px) { .settings { grid-template-columns: 1fr; } .settings .hint, .settings .warn { grid-column: 1; } }
+
 /* ---------- boards */
 .board-h { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-bottom: 10px; }
 .board-h h2 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
@@ -620,6 +634,25 @@ const TW = {
   missing: list => `not on this machine yet: ${list}`, setup: "set up with", toolsN: n => plural(n, "tool", "tools"),
   after: "The assistant sees it on its next message. Open terminal sessions update their tools by themselves; a new skill needs /reload-skills.",
   working: "Working…",
+  profile: "Profile", rules: "Rules", saveAll: "Save", unsaved: "Not saved yet.", reset: "Undo changes",
+  pf: { user_name: "Your name", language: "Language", tone: "Tone", personality: "Personality", output_format: "Answer format",
+        signature: "Signature", timezone: "Time zone", notes: "Notes" },
+  pfHint: { language: "The language it writes in. Set here, the first session no longer asks.", timezone: "Like America/Santiago or Europe/Madrid.",
+            notes: "Anything it should always keep in mind." },
+  advisor: "Advisor model", advisorHint: "The stronger model it consults when a request needs more judgment than its tools give.",
+  decisions: "What it may do without asking", cls: { read: "Read", draft: "Write drafts only you see", modify: "Change things others may notice",
+    send: "Send (cannot be taken back)", unknown: "Tools it cannot classify" },
+  dec: { allow: "do it", ask: "ask me first", deny: "never" }, destructive: "Delete or destroy", always: "never — always denied, this cannot change",
+  sendAllow: "It will send without asking you. Only do this for a workspace whose recipients you trust.",
+  external: "Other MCP servers", extDeny: "blocked", extPolicy: "loaded from .tanka/mcp.json and decided by the rules above",
+  sendChecks: "Checks before anything is sent", requireSubject: "Require a subject", minBody: "Shortest message (characters)",
+  maxRecipients: "Most recipients in one send", allowlist: "Only these recipients (patterns, one per line)", allowHint: "Empty lets it write to anyone.",
+  blocklist: "Never these recipients (patterns, one per line)", internal: "Your own domains (one per line)", internalHint: "Anyone else is flagged as external when it asks you.",
+  loop: "Limits against loops", lg: { max_identical_calls_per_turn: "The same call in one turn", max_calls_per_turn: "Calls in one turn",
+    max_same_tool_per_turn: "One tool in one turn", max_consecutive_failures: "Failures in a row", max_calls_per_session: "Calls in one session" },
+  closing: "Ask for a closing status line after it used tools",
+  newWs: "New workspace", newWsTitle: "A new workspace", folder: "Folder name", folderHint: "Lowercase letters, digits, - and _. It is how you open it: tanka <folder>.",
+  asstName: "Assistant's name", create: "Create", cancel: "Cancel",
 };
 const nameOf = sc => (sc && sc.name) || "tanka";
 const ui = { tab: "chat", mode: "tanka", scope: null, state: null, error: "", lastOk: 0, sending: false, fetching: false,
@@ -1110,7 +1143,7 @@ async function loadWorkspace(sc) {
 // What the tab shows; the name being typed is left out, so the field keeps its focus and text between polls.
 function workspaceSig(sc) {
   if (wsv.scope !== sc.scope) return null;
-  return [wsv.ver, wsv.err, wsv.msg, wsv.out, wsv.after, wsv.confirm, wsv.busy, sc.name, faceKey(sc), !!faceUrl(sc)];
+  return [wsv.ver, wsv.err, wsv.msg, wsv.out, wsv.after, wsv.confirm, wsv.busy, sc.name, faceKey(sc), !!faceUrl(sc), !!ui.newWs, wsv.formTick || 0];
 }
 
 // Every change goes through here: one at a time, then the tab and the state load again.
@@ -1153,7 +1186,6 @@ function personaCard(sc, d) {
     const name = (wsv.name == null ? nameOf(sc) : wsv.name).trim();
     wsDo("/api/persona/name", { scope: sc.scope, name }).then(ok => { if (ok) { wsv.name = null; render(); } });
   };
-  const lang = d.persona && d.persona.language;
   return el("section", { class: "card" }, el("h2", {}, TW.persona),
     el("div", { class: "persona" },
       paintFace(el("span", { class: "face-lg", "aria-hidden": "true" }), sc, () => initial(sc)),
@@ -1163,7 +1195,6 @@ function personaCard(sc, d) {
           el("input", { id: "persona-name", maxlength: "40", value: wsv.name == null ? nameOf(sc) : wsv.name, autocomplete: "off",
             on: { input: e => { wsv.name = e.target.value; }, keydown: e => { if (e.key === "Enter") { e.preventDefault(); saveName(); } } } }),
           el("button", { type: "button", class: "btn", disabled: wsv.busy, on: { click: saveName } }, TW.save)),
-        el("div", { class: "field" }, el("span", { class: "k" }, TW.language), el("span", {}, lang || TW.noLanguage)),
         el("div", { class: "field" },
           el("button", { type: "button", class: "btn", disabled: wsv.busy, on: { click: () => pickPicture(sc) } }, icon("upload"), TW.upload),
           sc.avatar_v ? el("button", { type: "button", class: "ghost", disabled: wsv.busy,
@@ -1225,6 +1256,110 @@ function moduleItem(sc, m, all) {
     armed ? el("p", { class: m.installed ? "warning" : "meta" }, m.installed ? TW.removeSays : TW.installSays(adds, deps)) : null);
 }
 
+// ------------------------------------------------------------ every parameter, by hand
+// The form keeps what is being typed in wsv.form, which the tab's signature leaves out, so a poll never
+// rebuilds it under the cursor; it starts again from the server after a save or a change elsewhere.
+const clone = x => JSON.parse(JSON.stringify(x));
+function formOf(d) {
+  if (!wsv.form || wsv.formVer !== wsv.ver) { wsv.form = clone(d.settings || {}); wsv.formVer = wsv.ver; }
+  return wsv.form;
+}
+const at = (obj, path) => path.reduce((o, k) => (o == null ? o : o[k]), obj);
+function put(obj, path, v) { const last = path[path.length - 1]; path.slice(0, -1).reduce((o, k) => (o[k] = o[k] || {}), obj)[last] = v; }
+
+function ctl(f, path, kind, opts) {
+  const id = "set-" + path.join("-"), v = at(f, path), o = opts || {};
+  const on = ev => ({ [ev]: e => { put(f, path, kind === "bool" ? e.target.checked : kind === "num" ? Number(e.target.value)
+    : kind === "lines" ? e.target.value.split("\n") : e.target.value); if (o.rerender) { wsv.formTick = (wsv.formTick || 0) + 1; render(); } } });
+  if (kind === "select") return el("select", { id, on: on("change") }, o.options.map(([val, label]) =>
+    el("option", { value: val, selected: v === val ? true : null }, label)));
+  if (kind === "bool") return el("input", { id, type: "checkbox", checked: v ? true : null, on: on("change") });
+  if (kind === "num") return el("input", { id, type: "number", min: String(o.min), max: String(o.max), step: "1", value: String(v ?? ""), on: on("input") });
+  if (kind === "lines") return el("textarea", { id, rows: "3", spellcheck: "false", on: on("input") }, (v || []).join("\n"));
+  if (o.multiline) return el("textarea", { id, rows: "3", maxlength: String(o.max || 2000), on: on("input") }, v || "");
+  return el("input", { id, value: v || "", maxlength: String(o.max || 200), autocomplete: "off", on: on("input") });
+}
+function undoForm() { wsv.form = null; wsv.formTick = (wsv.formTick || 0) + 1; render(); }
+const row = (f, path, label, kind, opts, hint) => [el("label", { for: "set-" + path.join("-") }, label), ctl(f, path, kind, opts),
+  hint ? el("div", { class: "hint" }, hint) : null];
+
+function saveSettings(sc, part) {
+  const f = wsv.form || {}, body = { scope: sc.scope };
+  if (part === "profile") { body.persona = f.persona; body.advisor_model = f.advisor_model; }
+  if (part === "rules") {
+    const p = clone(f.policy), sv = p.send_validation;
+    for (const k of ["recipient_allowlist", "recipient_blocklist", "internal_domains"]) sv[k] = (sv[k] || []).map(x => x.trim()).filter(Boolean);
+    body.policy = p;
+  }
+  // A save that changed something loads the tab again (a new version), and the form starts from what was saved.
+  wsDo("/api/workspace/settings", body);
+}
+
+function profileCard(sc, d) {
+  if (!d.settings || d.settings.problem) return d.settings ? el("section", { class: "card" }, el("h2", {}, TW.profile), el("p", { class: "problem" }, d.settings.problem)) : null;
+  const f = formOf(d), lim = (d.settings.limits || {}).persona || {};
+  const field = (k, multiline) => row(f, ["persona", k], TW.pf[k], "text", { multiline, max: lim[k] }, TW.pfHint[k]);
+  return el("section", { class: "card" }, el("h2", {}, TW.profile),
+    el("div", { class: "settings" },
+      field("user_name"), field("language"), field("timezone"), field("tone"), field("personality", true),
+      field("output_format", true), field("signature", true), field("notes", true),
+      row(f, ["advisor_model"], TW.advisor, "select", { options: [["sonnet", "Sonnet"], ["opus", "Opus"]] }, TW.advisorHint)),
+    el("div", { class: "save-row" }, el("button", { type: "button", class: "btn primary", disabled: wsv.busy, on: { click: () => saveSettings(sc, "profile") } }, TW.saveAll),
+      el("button", { type: "button", class: "ghost", on: { click: undoForm } }, TW.reset)));
+}
+
+function rulesCard(sc, d) {
+  if (!d.settings || d.settings.problem) return null;
+  const f = formOf(d), lim = d.settings.limits || {};
+  const decOpts = ["allow", "ask", "deny"].map(v => [v, TW.dec[v]]);
+  const decRows = ["read", "draft", "modify", "send", "unknown"].flatMap(c => [
+    ...row(f, ["policy", "decisions", c], TW.cls[c], "select", { options: decOpts, rerender: c === "send" }),
+    c === "send" && at(f, ["policy", "decisions", "send"]) === "allow" ? el("div", { class: "warn" }, TW.sendAllow) : null]);
+  const num = (group, k, label) => row(f, ["policy", group, k], label, "num", { min: lim[group][k][0], max: lim[group][k][1] });
+  return el("section", { class: "card" }, el("h2", {}, TW.rules),
+    el("div", { class: "settings" },
+      el("h3", {}, TW.decisions), ...decRows,
+      el("span", { class: "lbl" }, TW.destructive), el("span", { class: "meta" }, TW.always),
+      ...row(f, ["policy", "external_mcp"], TW.external, "select", { options: [["deny", TW.extDeny], ["policy", TW.extPolicy]] }),
+      el("h3", {}, TW.sendChecks),
+      ...row(f, ["policy", "send_validation", "require_subject"], TW.requireSubject, "bool"),
+      ...num("send_validation", "min_body_chars", TW.minBody), ...num("send_validation", "max_recipients", TW.maxRecipients),
+      ...row(f, ["policy", "send_validation", "recipient_allowlist"], TW.allowlist, "lines", null, TW.allowHint),
+      ...row(f, ["policy", "send_validation", "recipient_blocklist"], TW.blocklist, "lines"),
+      ...row(f, ["policy", "send_validation", "internal_domains"], TW.internal, "lines", null, TW.internalHint),
+      el("h3", {}, TW.loop),
+      ...Object.keys(TW.lg).flatMap(k => num("loop_guard", k, TW.lg[k])),
+      ...row(f, ["policy", "closing_report"], TW.closing, "bool")),
+    el("div", { class: "save-row" }, el("button", { type: "button", class: "btn primary", disabled: wsv.busy, on: { click: () => saveSettings(sc, "rules") } }, TW.saveAll),
+      el("button", { type: "button", class: "ghost", on: { click: undoForm } }, TW.reset)));
+}
+
+// A new workspace is `tanka init`, run by the page; it opens on it once it exists.
+function newWorkspaceCard() {
+  if (!ui.newWs) return null;
+  const nw = ui.newWs;
+  const create = async () => {
+    const scope = (nw.scope || "").trim();
+    wsv.busy = true; wsv.msg = ""; render();
+    try {
+      await api("/api/workspace/create", { scope, name: (nw.name || "").trim() });
+      ui.newWs = null; wsv.busy = false;
+      await refresh(); pick(scope); ui.tab = "workspace"; render();
+    } catch (e) { wsv.busy = false; wsv.msg = e.message; render(); }
+  };
+  return el("section", { class: "card newws" }, el("h2", {}, TW.newWsTitle),
+    el("div", { class: "settings" },
+      el("label", { for: "new-folder" }, TW.folder),
+      el("input", { id: "new-folder", value: nw.scope || "", maxlength: "40", autocomplete: "off", spellcheck: "false",
+        on: { input: e => { nw.scope = e.target.value.toLowerCase(); } } }),
+      el("div", { class: "hint" }, TW.folderHint),
+      el("label", { for: "new-name" }, TW.asstName),
+      el("input", { id: "new-name", value: nw.name || "", maxlength: "40", autocomplete: "off", on: { input: e => { nw.name = e.target.value; } } })),
+    el("div", { class: "save-row" },
+      el("button", { type: "button", class: "btn primary", disabled: wsv.busy, on: { click: create } }, TW.create),
+      el("button", { type: "button", class: "ghost", on: { click: () => { ui.newWs = null; render(); } } }, TW.cancel)));
+}
+
 function workspaceView(sc) {
   if (wsv.scope !== sc.scope) {
     Object.assign(wsv, { scope: sc.scope, data: null, err: "", msg: "", out: "", after: false, confirm: null, name: null, focus: null });
@@ -1248,8 +1383,11 @@ function workspaceView(sc) {
     wsv.after ? el("div", { class: "note-banner" }, TW.after) : null,
   ].filter(Boolean);
   return [
-    personaCard(sc, d),
+    newWorkspaceCard(),
     status.length ? el("div", { "aria-live": "polite" }, status) : null,
+    personaCard(sc, d),
+    profileCard(sc, d),
+    rulesCard(sc, d),
     el("section", { class: "card" },
       el("h2", {}, TW.tools, el("span", { class: "meta" }, TW.budget(d.tools_used, d.tools_max))),
       el("div", { class: "budget" + (full ? " full" : ""), role: "img", "aria-label": TW.budget(d.tools_used, d.tools_max) }, bar),
@@ -1281,7 +1419,14 @@ const ICON_CHEV = "M6 9l6 6 6-6";
 const initial = s => (nameOf(s) || "?").trim().charAt(0).toUpperCase();
 const waiting = s => tabsOf(s).reduce((a, t) => a + badgeOf(s, t), 0);
 
+function newWorkspace() {
+  ui.newWs = { scope: "", name: "" }; ui.wsOpen = false; ui.wsSig = ""; ui.tab = "workspace"; remember("tanka.tab", "workspace");
+  render();
+  setTimeout(() => { const n = $("new-folder"); if (n) n.focus(); }, 0);
+}
+
 function pick(scope) {
+  if (!scope) { newWorkspace(); return; }
   ui.scope = scope; ui.sideSig = ""; ui.wsOpen = false; ui.wsSig = "";
   remember("tanka.scope", scope);
   render();
@@ -1299,8 +1444,11 @@ function wsMenu(scopes, sc) {
       el("span", { class: "end" }, n ? el("span", { class: "badge" }, String(n)) : null,
         sc && s.scope === sc.scope ? svg(ICON.check) : null));
   });
+  const add = el("li", { role: "option", class: "wsopt new", id: "wsopt-new", tabindex: "-1", "data-scope": "",
+    on: { click: () => newWorkspace(), mousemove: e => hot(e.currentTarget) } },
+    el("span", { class: "ini", "aria-hidden": "true" }, "+"), el("span", { class: "txt" }, el("span", { class: "nm" }, TW.newWs)));
   return el("ul", { class: "wsmenu", role: "listbox", id: "wsmenu", "aria-label": T.workspace,
-    on: { keydown: wsKeys } }, el("li", { class: "cap", role: "presentation" }, T.workspace), opts);
+    on: { keydown: wsKeys } }, el("li", { class: "cap", role: "presentation" }, T.workspace), opts, add);
 }
 
 function hot(li) {
@@ -1333,7 +1481,7 @@ function closeWs(refocus) {
 document.addEventListener("pointerdown", e => { if (ui.wsOpen && !$("ws").contains(e.target)) closeWs(false); });
 
 function wsSwitcher(scopes, sc) {
-  const many = scopes.length > 1;
+  const many = scopes.length > 0;  // with one workspace the menu still offers a new one
   const btn = el("button", { type: "button", class: "wsbtn" + (many ? "" : " single"), "aria-label": `${T.workspace}: ${nameOf(sc)}`,
     "aria-haspopup": many ? "listbox" : false, "aria-expanded": many ? String(!!ui.wsOpen) : false, "aria-controls": many ? "wsmenu" : false,
     on: { click: () => { if (many) (ui.wsOpen ? closeWs(true) : openWs()); },
