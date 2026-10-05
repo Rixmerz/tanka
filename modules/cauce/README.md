@@ -27,13 +27,16 @@ tanka ui <workspace>                                  # the page, Code tab
 
 ### The Code tab
 
-- **Projects.** A chip per repository this workspace may use, and *All projects*. **Add project** lists
+- **Projects.** A chip per repository this workspace may use; one is always selected, so the tab never
+  shows every repository's cards at once. **Add project** lists
   every repository cauce has worked in (from its tasks and the sessions it saw) that this workspace does not
   use yet; *Use here* allows one. cauce keeps no folder in a project: what it knows of a project is in its
   own database, so a project shows here once cauce has run or seen a session there.
 - **Tasks.** Needs you, Agents working, Between attempts, Pending per repository, Done, each card with its
-  title, its description and its workflow. **New task** queues one in the selected project by your hand.
-- **Sessions.** The Claude Code sessions cauce saw in the selected projects: the last prompt, how many,
+  title, its description and its workflow. A queued card says whether it runs beside the work going in
+  its repository or waits its turn, and why — Haiku's call when cauce dispatches it. Work is not typed
+  here: it is asked for in a Claude Code session (`++ <task>` queues it, `/orchestration` runs it).
+- **Sessions.** The Claude Code sessions cauce saw in the selected project: the last prompt, how many,
   whether a task in it runs, and the command that resumes it where it ran (`claude --resume`), with Copy.
   The page cannot attach to a session; resuming opens it in your terminal.
 - **Problems.** cauce's memory: every problem with every fix tried, whether it worked, failed, worked in

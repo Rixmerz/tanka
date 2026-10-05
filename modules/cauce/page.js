@@ -7,7 +7,7 @@
   const { el, api, act, hm, when, plural, icon, remember } = Tanka;
   const T = {
     tab: "Code",
-    allProjects: "All projects", addProject: "Add project", closeAdd: "Close",
+    addProject: "Add project", closeAdd: "Close",
     known: "Repositories cauce has worked in that this workspace does not use yet:", noKnown: "cauce has not worked anywhere else yet.",
     allow: "Use here", gone: "directory gone", lastSeen: t => `last used ${t}`, sessionsN: n => plural(n, "session", "sessions"),
     views: { tasks: "Tasks", sessions: "Sessions", problems: "Problems" },
@@ -15,8 +15,8 @@
     queued: "Pending", done: "Done",
     nothing: "Nothing here.", noRepos: s => `This workspace may use no repository yet. Add one with Add project, or in a terminal: tanka cauce allow ${s} <directory>`,
     notReachable: "cauce did not answer:", noAgents: "No worker is out now. Pending tasks run when you press Run queue.",
-    newTask: p => p ? `New task in ${p}` : "New task", taskPh: "What should be done, complete on its own", checkPh: "Command that proves it worked (optional)",
-    queue: "Queue", queuedOk: n => `Queued #${n}. It runs when you press Run queue.`, pickProject: "Project",
+    askInSession: "Work is asked for in a Claude Code session: ++ <task> queues it, /orchestration runs it.",
+    beside: "runs beside others", waits: "waits its turn",
     attempt: n => `attempt ${n || 1}`, cost: c => `$${(c || 0).toFixed(2)}`,
     running: (since, turns, budget) => [since ? `running ${since}` : "", turns ? `up to ${turns} turns` : "", budget != null ? `$${Number(budget).toFixed(2)} left` : ""].filter(Boolean).join(" · "),
     dead: "its cauce process is gone; the next sweep marks it interrupted",
@@ -45,7 +45,7 @@
   const MARK = { worked: "✓", failed: "✗", partial: "◐", pending: "…", disproved: "↺" };
   const stored = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const st = { open: null, detail: null, confirm: "", project: stored("cauce.project"), view: stored("cauce.view") || "tasks",
-    adding: false, known: null, sessions: null, problems: null, q: "", everywhere: true, form: { text: "", check: "", repo: "" },
+    adding: false, known: null, sessions: null, problems: null, q: "", everywhere: true,
     copied: "", msg: "", editing: false, searching: false, lastSig: "", loadedAt: 0, scope: "" };
   const epoch = iso => (Date.parse(iso) || 0) / 1000;
   const post = (sc, name, body) => act(api(`/api/m/cauce/${name}`, Object.assign({ scope: sc.scope }, body)));
@@ -104,7 +104,7 @@
     for (const t of (mod.board && mod.board.needs_you) || []) needs[t.repo_name] = (needs[t.repo_name] || 0) + 1;
     const chip = (name, label) => el("button", { type: "button", class: "chip" + (st.project === name ? " on" : ""), "aria-pressed": String(st.project === name),
       on: { click: () => setProject(sc, name) } }, label, name && needs[name] ? el("span", { class: "badge" }, needs[name]) : null);
-    return el("div", { class: "projbar" }, chip("", T.allProjects), (mod.repos || []).map(n => chip(n, n)),
+    return el("div", { class: "projbar" }, (mod.repos || []).map(n => chip(n, n)),
       el("button", { type: "button", class: "ghost", "aria-expanded": String(st.adding),
         on: { click: () => { st.adding = !st.adding; Tanka.render(); if (st.adding) load(sc, "known"); } } }, st.adding ? T.closeAdd : "+ " + T.addProject));
   }
@@ -172,6 +172,9 @@
         buttons || null, detailsBtn(sc, t)),
       el("p", { class: "text" }, t.title || ""), description(t),
       t.asks ? el("div", { class: "meta" }, t.asks) : null,
+      t.status === "queued" && t.parallel != null
+        ? el("div", { class: "meta", title: t.parallel_reason || "" }, el("span", { class: "chip" + (t.parallel ? " on" : "") },
+            t.parallel ? T.beside : T.waits), " ", t.parallel_reason || "") : null,
       flowStrip(t), detailView(t));
   }
 
@@ -194,30 +197,6 @@
       nodes.length ? nodes : el("p", { class: "empty" }, empty || T.nothing)];
   }
 
-  // A task the user writes here goes to the queue by their own hand: queueing spends nothing.
-  function queueForm(sc, mod) {
-    const repo = st.project || st.form.repo || (mod.repos || [])[0] || "";
-    const submit = async () => {
-      const text = st.form.text.trim();
-      if (!text) return;
-      try {
-        const t = await api("/api/m/cauce/queue", { scope: sc.scope, repo, text, check: st.form.check });
-        st.form.text = ""; st.form.check = ""; st.msg = T.queuedOk(t.id); st.editing = false;
-      } catch (e) { st.msg = e.message; }
-      Tanka.refresh();
-    };
-    return el("details", { class: "card", open: st.form.text ? true : null },
-      el("summary", {}, T.newTask(st.project)),
-      el("div", { class: "qform" },
-        st.project ? null : field("select", { "aria-label": T.pickProject, on: { change: e => { st.form.repo = e.target.value; } } },
-          (mod.repos || []).map(n => el("option", { value: n, selected: n === repo ? true : null }, n))),
-        field("textarea", { placeholder: T.taskPh, maxlength: "2000", on: { input: e => { st.form.text = e.target.value; } } }, st.form.text),
-        el("div", { class: "row" },
-          field("input", { placeholder: T.checkPh, value: st.form.check, maxlength: "200", on: { input: e => { st.form.check = e.target.value; } } }),
-          el("button", { type: "button", class: "btn primary", on: { click: submit } }, T.queue)),
-        st.msg ? el("div", { class: "meta" }, st.msg) : null));
-  }
-
   function tasksView(sc, mod) {
     const b = mod.board, working = new Set(mod.working || []);
     const keep = t => !st.project || t.repo_name === st.project;
@@ -237,7 +216,7 @@
     }).filter(Boolean);
     const pending = lanes.length ? (b.queued || []).filter(l => !st.project || l.repo_name === st.project).reduce((n, l) => n + l.tasks.length, 0) : 0;
     return [
-      queueForm(sc, mod),
+      el("p", { class: "meta" }, T.askInSession),
       ...section(T.needs, (b.needs_you || []).filter(keep).map(t => card(sc, t, t.status === "done" ? T.toReview : t.status))),
       ...section(T.agents, agents.map(t => agent(sc, t, cancel(t))), null, T.noAgents),
       ...(between.length ? section(T.between, between.map(t => card(sc, t, T.planning, cancel(t)))) : []),
@@ -310,7 +289,8 @@
   // ------------------------------------------------------------ the tab
   function render(sc, mod) {
     if (st.scope !== sc.scope) { Object.assign(st, { scope: sc.scope, known: null, sessions: null, problems: null, open: null }); }
-    if (st.project && !(mod.repos || []).includes(st.project)) st.project = "";
+    // One project at a time, always: every repository's cards at once is a wall nobody reads.
+    if (!(mod.repos || []).includes(st.project)) st.project = (mod.repos || [])[0] || "";
     const top = [projectBar(sc, mod), knownList(sc), viewBar(sc)];
     if (mod.error) return [...top, el("div", { class: "note-banner" }, T.notReachable + " " + mod.error)];
     if (st.view === "problems") {
@@ -333,7 +313,7 @@
       el("p", { class: "text" }, m.title),
       m.asks ? el("div", { class: "state" }, m.asks) : null,
       el("div", { class: "acts" }, el("button", { type: "button", class: "btn", on: { click: () => {
-        st.view = "tasks"; st.project = ""; Tanka.go("cauce"); toggle(sc, m.id); } } }, T.details)));
+        st.view = "tasks"; if (m.repo_name) st.project = m.repo_name; Tanka.go("cauce"); toggle(sc, m.id); } } }, T.details)));
   }
 
   const needs = mod => (mod && mod.board && mod.board.counts && mod.board.counts.needs_you) || 0;
