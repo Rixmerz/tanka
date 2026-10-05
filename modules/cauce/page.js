@@ -15,7 +15,6 @@
     queued: "Pending", done: "Done",
     nothing: "Nothing here.", noRepos: s => `This workspace may use no repository yet. Add one with Add project, or in a terminal: tanka cauce allow ${s} <directory>`,
     notReachable: "cauce did not answer:", noAgents: "No worker is out now. Pending tasks run when you press Run queue.",
-    askInSession: "Work is asked for in a Claude Code session: ++ <task> queues it, /orchestration runs it.",
     beside: "runs beside others", waits: "waits its turn",
     attempt: n => `attempt ${n || 1}`, cost: c => `$${(c || 0).toFixed(2)}`,
     running: (since, turns, budget) => [since ? `running ${since}` : "", turns ? `up to ${turns} turns` : "", budget != null ? `$${Number(budget).toFixed(2)} left` : ""].filter(Boolean).join(" · "),
@@ -29,7 +28,8 @@
     move: m => ({ retry: "retried", more_effort: "more effort", next_model: "next model", more_turns: "more turns", replan: "replan" }[m] || m),
     stepTitle: s => `${s.cell}: ${s.passed ? "passed" : (s.failure || "failed")}${s.move ? " → " + s.move : ""}${s.move_reason ? " (" + s.move_reason + ")" : ""}`,
     sessionsIntro: "Claude Code sessions cauce saw in these projects. Resume one in your terminal with its command; the page cannot attach to a session.",
-    noSessions: "cauce has seen no Claude Code session here yet.", session: id => `session ${String(id).slice(0, 8)}`,
+    noSessions: "No session in this project yet. Only enrolled projects (a .cauce/ folder) show their sessions.",
+    lastPrompt: p => `last: ${p}`, session: id => `session ${String(id).slice(0, 8)}`,
     sessionMeta: x => `${plural(x.prompts || 0, "prompt", "prompts")} · started ${when(epoch(x.started_at))} · $${(x.cost_usd || 0).toFixed(2)}`,
     noPrompt: "(no prompt recorded)", runningNow: "a task is running", copy: "Copy", copied: "Copied",
     searchPh: "Search problems and fixes", everywhere: "All of cauce", here: "These projects",
@@ -216,7 +216,6 @@
     }).filter(Boolean);
     const pending = lanes.length ? (b.queued || []).filter(l => !st.project || l.repo_name === st.project).reduce((n, l) => n + l.tasks.length, 0) : 0;
     return [
-      el("p", { class: "meta" }, T.askInSession),
       ...section(T.needs, (b.needs_you || []).filter(keep).map(t => card(sc, t, t.status === "done" ? T.toReview : t.status))),
       ...section(T.agents, agents.map(t => agent(sc, t, cancel(t))), null, T.noAgents),
       ...(between.length ? section(T.between, between.map(t => card(sc, t, T.planning, cancel(t)))) : []),
@@ -241,7 +240,8 @@
         el("div", { class: "row" }, el("span", { class: "chip on" }, x.repo_name || "?"), el("span", { class: "meta" }, T.session(x.id)),
           x.running ? el("span", { class: "chip on" }, T.runningNow) : null, el("span", { class: "spacer" }),
           el("span", { class: "meta" }, when(epoch(x.last_seen_at)))),
-        el("p", { class: "text" }, x.last_prompt || T.noPrompt),
+        el("p", { class: "text" }, x.name || x.last_prompt || T.noPrompt),
+        x.name && x.last_prompt ? el("div", { class: "meta" }, T.lastPrompt(x.last_prompt)) : null,
         el("div", { class: "meta" }, T.sessionMeta(x)),
         el("div", { class: "cmdline" }, el("code", {}, x.resume), copyBtn("s:" + x.id, x.resume))))
         : [el("p", { class: "empty" }, T.noSessions)])];
