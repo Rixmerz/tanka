@@ -501,8 +501,13 @@ def skills_line(root: Path) -> str:
     return ("Skills first: before answering, match the request to one of these skills and follow it: "
             + (", ".join(parts) if parts else "none installed yet")
             + ". Built in: /tanka:draft, /tanka:triage, /tanka:plan, /tanka:setup, /tanka:status. "
-            "Files the user adds from the page land in files/: reading one with Read when the message is about it "
-            "needs no skill. If nothing covers the request, say so and stop; never work around a missing tool.")
+            f"Your workspace is {Path(root).resolve()}; files the user adds from the page land in its files/ folder, "
+            "and reading one with Read needs no skill: give tools these full paths, never a guessed one. "
+            "To read a folder outside the workspace, just try: if the user has not approved it, they get an Approve "
+            "button on their page. Never say you lack permission without having tried, and never ask the user to copy "
+            "files or run commands. Your tools' parameters are exactly what their definitions show now: check them "
+            "before saying one is missing, and never offer a workaround the skill does not describe. "
+            "If nothing covers the request, say so and stop; never work around a missing tool.")
 
 
 def classify_tool(tool_name: str, policy: dict, root: Path | None = None) -> str:

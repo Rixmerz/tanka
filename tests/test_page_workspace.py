@@ -298,12 +298,14 @@ class TestReload(WorkspacePageCase):
             "remote": {"type": "http", "url": "https://example.com/mcp"}}}))
         status, data = self.reload("mcp")
         self.assertEqual(status, 200, data)
-        self.assertEqual(data["servers"][0], {"name": "tanka (this workspace's tools)", "ok": True, "tools": ["library_tool0"]})
+        self.assertEqual(data["servers"][0], {"name": "tanka (this workspace's tools)", "ok": True, "tools": ["library_tool0"],
+                                              "params": {"library_tool0": []}})
         self.assertEqual(data["external"], "blocked by the rules")
         self.assertEqual(data["skipped"], ["gone", "mail", "remote"])
         (self.ws / ".tanka" / "policy.json").write_text(json.dumps({"external_mcp": "policy"}))
         got = {s["name"]: s for s in self.reload("mcp")[1]["servers"]}
         self.assertEqual(got["mail"]["tools"], ["list_messages", "send_message", "trash_message"])
+        self.assertEqual(got["mail"]["params"]["send_message"], ["body", "subject", "to"])  # what the model is offered
         self.assertFalse(got["gone"]["ok"])
         self.assertIn("could not start", got["gone"]["error"])
         self.assertIsNone(got["remote"]["ok"])
@@ -352,11 +354,16 @@ class TestConversationAndTools(WorkspacePageCase):
         self.assertEqual(len(notices), 1)
         self.assertEqual(chat.session_args("duck")[2], None)  # and the new one resumes from now on
 
-    def test_a_session_from_before_this_change_still_resumes(self):
+    def test_a_session_saved_without_its_tools_restarts_once(self):
+        """Its tools are unknown, so it may be answering from old ones: the case that kept a real
+        conversation saying a parameter did not exist after it was added."""
         import tanka_chat as chat
         chat.session_file("duck", "tanka").parent.mkdir(parents=True, exist_ok=True)
         chat.session_file("duck", "tanka").write_text(json.dumps({"id": "old", "day": chat.today()}))
-        self.assertEqual(chat.session_args("duck")[:2], (["--resume", "old"], "old"))
+        extra, _, why = chat.session_args("duck")
+        self.assertEqual((extra[0], why), ("--session-id", "tools"))
+        chat.keep_session("duck", "new")
+        self.assertEqual(chat.session_args("duck")[:2], (["--resume", "new"], "new"))
 
     def reload(self, what):
         return self.call("POST", "/api/workspace/reload", {"scope": "duck", "what": what})

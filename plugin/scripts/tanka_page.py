@@ -182,8 +182,10 @@ def probe_mcp(name: str, spec: dict, cwd: Path, timeout: float = MCP_PROBE_SECON
                               "clientInfo": {"name": "tanka-page", "version": "1"}})
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
         proc.stdin.flush()
-        tools = [t.get("name", "") for t in ask(2, "tools/list", {}).get("tools", [])]
-        return {"name": name, "ok": True, "tools": tools}
+        listed = ask(2, "tools/list", {}).get("tools", [])
+        tools = [t.get("name", "") for t in listed]
+        params = {t.get("name", ""): sorted(((t.get("inputSchema") or {}).get("properties") or {}).keys()) for t in listed}
+        return {"name": name, "ok": True, "tools": tools, "params": params}
     except (TimeoutError, ConnectionError, OSError, ValueError) as e:
         return {"name": name, "ok": False, "error": str(e)}
     finally:

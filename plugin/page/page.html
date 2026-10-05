@@ -1484,7 +1484,7 @@ function reloadResult() {
     el("ul", { class: "fixes" }, (d.servers || []).map(x => el("li", { "data-outcome": x.ok === true ? "worked" : x.ok === false ? "failed" : "pending" },
       el("span", { class: "mk" }, x.ok === true ? "✓" : x.ok === false ? "✗" : "–"),
       el("span", {}, el("strong", {}, x.name), x.ok ? ` · ${TW.rOk(x.tools.length)}` : ""),
-      x.ok ? (x.tools.length ? el("span", { class: "why" }, x.tools.join(", ")) : null)
+      x.ok ? (x.tools.length ? el("span", { class: "why" }, x.tools.map(t => x.params && x.params[t] ? `${t}(${x.params[t].join(", ")})` : t).join(" · ")) : null)
         : el("span", { class: "why" }, x.ok === null ? `${TW.rRemote}: ${x.error}` : x.error)))),
     el("p", { class: "meta" }, TW.rExternal(d.external)),
     (d.skipped || []).length ? el("p", { class: "meta" }, TW.rSkipped(d.skipped.join(", "))) : null);

@@ -244,7 +244,7 @@ class TestChat(PageCase):
                 break
             time.sleep(0.05)
         self.assertIn("read them with Read", self.runs[-1][1])
-        self.assertIn("files/notes.pdf", self.runs[-1][1])
+        self.assertIn(str(self.ws / "files" / "notes.pdf"), self.runs[-1][1])  # the full path, never a guessed one
         mine = [m for m in chat.read("duck") if m.get("who") == "you"][-1]
         self.assertEqual((mine["text"], mine["files"]), ("", ["files/notes.pdf"]))
         for bad in (["../.tanka/policy.json"], ["files/missing.pdf"], [".tanka/persona.json"], ["files/x"] * 11):

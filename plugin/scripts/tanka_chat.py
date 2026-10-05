@@ -176,7 +176,8 @@ def session_args(scope: str, mode: str = "tanka") -> tuple[list[str], str, str |
         if s.get("day") == today() and s.get("reset"):
             why = "reset"
         elif s.get("day") == today() and s.get("id"):
-            if mode != "tanka" or s.get("tools") in (None, tools_signature(scope)):
+            # A session saved before signatures existed is treated as changed: its tools are unknown.
+            if mode != "tanka" or s.get("tools") == tools_signature(scope):
                 return ["--resume", s["id"]], s["id"], None
             why = "tools"
     except (FileNotFoundError, ValueError):
@@ -296,7 +297,10 @@ DEV_HINT = (
     "check returned, and what the user does next. The page shows a new board within seconds, and the assistant "
     "gets new tools on its next message: when its skills or tools changed, its next message starts a new "
     "conversation by itself, so never tell the user to restart Tanka or the page for that. If the user wants a "
-    "clean start anyway, the Workspace tab has New conversation.")
+    "clean start anyway, the Workspace tab has New conversation. When the assistant needs a folder outside its "
+    "workspace, it asks and the user approves it on the page (or lists it in Workspace, Rules): never tell the user "
+    "to copy files there. A tool's script reads any path it is given, so a tool that takes a file needs the full "
+    "path, and the Reload card's MCP check shows the parameters the assistant is offered.")
 
 
 def dev_cmd(scope: str, text: str, extra: list[str]) -> list[str]:
@@ -506,8 +510,11 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
     msg = append(scope, "you", text, **extra)
     prompt = text
     if files:
-        prompt = ((text + "\n\n") if text else "") + ("The user added these files to the workspace from the page; read them "
-                                                       "with Read when the message is about them: " + ", ".join(files))
+        where = kit.ws_dir(scope)
+        prompt = ((text + "\n\n") if text else "") + (
+            "The user added these files to the workspace from the page; read them with Read when the message is about "
+            "them, and when a tool takes a file, pass it this exact full path: "
+            + ", ".join(str(where / f) for f in files))
     if background:
         threading.Thread(target=answer, args=(scope, prompt, msg["t"], mode), daemon=True).start()
     else:
