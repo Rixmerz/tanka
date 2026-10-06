@@ -448,14 +448,19 @@ class TestChat(PageCase):
         self.assertIn("TANKA_PAGE_DAY_USD", data["error"])
         self.assertEqual(self.runs, [])
 
-    def test_a_message_to_the_other_chat_waits(self):
-        chat._busy["duck"], chat._busy_mode["duck"] = time.time(), "dev"
-        chat._stops["duck"] = lambda: self.fail("dev was stopped")
+    def test_the_assistant_answers_while_dev_is_still_working(self):
+        dev = chat.key("duck", "dev")
+        chat._busy[dev], chat._busy_mode[dev] = time.time(), "dev"
+        chat._stops[dev] = lambda: self.fail("dev was stopped")
         for d in (chat._busy, chat._busy_mode, chat._stops):
-            self.addCleanup(d.pop, "duck", None)
-        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": "hola"})
-        self.assertEqual(status, 400)
-        self.assertIn("Dev is still answering", json.loads(data)["error"])
+            self.addCleanup(d.pop, dev, None)
+        status, data = self.say("hola")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(len(self.runs), 1)
+        self.assertTrue(chat.busy("duck", "dev"))
+        runs = self.scope()["runs"]
+        self.assertIsNone(runs["tanka"]["busy"])
+        self.assertIsNotNone(runs["dev"]["busy"])
 
     def test_a_failed_run_says_so_and_a_lost_session_starts_again(self):
         self.replies = [(1, "", "Error: Reached max turns (10)")]

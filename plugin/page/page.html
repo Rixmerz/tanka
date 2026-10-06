@@ -999,12 +999,14 @@ function chatView(sc) {
   syncLog(sc);
   faces(sc);
   $("welcome").hidden = (sc.chat || []).length > 0;
-  $("typing").hidden = !sc.busy;
-  const draft = sc.busy && sc.draft && sc.draft.text ? sc.draft.text : "";
+  const r = runOf(sc);
+  $("typing").hidden = !r;
+  $("typingName").textContent = r && r.mode === "dev" ? T.devName : nameOf(sc);
+  const draft = r && r.draft && r.draft.text ? r.draft.text : "";
   if ($("draft").textContent !== draft) $("draft").textContent = draft;
   $("draft").hidden = !draft;
   $("dotsB").hidden = !!draft;
-  if (sc.busy && near) scrollEnd();
+  if (r && near) scrollEnd();
   tick();
   sidePanel(sc);
   updateComposer();
@@ -1018,11 +1020,19 @@ function usingLabel(name) {
   for (const spec of Object.values(MODS)) { const s = spec.using && spec.using(name); if (s) return s; }
   return T.usingTool;
 }
+// The assistant and dev answer side by side; the chat on screen shows the one picked first.
+function runOf(sc) {
+  if (!sc || !sc.runs) return null;
+  for (const m of [ui.mode, ui.mode === "dev" ? "tanka" : "dev"])
+    if (sc.runs[m] && sc.runs[m].busy) return { ...sc.runs[m], mode: m };
+  return null;
+}
+function busyHere(sc) { return !!(sc && sc.runs && sc.runs[ui.mode] && sc.runs[ui.mode].busy); }
 function tick() {
-  const sc = current();
-  if (sc && sc.busy) $("thinkingLbl").textContent = sc.draft && sc.draft.tool
-    ? (sc.busy_mode === "dev" && sc.draft.tool !== "compact" ? T.devUsing(sc.draft.tool) : usingLabel(sc.draft.tool))
-    : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - sc.busy)));
+  const r = runOf(current());
+  if (r) $("thinkingLbl").textContent = r.draft && r.draft.tool
+    ? (r.mode === "dev" && r.draft.tool !== "compact" ? T.devUsing(r.draft.tool) : usingLabel(r.draft.tool))
+    : T.thinking(Math.max(0, Math.round(Date.now() / 1000 - r.busy)));
 }
 
 // ------------------------------------------------------------ the composer (built once, never re-rendered)
@@ -1157,13 +1167,12 @@ function setupDrop() {
 
 function updateComposer() {
   renderFiles();  // the chips of the workspace on screen
-  const sc = current(), busy = !!(sc && sc.busy) || ui.sending;
+  const sc = current(), busy = busyHere(sc) || ui.sending;
   const files = sc ? ui.files[sc.scope] || [] : [];
-  // While it answers, a message to the same chat stops that answer and takes its place; the other chat waits.
-  const other = !!(sc && sc.busy) && (sc.busy_mode || "tanka") !== ui.mode;
-  sendBtn.disabled = ui.sending || other || (!say.value.trim() && !files.some(f => f.path)) || files.some(f => f.busy);
+  // While it answers, a message to the same chat stops that answer and takes its place; the other chat is free.
+  sendBtn.disabled = ui.sending || (!say.value.trim() && !files.some(f => f.path)) || files.some(f => f.busy);
   const name = nameOf(sc), dev = ui.mode === "dev";
-  say.placeholder = busy ? T.placeholderBusy(sc && sc.busy_mode === "dev" ? T.devName : name) : dev ? T.devPlaceholder(name) : T.placeholder(name);
+  say.placeholder = busy ? T.placeholderBusy(dev ? T.devName : name) : dev ? T.devPlaceholder(name) : T.placeholder(name);
   say.setAttribute("aria-label", dev ? T.devPlaceholder(name) : T.placeholder(name));
   say.closest(".box").classList.toggle("dev", dev);
   for (const b of $("modes").children) b.setAttribute("aria-checked", String(b.dataset.mode === ui.mode));
@@ -1171,7 +1180,6 @@ function updateComposer() {
   $("modes").firstChild.textContent = name;
   $("helloT").textContent = T.hello(name);
   $("helloP").textContent = [T.helloText, ...active(sc).map(([, s, mod]) => s.hello ? s.hello(sc, mod) : "")].filter(Boolean).join(" ");
-  $("typingName").textContent = sc && sc.busy_mode === "dev" ? T.devName : name;
   suggestions(sc);
   renderCommands();
   $("suggest").hidden = !!say.value.trim() || busy || !$("cmds").hidden;
@@ -1181,7 +1189,7 @@ function updateComposer() {
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
   const files = typed && sc ? (ui.files[sc.scope] || []).filter(f => f.path).map(f => f.path) : [];
-  if (!sc || (!text && !files.length) || ui.sending || (sc.busy && (sc.busy_mode || "tanka") !== ui.mode) || (typed && (ui.files[sc.scope] || []).some(f => f.busy))) return;
+  if (!sc || (!text && !files.length) || ui.sending || (typed && (ui.files[sc.scope] || []).some(f => f.busy))) return;
   ui.sending = true; ui.stick = true;
   $("cmsg").textContent = "";
   updateComposer();

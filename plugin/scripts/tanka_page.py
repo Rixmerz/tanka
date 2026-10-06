@@ -230,7 +230,7 @@ def reload_action(scope: str, body: dict) -> dict:
         mode = str(body.get("mode") or "tanka")
         if mode not in chat.MODES:
             raise ToolError(f"The chat is {' or '.join(chat.MODES)}.")
-        if chat.busy(scope):
+        if chat.busy(scope, mode):
             raise ToolError("It is still answering; wait for it.")
         chat.keep_session(scope, None, mode)
         chat.append(scope, "notice", "A new conversation starts with the next message; what was said stays here.",
@@ -627,7 +627,8 @@ def scope_state(scope: str) -> dict:
     ws = kit.ws_dir(scope)
     return {"scope": scope, "name": kit.persona_name(ws), "workspace": str(ws), "avatar_v": avatar_version(scope),
             "modules": dict(chat.each(scope, "state")), "chat": chat.stream(scope), "busy": chat.busy(scope),
-            "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope),
+            "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope, chat.busy_mode(scope) or "tanka"),
+            "runs": chat.runs(scope),
             "chat_left_usd": chat.chat_left(scope), "context_tokens": chat.context_tokens(scope),
             "dev": {"left_usd": chat.dev_left(scope), "model": chat.DEV_MODEL},
             "spent_today": tc.spent_today(ws)}

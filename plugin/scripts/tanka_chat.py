@@ -12,7 +12,7 @@ like "done" has something to refer to; and the first message of a day reads the 
 days' chat. The run streams (`--output-format stream-json`), so the page shows the answer while it
 is written.
 
-One message answers at a time per workspace, and the assistant spends at most DAY_USD a day there.
+One message answers at a time per chat (the assistant and dev work side by side), and the assistant spends at most DAY_USD a day there.
 A message sent while it answers stops that answer and resumes its session with the new one.
 When the session's context grows past COMPACT_TOKENS, it is compacted before the next message, keeping
 the task in hand and the decisions taken; `/compact` in the chat does it on demand.
@@ -85,6 +85,8 @@ HINT = ("You are answering in the chat of the user's local page: they read your 
         "'later' most likely refers to the latest item there.")
 
 _lock = threading.Lock()
+# The assistant and dev answer independently in the same workspace, so every run's state is kept per
+# chat: key(scope, mode) is the scope itself for the assistant and scope + "/dev" for dev.
 _busy: dict[str, float] = {}
 _busy_mode: dict[str, str] = {}
 _drafts: dict[str, dict] = {}   # scope -> {"text": what the answer says so far, "tool": the tool it is using}
@@ -98,6 +100,10 @@ STOPPED_USD = float(os.environ.get("TANKA_STOPPED_USD", "0.1"))
 REDIRECT = ("The user sent this while you were still working on their previous message, so that work was "
             "stopped where it was. This message takes priority: it may change what to do first, add to the "
             "task or replace it. Check what you already did before redoing anything.")
+
+
+def key(scope: str, mode: str = "tanka") -> str:
+    return f"{scope}/dev" if mode == "dev" else scope
 
 
 class Interrupted(Exception):
@@ -379,6 +385,7 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
     """One model run, read as it streams so the page can show the answer being written.
     Returns (exit code, the answer, stderr)."""
     answer_text, failed = None, ""
+    k = key(scope, "dev" if kind == "dev" else "tanka")
     with tempfile.TemporaryFile("w+", encoding="utf-8") as err:
         # Its own process group: `tanka run` starts claude as a child, and a stop must reach both.
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL, cwd=cwd,
@@ -386,7 +393,7 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
         killed = threading.Event()
         timer = threading.Timer(timeout, lambda: (killed.set(), kill_group(p, signal.SIGKILL)))
         timer.start()
-        _stops[scope] = lambda: stop_group(p)
+        _stops[k] = lambda: stop_group(p)
         try:
             for line in p.stdout:
                 try:
@@ -395,7 +402,7 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
                     continue
                 if not isinstance(ev, dict):
                     continue
-                got = on_stream(scope, ev)
+                got = on_stream(k, ev)
                 if got is not None:
                     answer_text = got
                 if ev.get("type") == "result" and ev.get("is_error"):
@@ -405,9 +412,9 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
             code = p.wait()
         finally:
             timer.cancel()
-            _stops.pop(scope, None)
+            _stops.pop(k, None)
             p.stdout.close()
-        if scope in _interrupted:
+        if k in _interrupted:
             raise Interrupted()
         if killed.is_set():
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -452,8 +459,9 @@ def record_cost(scope: str, extra: list[str], total, kind: str = "chat") -> None
         kit.write_json(costs_file(scope), seen)
 
 
-def draft(scope: str) -> dict | None:
-    return _drafts.get(scope) if scope in _busy else None
+def draft(scope: str, mode: str = "tanka") -> dict | None:
+    k = key(scope, mode)
+    return _drafts.get(k) if k in _busy else None
 
 
 def quote(text: str) -> str:
@@ -509,11 +517,12 @@ def prompt_for(scope: str, text: str, at: float, new_session: bool | str | None,
 
 def compact(scope: str, extra: list[str], mode: str, focus: str = "", auto: bool = True) -> None:
     """Compact the session it resumes, keeping what Tanka needs to carry on, and say so in the chat."""
+    k = key(scope, mode)
     run = run_dev if mode == "dev" else run_tanka
     tag = {"mode": "dev"} if mode == "dev" else {}
-    _drafts[scope] = {"text": "", "tool": "compact"}
+    _drafts[k] = {"text": "", "tool": "compact"}
     code, _, err = run(scope, "/compact " + COMPACT_FOCUS + (" The user adds: " + focus if focus else ""), extra)
-    got = (_drafts.get(scope) or {}).get("compacted")
+    got = (_drafts.get(k) or {}).get("compacted")
     if got:
         keep_session(scope, extra[1], mode, context=got[1])
         why = "The conversation grew long, so it was" if auto else "The conversation was"
@@ -522,7 +531,7 @@ def compact(scope: str, extra: list[str], mode: str, focus: str = "", auto: bool
     elif not auto:
         last = (err.strip().splitlines() or [f"exit {code}"])[-1]
         append(scope, "error", f"Could not compact the conversation ({last[:300]}).", code="nocompact", detail=last[:300], **tag)
-    _drafts[scope] = {"text": "", "tool": None}
+    _drafts[k] = {"text": "", "tool": None}
 
 
 def is_compact(text: str) -> bool:
@@ -530,6 +539,7 @@ def is_compact(text: str) -> bool:
 
 
 def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", redirect: bool = False) -> None:
+    k = key(scope, mode)
     extra, sid, why = session_args(scope, mode)
     if is_compact(text.strip()):
         try:
@@ -543,10 +553,10 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
             append(scope, "error", f"Could not compact the conversation ({e}).", code="nocompact", detail=str(e)[:300])
         finally:
             with _lock:
-                _busy.pop(scope, None)
-                _busy_mode.pop(scope, None)
-                _drafts.pop(scope, None)
-                _interrupted.discard(scope)
+                _busy.pop(k, None)
+                _busy_mode.pop(k, None)
+                _drafts.pop(k, None)
+                _interrupted.discard(k)
         return
     if redirect:
         text = REDIRECT + "\n\n" + text
@@ -567,11 +577,11 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
         if code and extra[0] == "--resume" and not out.strip():  # today's session is gone: start a new one
             sid = str(uuid.uuid4())
             extra = ["--session-id", sid]
-            _drafts.pop(scope, None)
+            _drafts.pop(k, None)
             code, out, err = run(scope, prompt_for(scope, text, at, "tools", mode), extra)
         if out.strip():
             append(scope, "dev" if mode == "dev" else "tanka", out.strip())
-            keep_session(scope, sid, mode, context=(_drafts.get(scope) or {}).get("context"))
+            keep_session(scope, sid, mode, context=(_drafts.get(k) or {}).get("context"))
         else:
             last = (err.strip().splitlines() or [f"exit {code}"])[-1]
             append(scope, "error", f"It did not answer ({last[:300]}). Write again, or check `tanka doctor {scope}`.",
@@ -579,7 +589,7 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
     except Interrupted:
         # The session keeps what it did so far: the next message resumes it, even on the day's first one.
         keep_session(scope, sid, mode)
-        said = ((_drafts.get(scope) or {}).get("text") or "").strip()
+        said = ((_drafts.get(k) or {}).get("text") or "").strip()
         append(scope, "notice", "Stopped to take your new message." + (f" It had written: {quote(said)}" if said else ""),
                code="stopped", **tag)
         tc.record_cost(kit.ws_dir(scope), mode if mode == "dev" else "chat", mode if mode == "dev" else "chat",
@@ -591,10 +601,10 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
         append(scope, "error", f"Could not start it: {e}", code="nostart", detail=str(e), **tag)
     finally:
         with _lock:
-            _busy.pop(scope, None)
-            _busy_mode.pop(scope, None)
-            _drafts.pop(scope, None)
-            _interrupted.discard(scope)
+            _busy.pop(k, None)
+            _busy_mode.pop(k, None)
+            _drafts.pop(k, None)
+            _interrupted.discard(k)
 
 
 def attached(scope: str, files: list[str]) -> list[str]:
@@ -616,6 +626,7 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
     text = text.strip()
     if mode not in MODES:
         raise ToolError(f"The chat is {' or '.join(MODES)}.")
+    k = key(scope, mode)
     files = attached(scope, files or [])
     if not text and not files:
         raise ToolError("Write a message first.")
@@ -623,7 +634,7 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
         raise ToolError(f"Keep a message under {TEXT_CHARS} characters.")
     redirect = interrupt(scope, mode)
     with _lock:
-        if scope in _busy:
+        if k in _busy:
             raise ToolError("It is still answering the last message; wait for it.")
         if mode == "tanka" and chat_left(scope) <= 0:
             raise ToolError(f"The assistant spent its {DAY_USD:.2f} USD for today in {scope}. Raise "
@@ -631,8 +642,8 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
         if mode == "dev" and dev_left(scope) <= 0:
             raise ToolError(f"Dev spent its {DEV_DAY_USD:.2f} USD for today in {scope}. Use `tanka dev {scope}` "
                             "in a terminal, or raise TANKA_DEV_PAGE_DAY_USD.")
-        _busy[scope] = time.time()
-        _busy_mode[scope] = mode
+        _busy[k] = time.time()
+        _busy_mode[k] = mode
     extra = {**({"mode": "dev"} if mode == "dev" else {}), **({"files": files} if files else {})}
     msg = append(scope, "you", text, **extra)
     prompt = text
@@ -644,7 +655,7 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
             + ", ".join(str(where / f) for f in files))
     if background:
         t = threading.Thread(target=answer, args=(scope, prompt, msg["t"], mode, redirect), daemon=True)
-        _threads[scope] = t
+        _threads[k] = t
         t.start()
     else:
         answer(scope, prompt, msg["t"], mode, redirect)
@@ -653,30 +664,37 @@ def send(scope: str, text: str, background: bool = True, mode: str = "tanka", fi
 
 def interrupt(scope: str, mode: str) -> bool:
     """Stop the answer in flight so a newer message can take its place. True when one was stopped.
-    Only the same chat is stopped: a message to the assistant never cuts dev short, nor the other way."""
+    Only the same chat is stopped: the assistant and dev answer side by side."""
+    k = key(scope, mode)
     with _lock:
-        if scope not in _busy or scope in _interrupted:
+        if scope not in _busy or k in _interrupted:
             return False
-        if _busy_mode.get(scope) != mode:
-            other = "Dev" if _busy_mode.get(scope) == "dev" else "The assistant"
-            raise ToolError(f"{other} is still answering; wait for it.")
-        stop = _stops.get(scope)
+        stop = _stops.get(k)
         if stop is None:  # between runs: nothing to stop yet
             return False
-        _interrupted.add(scope)
+        _interrupted.add(k)
     stop()
-    t = _threads.get(scope)
+    t = _threads.get(k)
     if t is not None and t is not threading.current_thread():
         t.join(STOP_GRACE_S * 3)
     return True
 
 
-def busy(scope: str) -> float | None:
-    return _busy.get(scope)
+def busy(scope: str, mode: str | None = None) -> float | None:
+    """When the chat's answer began, or None when it is not answering. No mode: either chat."""
+    if mode is not None:
+        return _busy.get(key(scope, mode))
+    return _busy.get(scope) or _busy.get(key(scope, "dev"))
 
 
 def busy_mode(scope: str) -> str | None:
-    return _busy_mode.get(scope)
+    """The chat answering, the assistant first when both are."""
+    return next((m for m in MODES if key(scope, m) in _busy), None)
+
+
+def runs(scope: str) -> dict:
+    """Per chat: when its answer began and what it has written so far, for the page."""
+    return {m: {"busy": _busy.get(key(scope, m)), "draft": draft(scope, m)} for m in MODES}
 
 
 # ---------------------------------------------------------------- the stream the page shows
