@@ -405,6 +405,29 @@ class TestChat(PageCase):
         self.assertEqual(said[-4:], [("you", None), ("notice", "stopped"), ("you", None), ("tanka", None)])
         self.assertIn("Revisando los correos", [m for m in self.stream() if m.get("code") == "stopped"][0]["text"])
 
+    def test_messages_stopped_before_an_answer_reach_the_next_run(self):
+        def slow(scope, text, extra):
+            self.runs.append((scope, text, list(extra)))
+            if len(self.runs) < 3:
+                stopped = threading.Event()
+                chat._stops[scope] = stopped.set
+                stopped.wait(5)
+                chat._stops.pop(scope, None)
+                raise chat.Interrupted()
+            return 0, "Reviso IoT y Big Data.", ""
+        self.patch(chat, "run_tanka", slow)
+        for i, said in enumerate(["revisa las notas de IoT", "también las de Big Data", "alo"]):
+            if i:
+                deadline = time.time() + 5
+                while "duck" not in chat._stops and time.time() < deadline:
+                    time.sleep(0.01)
+            self.assertEqual(self.say(said)[0], 200)
+        last = self.runs[-1][1]
+        self.assertIn("revisa las notas de IoT", last)
+        self.assertIn("también las de Big Data", last)
+        self.assertTrue(last.rstrip().endswith("alo"))
+        self.assertNotIn("duck", chat._unanswered)
+
     def fake_stream(self, context):
         """A run that reports the context it read, and compacts when asked to."""
         def run(scope, text, extra):

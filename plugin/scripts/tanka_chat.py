@@ -93,6 +93,9 @@ _drafts: dict[str, dict] = {}   # scope -> {"text": what the answer says so far,
 _stops: dict[str, object] = {}  # scope -> stops the run in flight (run_stream sets it, tests may too)
 _interrupted: set[str] = set()  # scopes whose run was stopped for a newer message
 _threads: dict[str, threading.Thread] = {}
+# Messages whose run was stopped before it answered: the model may never have read them, so the next
+# message carries them along instead of silently dropping them.
+_unanswered: dict[str, list[str]] = {}
 STOP_GRACE_S = 5
 # A stopped run never reports its cost; dev's daily cap counts this much for it instead.
 DEV_STOPPED_USD = float(os.environ.get("TANKA_DEV_STOPPED_USD", "0.5"))
@@ -100,6 +103,7 @@ STOPPED_USD = float(os.environ.get("TANKA_STOPPED_USD", "0.1"))
 REDIRECT = ("The user sent this while you were still working on their previous message, so that work was "
             "stopped where it was. This message takes priority: it may change what to do first, add to the "
             "task or replace it. Check what you already did before redoing anything.")
+EARLIER = "Before this message the user also sent these, which were stopped before you answered them; they still count:"
 
 
 def key(scope: str, mode: str = "tanka") -> str:
@@ -558,6 +562,10 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
                 _drafts.pop(k, None)
                 _interrupted.discard(k)
         return
+    asked = text
+    earlier = _unanswered.pop(k, [])
+    if earlier:
+        text = EARLIER + "\n" + "\n".join(f"- {m}" for m in earlier) + "\n\nThe new message:\n" + text
     if redirect:
         text = REDIRECT + "\n\n" + text
     at = at if at is not None else time.time()
@@ -589,6 +597,7 @@ def answer(scope: str, text: str, at: float | None = None, mode: str = "tanka", 
     except Interrupted:
         # The session keeps what it did so far: the next message resumes it, even on the day's first one.
         keep_session(scope, sid, mode)
+        _unanswered[k] = earlier + [asked]
         said = ((_drafts.get(k) or {}).get("text") or "").strip()
         append(scope, "notice", "Stopped to take your new message." + (f" It had written: {quote(said)}" if said else ""),
                code="stopped", **tag)
@@ -667,7 +676,7 @@ def interrupt(scope: str, mode: str) -> bool:
     Only the same chat is stopped: the assistant and dev answer side by side."""
     k = key(scope, mode)
     with _lock:
-        if scope not in _busy or k in _interrupted:
+        if k not in _busy or k in _interrupted:
             return False
         stop = _stops.get(k)
         if stop is None:  # between runs: nothing to stop yet
