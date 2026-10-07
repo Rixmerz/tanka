@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """`tanka gmail login|status`: the human side of the Gmail module.
 
-login  opens the session in a visible window so the user can sign in to one
-       or more Google accounts (Gmail keeps them as /mail/u/0/, /u/1/, ...),
-       then closes it so the tools run it headless again.
+login  opens a normal browser window on the session's own profile so the user
+       can sign in to one or more Google accounts (Gmail keeps them as
+       /mail/u/0/, /u/1/, ...), then closes it so the tools run it headless
+       again. The window is not automated: Google refuses to sign in inside a
+       browser that Playwright drives.
 status lists the accounts signed in to the session and which workspace may
        read each, according to accounts.json.
 post-install runs after `tanka install gmail <workspace>`: creates an example
        accounts.json when there is none.
 """
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gmail  # noqa: E402
 
+SIGN_IN = "https://accounts.google.com/AddSession?continue=https://mail.google.com/mail/"
 STARTER = {"accounts": {"someone@example.com": {"workspace": "personal"}}}
 
 
@@ -23,14 +27,20 @@ def login() -> int:
     gmail.HOME.mkdir(parents=True, exist_ok=True)
     if gmail.running():
         gmail.rastro("close", timeout=60)
-    gmail.rastro("open", "https://accounts.google.com/AddSession?continue=https://mail.google.com/mail/", "--headed", timeout=120)
-    print("A browser window is open. Sign in to each Google account this computer should read, "
-          "then come back here and press Enter.")
+    profile = gmail.profile_dir()
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    window = subprocess.Popen([gmail.real_browser(), f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", SIGN_IN])
+    print("A normal browser window is open. It is not automated, because Google refuses to sign in inside an automated "
+          "one. Sign in to each Google account this computer should read, then come back here and press Enter.")
     try:
         input()
     except EOFError:
         pass
-    gmail.rastro("close", timeout=60)
+    window.terminate()  # a graceful quit, so the browser saves the session before the tools use it
+    try:
+        window.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        window.kill()
     return status()
 
 

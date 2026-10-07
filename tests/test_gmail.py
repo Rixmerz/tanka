@@ -102,6 +102,59 @@ class TestParse(GmailCase):
         self.assertEqual((self.ws / "gmail" / "x" / "brief.zip").read_bytes(), b"PK\x03\x04zipdata")
 
 
+class TestLogin(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.saved = {k: os.environ.pop(k, None) for k in ("TANKA_BROWSER", "TANKA_WHATSAPP_BROWSER", "RASTRO_HOME", "TANKA_GMAIL_PROFILE")}
+        self.addCleanup(lambda: [os.environ.__setitem__(k, v) for k, v in self.saved.items() if v is not None])
+
+    def test_the_browser_is_the_one_the_user_named_if_it_runs(self):
+        fake = self.tmp / "browser"
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        os.environ["TANKA_BROWSER"] = str(fake)
+        self.assertEqual(gmail.real_browser(), str(fake))
+
+    def test_no_browser_says_how_to_fix_it(self):
+        os.environ["TANKA_BROWSER"] = str(self.tmp / "nope")
+        old = gmail.BROWSERS
+        gmail.BROWSERS = ()
+        self.addCleanup(setattr, gmail, "BROWSERS", old)
+        with self.assertRaisesRegex(gmail.ToolError, "TANKA_BROWSER"):
+            gmail.real_browser()
+
+    def test_the_profile_follows_rastro_home_and_the_session_name(self):
+        os.environ["RASTRO_HOME"] = str(self.tmp)
+        self.assertEqual(gmail.profile_dir(), self.tmp / "profiles" / gmail.SESSION)
+        os.environ["TANKA_GMAIL_PROFILE"] = str(self.tmp / "mine")
+        self.assertEqual(gmail.profile_dir(), self.tmp / "mine")
+
+    def test_login_opens_a_normal_window_on_that_profile_and_never_the_automated_one(self):
+        from unittest import mock
+        sys.path.insert(0, str(REPO / "modules" / "gmail"))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("gmail_cli", REPO / "modules" / "gmail" / "cli.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        os.environ["TANKA_GMAIL_PROFILE"] = str(self.tmp / "profile")
+        window = mock.Mock()
+        window.wait.return_value = 0
+        with mock.patch.object(gmail, "running", return_value=True), \
+             mock.patch.object(gmail, "real_browser", return_value="/bin/browser"), \
+             mock.patch.object(gmail, "rastro") as rastro, \
+             mock.patch.object(cli.subprocess, "Popen", return_value=window) as popen, \
+             mock.patch("builtins.input", return_value=""), \
+             mock.patch.object(cli, "status", return_value=0):
+            self.assertEqual(cli.login(), 0)
+        rastro.assert_called_once_with("close", timeout=60)  # the automated session is closed first, never opened headed
+        argv = popen.call_args.args[0]
+        self.assertEqual(argv[0], "/bin/browser")
+        self.assertIn(f"--user-data-dir={self.tmp / 'profile'}", argv)
+        self.assertNotIn("--remote-debugging-pipe", " ".join(argv))
+        window.terminate.assert_called_once()
+
+
 class TestInstall(unittest.TestCase):
     def test_install_and_check(self):
         tmp = Path(tempfile.mkdtemp())

@@ -105,6 +105,28 @@ def pick_account(scope: str, account: str | None) -> str:
 
 # ---------------------------------------------------------------- session
 
+# The browsers the headless wrapper (modules/common/chromium-headless) looks for, in its order.
+BROWSERS = ("/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome",
+            "/usr/bin/brave", "/usr/bin/microsoft-edge", "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+
+
+def real_browser() -> str:
+    """The Chromium-based browser the session runs on: TANKA_BROWSER, else the first one installed."""
+    for b in (os.environ.get("TANKA_BROWSER"), os.environ.get("TANKA_WHATSAPP_BROWSER"), *BROWSERS):
+        if b and os.access(b, os.X_OK):
+            return b
+    raise ToolError("No Chromium, Chrome, Brave or Edge found. Install one, or set TANKA_BROWSER to its executable.")
+
+
+def profile_dir() -> Path:
+    """The browser profile Rastro keeps for the Gmail session (its sign-in lives here)."""
+    if os.environ.get("TANKA_GMAIL_PROFILE"):
+        return Path(os.environ["TANKA_GMAIL_PROFILE"])
+    home = Path(os.environ.get("RASTRO_HOME") or Path.home() / ".local" / "share" / "rastro")
+    return home / "profiles" / SESSION
+
+
 def rastro(*args: str, timeout: int = 60) -> str:
     # The daemon reads RASTRO_CHROMIUM when it starts the browser; later calls ignore it.
     env = {**os.environ, "RASTRO_CHROMIUM": str(WRAPPER)}

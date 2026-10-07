@@ -8,13 +8,17 @@ It drives Gmail's web app in a headless [Rastro](https://github.com/Rixmerz/rast
 
 ```bash
 tanka install gmail <workspace>             # add the gmail skill (4 tools) to a workspace
-tanka gmail login                           # visible window: sign in to one or more Google accounts
+tanka gmail login                           # a normal browser window: sign in to one or more Google accounts
 tanka gmail status                          # signed-in accounts and which workspace reads each
 ```
 
 `tanka install` copies [`skill/`](skill/), scoped to the workspace's name (`--scope NAME` to pick another); this module's `post-install` creates an example `accounts.json` if there is none. `login` opens a visible window because Google's sign-in needs one; the tools then run the session headless through [`../common/chromium-headless`](../common/chromium-headless).
 
 Requirements: Rastro and a Chromium-based browser.
+
+## Risk
+
+The module drives Gmail's web page, not Google's API, so it can break when Google changes the page, and automating a Google account may be against the terms of the account's provider or against a company's security policy. Check before using a work account. Google refuses to sign in inside a browser that automation tools drive, so `tanka gmail login` opens a **normal** window on the session's profile and `tanka` only automates it afterwards, once the sign-in is saved. Sending and replying are irreversible and run without a confirmation prompt from the harness; the skill asks for a yes first, and a run with nobody watching refuses unless the mailbox has `auto_reply`.
 
 ## Which mailboxes each assistant can use
 
@@ -46,6 +50,7 @@ Gmail's interface text is localised; the code matches English and Spanish labels
 | --- | --- | --- |
 | `TANKA_GMAIL_HOME` | `~/.tanka/shared/gmail` | Where `accounts.json`, the lock and the last lists live |
 | `TANKA_GMAIL_SESSION` | `gmail` | The Rastro session name |
+| `TANKA_GMAIL_PROFILE` | `$RASTRO_HOME/profiles/<session>` | The browser profile the sign-in is saved in |
 | `TANKA_GMAIL_ATTACH_DIR` | `gmail` | Downloaded attachments, relative to the workspace |
 | `TANKA_GMAIL_UPLOAD_DIRS` | (none) | Extra folders attachments may be taken from, `:`-separated |
 | `TANKA_GMAIL_MAX_MB` | `25` | Largest message or attachment handled |
