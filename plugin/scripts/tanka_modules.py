@@ -189,7 +189,7 @@ def report(ws: Path) -> dict:
     mods = available()
     tools, _ = tt.scan(ws)
     return {
-        "tools_used": len(tools), "tools_max": tt.MAX_TOOLS_TOTAL, "skills": skills(ws),
+        "tools_used": len(tools), "tools_max": tt.tools_max(ws), "skills": skills(ws),
         "modules": [{"name": m["name"], "description": m.get("description", ""), "tools": tool_count(m),
                      "installed": m["name"] in here, "needs": list(m.get("needs", [])),
                      "needed_by": sorted(o["name"] for o in mods if o["name"] in here and m["name"] in o.get("needs", [])),
@@ -211,8 +211,8 @@ def set_enabled(ws: Path, skill: str, enabled: bool) -> str:
         raise ValueError(f"{dest} already exists; move one of them by hand")
     if enabled:
         used, adds = len(tt.scan(ws)[0]), len(list((src / "tools").glob("*.json")))
-        if used + adds > tt.MAX_TOOLS_TOTAL:
-            raise ValueError(f"the workspace has {used} tools and '{skill}' adds {adds}: over the {tt.MAX_TOOLS_TOTAL}-tool "
+        if used + adds > tt.tools_max(ws):
+            raise ValueError(f"the workspace has {used} tools and '{skill}' adds {adds}: over the {tt.tools_max(ws)}-tool "
                              "limit. Turn another skill off first.")
     dest.parent.mkdir(parents=True, exist_ok=True)
     src.rename(dest)
@@ -247,9 +247,9 @@ def install(name: str, ws: Path, scope: str) -> int:
         return 1
     before, _ = tt.scan(ws)
     adds = sum(tool_count(x) for x in plan)
-    if len(before) + adds > tt.MAX_TOOLS_TOTAL:
+    if len(before) + adds > tt.tools_max(ws):
         also = f" (with {', '.join(x['name'] for x in plan[:-1])}, which it needs)" if len(plan) > 1 else ""
-        print(f"x {ws} has {len(before)} tools and {name}{also} adds {adds}: over the {tt.MAX_TOOLS_TOTAL}-tool limit. "
+        print(f"x {ws} has {len(before)} tools and {name}{also} adds {adds}: over the {tt.tools_max(ws)}-tool limit. "
               "Merge or drop tools first (docs/tool-rules.md).", file=sys.stderr)
         return 1
     for dep in plan[:-1]:

@@ -32,6 +32,7 @@ PERSONA_FILE = "persona.json"
 PERSONA_EDIT = ("`.tanka/persona.json` already exists: Read it, then change only those fields with Edit. "
                 "Never use Write on it.")
 POLICY_FILE = "policy.json"
+WORKSPACE_FILE = "workspace.json"  # written by `tanka init`; no assistant can write it
 MCP_FILE = "mcp.json"
 
 # --------------------------------------------------------------------------- #
@@ -163,6 +164,59 @@ DEFAULT_POLICY: dict = {
         "Close every task with a `Status: done | partial | blocked | needs-confirmation` line.",
     ],
 }
+
+# --------------------------------------------------------------------------- #
+# Profiles. A workspace is for one model. Most of the harness exists because
+# Haiku loses rules as context grows, loops and invents values; a stronger model
+# needs less of it. A profile only RELAXES those compensations (call budgets,
+# the rules repeated every turn, the tool-count limits in tanka_tools.py). The
+# safety invariants do not depend on the model and are the same in every
+# profile: destructive tools never exist, send and modify ask first, outgoing
+# messages are validated, claims need a tool result, foreign MCP servers are
+# denied by default.
+# --------------------------------------------------------------------------- #
+PROFILE_NAMES = ("haiku", "sonnet")
+DEFAULT_PROFILE = "haiku"  # also what a workspace made before profiles existed gets
+
+PROFILE_POLICY: dict = {
+    "haiku": {},
+    "sonnet": {
+        "loop_guard": {
+            "max_identical_calls_per_turn": 3,
+            "max_calls_per_turn": 60,
+            "max_same_tool_per_turn": 25,
+            "max_consecutive_failures": 4,
+            "max_calls_per_session": 1000,
+        },
+        # Only what is enforced by a hook or is about honesty stays in the reminder.
+        "hard_rules": [
+            "Never claim you sent, deleted or changed anything without a tool result proving it.",
+            "Before sending any message: show the full draft and wait for an explicit yes.",
+            "Close every task with a `Status: done | partial | blocked | needs-confirmation` line.",
+        ],
+    },
+}
+
+# Launcher settings per profile: Claude Code's model, the context percentage at
+# which it compacts, and whether its tools are searched instead of all listed.
+PROFILE_LAUNCH: dict = {
+    "haiku": {"model": "haiku", "autocompact_pct": 60, "tool_search": "false"},
+    "sonnet": {"model": "sonnet", "autocompact_pct": 75, "tool_search": "auto"},
+}
+
+
+def load_workspace(root: Path) -> dict:
+    data = load_json(tanka_dir(root) / WORKSPACE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def profile_name(root: Path | None) -> str:
+    """The workspace's profile; anything missing, unreadable or unknown is the strict one."""
+    if root is None:
+        return DEFAULT_PROFILE
+    name = load_workspace(root).get("profile")
+    return name if name in PROFILE_NAMES else DEFAULT_PROFILE
+
 
 # --------------------------------------------------------------------------- #
 # Persona
@@ -335,9 +389,26 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _customised(user: dict, base: dict) -> dict:
+    """What the user changed: every value that differs from the strict default. Workspaces made before profiles
+    carry a policy.json that spells out the defaults; those copies are not choices and must not hide a profile."""
+    out: dict = {}
+    for k, v in user.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            inner = _customised(v, base[k])
+            if inner:
+                out[k] = inner
+        elif k not in base or base[k] != v:
+            out[k] = v
+    return out
+
+
 def load_policy(root: Path) -> dict:
+    """Defaults, then the workspace's profile, then what the user's policy.json changes (which always wins)."""
     user = load_json(tanka_dir(root) / POLICY_FILE, {})
-    return deep_merge(DEFAULT_POLICY, user if isinstance(user, dict) else {})
+    user = user if isinstance(user, dict) else {}
+    base = deep_merge(DEFAULT_POLICY, PROFILE_POLICY[profile_name(root)])
+    return deep_merge(base, _customised(user, DEFAULT_POLICY))
 
 
 def load_persona(root: Path) -> dict:

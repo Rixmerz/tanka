@@ -498,13 +498,13 @@ def build(ws: Path, scope: str) -> list[str]:
     before, _ = tt.scan(ws)
     mine = {f.stem for f in tools.glob(f"{TOOL_PREFIX}*.json")}
     adds = len([v for v in views if f"{TOOL_PREFIX}{v}" not in mine])
-    if len(before) + adds > tt.MAX_TOOLS_TOTAL:
-        raise ToolError(f"{ws.name} has {len(before)} tools and the views add {adds}: over the {tt.MAX_TOOLS_TOTAL}-tool "
+    if len(before) + adds > tt.tools_max(ws):
+        raise ToolError(f"{ws.name} has {len(before)} tools and the views add {adds}: over the {tt.tools_max(ws)}-tool "
                         "limit. Merge or drop tools first (docs/tool-rules.md).")
     # Every tool is checked as the harness will load it before anything is written: a view that passes
     # check but makes a tool the harness refuses would leave a board the assistant cannot fill.
     made = {name: tool_manifest(name, spec) for name, spec in views.items()}
-    refused = [f"{name}: {e}" for name, m in made.items() for e in tt.validate_manifest(m, "boards", m["name"])]
+    refused = [f"{name}: {e}" for name, m in made.items() for e in tt.validate_manifest(m, "boards", m["name"], tt.limits(ws))]
     if refused:
         raise ToolError("the harness would refuse these tools; shorten the view's description or hints:\n  "
                         + "\n  ".join(refused))

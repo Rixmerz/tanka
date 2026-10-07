@@ -157,3 +157,17 @@ Operational note: Claude Code ignores a project's `permissions.allow` until the 
 - The hooks run on the user's machine; they require `python3`.
 - The unbacked-claim check is phrase-based and ships with English and Spanish patterns. An assistant working in a third language can state an action it did not take without being caught; add that language's patterns to `objective.claim_patterns` in `policy.json`. The closing-report check avoids the problem by keying on the literal word `Status`, which the output style requires in every language.
 - Isolation depends on the launcher. If the user starts `claude` by hand in the workspace, only the second layer (project settings) applies.
+
+## Profiles: how much harness a model needs
+
+A workspace has a profile in `.tanka/workspace.json` (`haiku` or `sonnet`), written by `tanka init` and read by the launcher and every hook. A missing, unreadable or unknown file is `haiku`, so workspaces made before profiles behave exactly as they did.
+
+A profile changes only what compensates for a small model, in one place each:
+
+| What | Where |
+|---|---|
+| Loop-guard budgets, the rules repeated every turn | `PROFILE_POLICY` in `plugin/scripts/tanka_common.py`, merged between the defaults and the user's `policy.json` |
+| Tool-count and parameter limits | `LIMITS` in `plugin/scripts/tanka_tools.py` (`limits(ws)`) |
+| Model, compaction point, tool search | `PROFILE_LAUNCH` in `tanka_common.py`, applied by `apply_profile` in `bin/tanka` |
+
+What it never changes: the effect classes, `destructive` not being a tool, confirmation for `send` and `modify`, outgoing-message validation, the unbacked-claim check, the closing report, the deny-by-default for foreign MCP servers, and the rules for descriptions, names and examples.

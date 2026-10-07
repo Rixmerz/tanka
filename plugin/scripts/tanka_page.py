@@ -125,7 +125,7 @@ def reload_skills(ws: Path) -> dict:
     for name, m in sorted(tools.items()):
         by_skill.setdefault(m["_skill"], []).append(name)
     skills = [{"name": s, "tools": by_skill.get(s, [])} for s in tt.skill_names(ws)]
-    return {"skills": skills, "tools": len(tools), "tools_max": tt.MAX_TOOLS_TOTAL, "problems": problems,
+    return {"skills": skills, "tools": len(tools), "tools_max": tt.tools_max(ws), "problems": problems,
             "warnings": tt.skill_warnings(ws)}
 
 

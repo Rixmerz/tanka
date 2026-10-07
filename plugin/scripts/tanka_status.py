@@ -27,6 +27,7 @@ def main() -> None:
         pending = tc.pending_persona_fields(persona_raw)
         print("Pending:   " + (", ".join(pending) if pending else "nothing, the profile is complete"))
     print(f"MCP enabled ({len(servers)}): {', '.join(servers) or 'none'}")
+    print(f"Profile: {tc.profile_name(root)} (model {tc.PROFILE_LAUNCH[tc.profile_name(root)]['model']})")
     print("Decisions: " + ", ".join(f"{k}={v}" for k, v in policy["decisions"].items()))
     lg = policy["loop_guard"]
     print(f"Loop guard: identical/turn={lg['max_identical_calls_per_turn']}, actions/turn={lg['max_calls_per_turn']}, consecutive failures={lg['max_consecutive_failures']}")

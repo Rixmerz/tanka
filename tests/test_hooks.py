@@ -270,7 +270,7 @@ class TestLoopGuard(HookTestCase):
 
     def test_turn_budget(self):
         pol = json.loads((self.tmp / ".tanka" / "policy.json").read_text())
-        pol["loop_guard"]["max_calls_per_turn"] = 3
+        pol.setdefault("loop_guard", {})["max_calls_per_turn"] = 3  # the template leaves the guard to the profile
         (self.tmp / ".tanka" / "policy.json").write_text(json.dumps(pol))
         for i in range(3):
             code, out, _ = self.pre("mcp__gmail__get_message", {"id": str(i)}, tool_use_id=f"t{i}")

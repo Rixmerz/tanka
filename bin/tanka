@@ -11,22 +11,27 @@ DEFAULT_WS="${TANKA_HOME:-$HOME/tanka-workspace}"
 # Named workspaces live here, as directories or as symlinks to a workspace kept elsewhere.
 WORKSPACES_DIR="${TANKA_WORKSPACES:-$HOME/.tanka/workspaces}"
 # Names that are commands cannot be workspace names.
-RESERVED="init start resume run doctor test tools dev help modules install uninstall routine trigger automation ui"
+RESERVED="init start resume run doctor test tools dev help modules install uninstall routine trigger automation ui profile"
 # Interactive sessions skip Claude Code prompts; the Tanka hooks and --disallowedTools still apply.
 PERMISSION_MODE="${TANKA_PERMISSION_MODE:-bypassPermissions}"
-MODEL="${TANKA_MODEL:-haiku}"
+# A workspace has a profile (haiku or sonnet, chosen at `tanka init`) that sets the model and how much harness
+# it gets. TANKA_MODEL overrides only the model, for one launch; the profile's harness stays.
+MODEL_OVERRIDE="${TANKA_MODEL:-}"
 # Authoring designs tools a small model must use correctly: think it through.
 DEV_EFFORT="${TANKA_DEV_EFFORT:-high}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
 usage() {
   cat <<USAGE
-tanka - a guardrailed assistant harness on top of Claude Haiku
+tanka - a guardrailed assistant harness on top of Claude Haiku or Sonnet
 
 Usage:
   tanka <name>                     Reopen the named workspace: pick a previous session (a new one if it has none)
   tanka start <name> [-- args...]  New session in the workspace; creates it first if it does not exist
-  tanka init [name|dir]            Create a clean workspace without starting it
+  tanka init [name|dir] [--model haiku|sonnet]
+                                   Create a clean workspace without starting it (asks which model when it can)
+  tanka profile [name|dir] [haiku|sonnet]
+                                   Show or change a workspace's model and harness (haiku: strict, sonnet: lighter)
   tanka resume [name|dir]          Same as tanka <name> (never plain claude -r)
   tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
                                    Delegated task, no human in the loop (fail-closed: sends are denied)
@@ -56,7 +61,7 @@ USAGE
   list_workspaces
   cat <<USAGE
 
-Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (haiku), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60), TANKA_PAGE_DAY_USD (5), TANKA_COMPACT_TOKENS (90000), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (overrides the profile's model for one launch), TANKA_INIT_MODEL (haiku|sonnet, skips the question), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60 haiku, 75 sonnet), TANKA_PAGE_DAY_USD (5), TANKA_COMPACT_TOKENS (90000), CLAUDE_BIN
 USAGE
 }
 
@@ -107,17 +112,71 @@ require_ws() {
   fi
 }
 
+# One line from the harness: "<profile> <model> <autocompact%> <tool-search>". Anything unreadable is the strict profile.
+ws_launch() {
+  local line profile model pct search
+  line="$(python3 "$PLUGIN_DIR/scripts/tanka_tools.py" profile "$1" 2>/dev/null)" || line="haiku haiku 60 false"
+  read -r profile model pct search <<<"$line"
+  case "${2:-}" in
+    model) echo "${MODEL_OVERRIDE:-$model}";;
+    pct) echo "$pct";;
+    search) echo "$search";;
+    *) echo "$profile";;
+  esac
+}
+
+# Compaction and tool search depend on the profile: a stronger model keeps its rules longer and copes with more tools.
+apply_profile() {
+  export ENABLE_TOOL_SEARCH="$(ws_launch "$1" search)"
+  export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-$(ws_launch "$1" pct)}"
+}
+
+# haiku or sonnet, from --model, TANKA_INIT_MODEL, or a question when there is a terminal. Strict (haiku) otherwise.
+choose_profile() {
+  local pick="${1:-${TANKA_INIT_MODEL:-}}"
+  if [[ -z "$pick" && -t 0 && -t 2 ]]; then
+    {
+      echo "Which model will this workspace use?"
+      echo "  haiku   cheap and fast; the full harness (strict limits, the rules repeated every turn)"
+      echo "  sonnet  more judgment and flexibility; a lighter harness (wider limits, shorter reminders)"
+      echo "  Safety does not change: nothing is deleted, sends and changes ask first."
+    } >&2
+    read -r -p "Model [haiku/sonnet] (haiku): " pick
+  fi
+  pick="$(printf '%s' "${pick:-haiku}" | tr '[:upper:]' '[:lower:]')"
+  case "$pick" in
+    haiku|sonnet) echo "$pick";;
+    *) echo "x Unknown model '$pick': use haiku or sonnet." >&2; return 1;;
+  esac
+}
+
+write_profile() {
+  printf '{\n  "profile": "%s"\n}\n' "$2" > "$1/.tanka/workspace.json"
+}
+
+cmd_profile() {
+  local arg="${1:-}"; local ws; ws="$(resolve_ws "$arg")"; require_ws "$ws"
+  if [[ -z "${2:-}" ]]; then echo "$(ws_launch "$ws") (model: $(ws_launch "$ws" model))"; return 0; fi
+  local pick; pick="$(choose_profile "$2")" || exit 1
+  write_profile "$ws" "$pick"
+  echo "+ ${arg:-$ws} now runs as $pick. It takes effect the next time you open it."
+}
+
 cmd_init() {
-  check_name "${1:-}"
-  local ws; ws="$(resolve_ws "${1:-}")"
+  local name="${1:-}" model_flag=""; shift || true
+  [[ "${1:-}" == --model && -n "${2:-}" ]] && model_flag="$2"
+  check_name "$name"
+  local ws; ws="$(resolve_ws "$name")"
   if [[ -e "$ws/.tanka/policy.json" ]]; then
     echo "x A workspace already exists at $ws (refusing to overwrite)." >&2; exit 1
   fi
+  local profile; profile="$(choose_profile "$model_flag")" || exit 1
   mkdir -p "$ws"
   cp -R "$TEMPLATE_DIR/." "$ws/"
   mkdir -p "$ws/.tanka/state" "$ws/.tanka/drafts" "$ws/.claude/skills"
-  local ref="$ws"; is_name "${1:-}" && ref="$1"
-  echo "+ Workspace created at $ws"
+  write_profile "$ws" "$profile"
+  local ref="$ws"; is_name "$name" && ref="$name"
+  echo "+ Workspace created at $ws ($profile)"
   echo "  1. Build its skills and tools: tanka dev $ref   (rules: docs/skill-rules.md, docs/tool-rules.md)"
   echo "  2. Check them: tanka tools check $ref"
   echo "  3. Open it: tanka $ref   The first session asks which language to work in."
@@ -135,7 +194,7 @@ common_args() {
   python3 "$PLUGIN_DIR/scripts/tanka_tools.py" read-dirs "$ws"
   printf '%s\n' \
     --plugin-dir "$PLUGIN_DIR" \
-    --model "$MODEL" \
+    --model "$(ws_launch "$ws" model)" \
     --no-chrome \
     --disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch
 }
@@ -171,6 +230,7 @@ cmd_start() {
   fi
   cd "$ws"
   ensure_daemon
+  apply_profile "$ws"
   ARGS=(); while IFS= read -r a; do ARGS+=("$a"); done < <(common_args "$ws")  # bash 3.2 (macOS) has no mapfile
   exec "$CLAUDE_BIN" "${ARGS[@]}" --permission-mode "$PERMISSION_MODE" "$@"
 }
@@ -220,6 +280,7 @@ json.dump(obj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 print(f"+ Objective '{obj.get('title')}' activated (may_send forced to false in delegated mode)")
 PY
   fi
+  apply_profile "$ws"
   ARGS=(); while IFS= read -r a; do ARGS+=("$a"); done < <(common_args "$ws")  # bash 3.2 (macOS) has no mapfile
   # Tools read this to tell a run with nobody watching from one the user attends: a send
   # tool refuses there unless the user opted that recipient in (e.g. auto_reply on a role).
@@ -291,6 +352,7 @@ cmd_test() {
 
 case "${1:-}" in
   init) shift; cmd_init "$@";;
+  profile) shift; cmd_profile "$@";;
   start) shift; cmd_start "$@";;
   resume) shift; cmd_resume "$@";;
   run) shift; cmd_run "$@";;

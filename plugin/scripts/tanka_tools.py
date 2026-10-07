@@ -24,7 +24,7 @@ import tanka_agent as ta  # noqa: E402
 # Tool selection on Haiku drops below 90% between 10 and 15 tools
 # (docs/research/02), so the total is a hard cap, not a suggestion.
 # --------------------------------------------------------------------------- #
-MAX_TOOLS_TOTAL = 15
+MAX_TOOLS_TOTAL = 15  # the strict (Haiku) numbers; LIMITS below relaxes them for a stronger model
 MAX_TOOLS_PER_SKILL = 6
 MAX_PARAMS = 6
 MAX_REQUIRED = 4
@@ -54,6 +54,32 @@ SENTENCE_END_RE = re.compile(r"[.!?](\s|$)")
 
 SERVER_NAME = "tanka"
 TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
+
+
+# A stronger model picks well among more tools and fills more parameters, so a
+# workspace for it gets a wider budget. The strict profile uses the constants
+# above (tests patch those). Descriptions, names, examples and effects follow
+# the same rules in every profile: they are what a person writing a tool needs.
+LIMITS = {
+    "sonnet": {"total": 30, "per_skill": 10, "params": 8, "required": 6},
+}
+
+
+def limits(ws: Path | None) -> dict:
+    """Tool-count limits for a workspace's profile (the strict ones for None or an unknown profile)."""
+    import tanka_common as tc
+    return limits_for_profile(tc.profile_name(ws))
+
+
+def limits_for_profile(name: str) -> dict:
+    wide = LIMITS.get(name)
+    if wide:
+        return dict(wide)
+    return {"total": MAX_TOOLS_TOTAL, "per_skill": MAX_TOOLS_PER_SKILL, "params": MAX_PARAMS, "required": MAX_REQUIRED}
+
+
+def tools_max(ws: Path | None) -> int:
+    return limits(ws)["total"]
 
 
 def skills_dir(ws: Path) -> Path:
@@ -120,8 +146,9 @@ def check_args(manifest: dict, args: dict) -> tuple[dict, list[str]]:
     return out, errs
 
 
-def validate_manifest(m, skill: str, file_stem: str) -> list[str]:
-    """Every rule a single manifest must follow. Empty list means valid."""
+def validate_manifest(m, skill: str, file_stem: str, lim: dict | None = None) -> list[str]:
+    """Every rule a single manifest must follow. Empty list means valid. `lim` is limits(ws); the strict ones by default."""
+    lim = lim or limits(None)
     if not isinstance(m, dict):
         return ["the manifest must be a JSON object"]
     errs: list[str] = []
@@ -157,11 +184,11 @@ def validate_manifest(m, skill: str, file_stem: str) -> list[str]:
     if not isinstance(params, dict):
         errs.append("params must be an object of name -> spec")
         params = {}
-    if len(params) > MAX_PARAMS:
-        errs.append(f"at most {MAX_PARAMS} params (it has {len(params)}); split the tool or fix values in the command")
+    if len(params) > lim["params"]:
+        errs.append(f"at most {lim['params']} params (it has {len(params)}); split the tool or fix values in the command")
     required = [p for p, s in params.items() if isinstance(s, dict) and s.get("required")]
-    if len(required) > MAX_REQUIRED:
-        errs.append(f"at most {MAX_REQUIRED} required params (it has {len(required)})")
+    if len(required) > lim["required"]:
+        errs.append(f"at most {lim['required']} required params (it has {len(required)})")
     for pname, spec in params.items():
         where = f"param '{pname}'"
         if not PARAM_RE.fullmatch(pname):
@@ -277,6 +304,7 @@ def scan(ws: Path) -> tuple[dict, list[str]]:
     """
     tools: dict = {}
     problems: list[str] = []
+    lim = limits(ws)
     root = skills_dir(ws)
     if not root.is_dir():
         return tools, problems
@@ -300,7 +328,7 @@ def scan(ws: Path) -> tuple[dict, list[str]]:
             except Exception as exc:
                 problems.append(f"{skill}/tools/{f.name}: not valid JSON ({exc})")
                 continue
-            errs = validate_manifest(m, skill, f.stem)
+            errs = validate_manifest(m, skill, f.stem, lim)
             if not errs and "agent" in m:
                 errs.extend(ta.prompt_problems(m, tdir))
             if not errs and m["name"] not in skill_text:
@@ -310,14 +338,14 @@ def scan(ws: Path) -> tuple[dict, list[str]]:
                 continue
             m = dict(m, _skill=skill, _dir=str(tdir))
             found.append(m)
-        if len(found) > MAX_TOOLS_PER_SKILL:
-            problems.append(f"skill '{skill}': {len(found)} tools, the limit is {MAX_TOOLS_PER_SKILL}; none of them were loaded")
+        if len(found) > lim["per_skill"]:
+            problems.append(f"skill '{skill}': {len(found)} tools, the limit is {lim['per_skill']}; none of them were loaded")
             continue
         for m in found:
             tools[m["name"]] = m
-    if len(tools) > MAX_TOOLS_TOTAL:
-        problems.append(f"{len(tools)} tools in total, the limit is {MAX_TOOLS_TOTAL}; only the first {MAX_TOOLS_TOTAL} alphabetically were loaded")
-        tools = dict(sorted(tools.items())[:MAX_TOOLS_TOTAL])
+    if len(tools) > lim["total"]:
+        problems.append(f"{len(tools)} tools in total, the limit is {lim['total']}; only the first {lim['total']} alphabetically were loaded")
+        tools = dict(sorted(tools.items())[:lim["total"]])
     return tools, problems
 
 
@@ -409,7 +437,7 @@ def run_tool(ws: Path, m: dict, raw_args: dict) -> tuple[str, bool]:
 # CLI: tanka tools check|list|test, and the MCP config the launcher passes
 # --------------------------------------------------------------------------- #
 def _usage() -> None:
-    print("usage: tanka_tools.py check <ws> | list <ws> | test <ws> <tool> '<json args>' | mcp-config <ws> <plugin_dir>", file=sys.stderr)
+    print("usage: tanka_tools.py check <ws> | list <ws> | profile <ws> | test <ws> <tool> '<json args>' | mcp-config <ws> <plugin_dir>", file=sys.stderr)
 
 
 def main(argv: list[str]) -> int:
@@ -427,8 +455,15 @@ def main(argv: list[str]) -> int:
         warns = skill_warnings(ws)
         for w in warns:
             print(f"warn {w}")
-        print(f"{len(tools)}/{MAX_TOOLS_TOTAL} tools loaded, {len(problems)} problem(s), {len(warns)} warning(s)")
+        print(f"{len(tools)}/{tools_max(ws)} tools loaded, {len(problems)} problem(s), {len(warns)} warning(s)")
         return 1 if problems else 0
+    if cmd == "profile":
+        # The launcher's one question: how does this workspace run? One line: profile model autocompact% tool-search.
+        import tanka_common as tc
+        name = tc.profile_name(ws)
+        launch = tc.PROFILE_LAUNCH[name]
+        print(name, launch["model"], launch["autocompact_pct"], launch["tool_search"])
+        return 0
     if cmd == "list":
         tools, _ = scan(ws)
         for name, m in sorted(tools.items()):
