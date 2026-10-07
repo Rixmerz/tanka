@@ -1,0 +1,29 @@
+{
+  "name": "jira_transition",
+  "effect": "modify",
+  "description": "Moves one Jira issue to another status by the status name, such as In Progress or Done, following the project's workflow. Use it when the user asks to start, finish, reopen or move an issue. It does not edit fields or add comments (that is jira_comment). If the workflow does not allow that status from the current one, it fails and lists the statuses available; ask the user which one. Returns one line with the new status.",
+  "params": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Issue key, as jira_search shows it (e.g. PROJ-123)."
+    },
+    "status": {
+      "type": "string",
+      "required": true,
+      "description": "Name of the target status, as the user said it (e.g. In Progress)."
+    }
+  },
+  "examples": [
+    {
+      "key": "PROJ-123",
+      "status": "In Progress"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_transition.py"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "jira_comment",
+  "effect": "send",
+  "description": "Adds a plain-text comment to one Jira issue; everyone who can see the issue sees it and Tanka cannot remove it. Use it only after showing the user the exact text and the issue key and getting an explicit yes. It does not change the status (that is jira_transition) or create issues (that is jira_create). Calling it twice posts the comment twice, so never repeat a call that succeeded. Returns one line confirming it.",
+  "params": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Issue key, as jira_search shows it (e.g. PROJ-123)."
+    },
+    "body": {
+      "type": "string",
+      "required": true,
+      "description": "The exact text the user approved, with nothing added; blank lines separate paragraphs."
+    }
+  },
+  "examples": [
+    {
+      "key": "PROJ-123",
+      "body": "Deployed to staging, ready for review."
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_comment.py"
+  ]
+}

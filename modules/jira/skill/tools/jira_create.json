@@ -1,0 +1,56 @@
+{
+  "name": "jira_create",
+  "effect": "modify",
+  "description": "Creates one new Jira issue in a project assigned to this assistant, with a summary and optionally a description, labels and a parent epic or story. Use it only after the user has confirmed the project, type and summary. It does not change an existing issue (use jira_transition, jira_comment or jira_link). Calling it twice creates two issues, so never repeat a call that succeeded. Returns one line with the new key. If the project, type or summary is missing, ask; do not assume it.",
+  "params": {
+    "project": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+$",
+      "description": "Project key the issue goes in (e.g. PROJ)."
+    },
+    "type": {
+      "type": "string",
+      "required": true,
+      "description": "Issue type name as the project uses it (e.g. Task, Bug, Story)."
+    },
+    "summary": {
+      "type": "string",
+      "required": true,
+      "description": "One-line title the user approved (e.g. Fix login timeout)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Plain text body; blank lines separate paragraphs. Leave it out for none."
+    },
+    "labels": {
+      "type": "string",
+      "description": "Labels separated by commas (e.g. backend,urgent). Leave it out for none."
+    },
+    "parent": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Key of the parent epic or story (e.g. PROJ-100). Leave it out for none."
+    }
+  },
+  "examples": [
+    {
+      "project": "PROJ",
+      "type": "Task",
+      "summary": "Fix login timeout"
+    },
+    {
+      "project": "PROJ",
+      "type": "Bug",
+      "summary": "Export fails on empty list",
+      "description": "Steps:\nOpen export\nPick an empty list",
+      "labels": "backend",
+      "parent": "PROJ-100"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_create.py"
+  ]
+}

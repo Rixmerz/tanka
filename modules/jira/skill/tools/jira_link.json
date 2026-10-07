@@ -1,0 +1,46 @@
+{
+  "name": "jira_link",
+  "effect": "modify",
+  "description": "Links two Jira issues so that it reads 'from_key <verb> to_key', for example PROJ-1 blocks PROJ-2 with the default Blocks type. Use it when the user says one issue blocks, duplicates, clones or relates to another. Both issues must be in projects assigned to this assistant; it does not create issues (that is jira_create). Calling it twice may create a duplicate link, so never repeat a call that succeeded. Returns one line describing the link.",
+  "params": {
+    "from_key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Key of the issue that blocks, duplicates or relates (e.g. PROJ-1)."
+    },
+    "to_key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Key of the other issue (e.g. PROJ-2)."
+    },
+    "link_type": {
+      "type": "string",
+      "default": "Blocks",
+      "enum": [
+        "Blocks",
+        "Duplicate",
+        "Cloners",
+        "Relates"
+      ],
+      "description": "Link type name in Jira (e.g. Blocks)."
+    }
+  },
+  "examples": [
+    {
+      "from_key": "PROJ-1",
+      "to_key": "PROJ-2"
+    },
+    {
+      "from_key": "PROJ-3",
+      "to_key": "PROJ-4",
+      "link_type": "Relates"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_link.py"
+  ]
+}

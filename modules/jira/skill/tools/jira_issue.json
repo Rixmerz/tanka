@@ -1,0 +1,23 @@
+{
+  "name": "jira_issue",
+  "effect": "read",
+  "description": "Shows one Jira issue in full: summary, status, type, assignee, labels, parent, description as text, links to other issues and the last 10 comments. Use it when the user asks what an issue says, its state, who has it or what was discussed on it, and before commenting, moving or linking it. It does not search (that is jira_search) and changes nothing. Returns a few header lines and then the description and comments; the key must belong to a project assigned to this assistant.",
+  "params": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Issue key, as jira_search shows it (e.g. PROJ-123)."
+    }
+  },
+  "examples": [
+    {
+      "key": "PROJ-123"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_issue.py"
+  ]
+}
