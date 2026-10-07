@@ -140,7 +140,7 @@ def scope_of(scope: str) -> dict:
         projects = sorted({str(p).strip().upper() for p in entry["projects"] if PROJECT_RE.match(str(p).strip().upper())})
     if not projects:
         raise ToolError("No Jira project is assigned to this assistant. Tell the user: only they can assign one, in their scopes file.")
-    return {"projects": projects, "write": entry.get("write") is True}
+    return {"projects": projects, "write": entry.get("write") is True, "unattended_write": entry.get("unattended_write") is True}
 
 
 def check_project(scope: str, project: str, write: bool = False) -> str:
@@ -150,6 +150,10 @@ def check_project(scope: str, project: str, write: bool = False) -> str:
         raise ToolError(f"\"{project}\" is not a Jira project this assistant may use. It may use: {', '.join(s['projects'])}.")
     if write and not s["write"]:
         raise ToolError("This assistant may only read Jira, not change it. Tell the user; only they can allow writing.")
+    if write and os.environ.get("TANKA_UNATTENDED") and not s["unattended_write"]:
+        # Tanka's own tools are pre-approved, so nothing else stops a routine or a delegated run from writing.
+        raise ToolError("Nobody is watching this run, so it may not change Jira. Tell the user what you would have done; "
+                        "only they can allow unattended writes (unattended_write in their scopes file).")
     return p
 
 

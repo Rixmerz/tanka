@@ -31,6 +31,10 @@ Create the token at id.atlassian.com, under Security, API tokens. Keep it in you
 
 Before any network call the library refuses: an issue key or project outside the workspace's `projects`; a JQL query that could escape them (every query is sent as `project in (...) AND (<query>)`, with `ORDER BY` kept at the end, and unbalanced parentheses or a misplaced `ORDER BY` are rejected); any create, transition, comment or link when `write` is not `true`; a link where either issue is outside the scope.
 
+## Writing when nobody is watching
+
+Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka run` from creating or commenting is this module, not a prompt. A write is refused whenever `TANKA_UNATTENDED` is set, unless the workspace's entry in `scopes.json` also says `"unattended_write": true` (and `"write": true`). Reading is never affected. In a session you are in, the confirmation before a change comes from the skill's instructions; the hard limit is `write` in `scopes.json`.
+
 ## Tools
 
 | Tool | Effect | What it does |

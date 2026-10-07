@@ -252,6 +252,39 @@ class TestTools(unittest.TestCase):
         self.assertNotIn(FAKE_TOKEN, st.stdout)
 
 
+class TestUnattended(JiraCase):
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "scopes.json").write_text(json.dumps({"scopes": {
+            "closed": {"projects": ["PROJ"], "write": True},
+            "open": {"projects": ["PROJ"], "write": True, "unattended_write": True},
+            "reader": {"projects": ["PROJ"], "write": False, "unattended_write": True}}}))
+        os.environ["TANKA_UNATTENDED"] = "1"
+        self.addCleanup(os.environ.pop, "TANKA_UNATTENDED", None)
+
+    def test_a_run_with_nobody_watching_cannot_write_unless_the_user_opted_in(self):
+        for write in (lambda: jira.check_project("closed", "PROJ", write=True),
+                      lambda: jira.check_key("closed", "PROJ-1", write=True),
+                      lambda: jira.comment("closed", "PROJ-1", "text")):
+            with self.assertRaisesRegex(jira.ToolError, "Nobody is watching"):
+                write()
+        self.assertEqual(self.calls, [])
+
+    def test_the_opt_in_allows_it(self):
+        self.assertEqual(jira.check_project("open", "PROJ", write=True), "PROJ")
+
+    def test_reading_is_never_affected(self):
+        self.assertEqual(jira.check_project("closed", "PROJ"), "PROJ")
+
+    def test_the_opt_in_does_not_grant_writing_by_itself(self):
+        with self.assertRaisesRegex(jira.ToolError, "only read Jira"):
+            jira.check_project("reader", "PROJ", write=True)
+
+    def test_an_attended_session_is_not_affected(self):
+        os.environ.pop("TANKA_UNATTENDED")
+        self.assertEqual(jira.check_project("closed", "PROJ", write=True), "PROJ")
+
+
 class TestSettingsFile(JiraCase):
     def write_config(self, data):
         (self.tmp / "config.json").write_text(data if isinstance(data, str) else json.dumps(data), encoding="utf-8")
