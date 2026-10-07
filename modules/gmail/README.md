@@ -18,7 +18,7 @@ Requirements: Rastro and a Chromium-based browser.
 
 ## Risk
 
-The module drives Gmail's web page, not Google's API, so it can break when Google changes the page, and automating a Google account may be against the terms of the account's provider or against a company's security policy. Check before using a work account. Google refuses to sign in inside a browser that automation tools drive, so `tanka gmail login` opens a **normal** window on the session's profile and `tanka` only automates it afterwards, once the sign-in is saved. Sending and replying are irreversible and run without a confirmation prompt from the harness; the skill asks for a yes first, and a run with nobody watching refuses unless the mailbox has `auto_reply`.
+The module drives Gmail's web page, not Google's API, so it can break when Google changes the page, and automating a Google account may be against the terms of the account's provider or against a company's security policy. Check before using a work account. Google refuses to sign in inside a browser that automation tools drive, so `tanka gmail login` opens a **normal** window on the session's profile and `tanka` only automates it afterwards, once the sign-in is saved. That window runs with the same fake keychain as the automated browser (`--use-mock-keychain`); otherwise macOS would encrypt the cookies with its real keychain and the headless tools could not read them. Sending and replying are irreversible and run without a confirmation prompt from the harness; the skill asks for a yes first, and a run with nobody watching refuses unless the mailbox has `auto_reply`.
 
 ## Which mailboxes each assistant can use
 

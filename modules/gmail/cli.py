@@ -29,7 +29,11 @@ def login() -> int:
         gmail.rastro("close", timeout=60)
     profile = gmail.profile_dir()
     profile.parent.mkdir(parents=True, exist_ok=True)
-    window = subprocess.Popen([gmail.real_browser(), f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", SIGN_IN])
+    # The automated browser stores and reads its cookies with Playwright's fake keychain, so this window must use the
+    # same one: cookies encrypted with the real macOS keychain would be saved but unreadable to the headless tools.
+    window = subprocess.Popen([gmail.real_browser(), f"--user-data-dir={profile}", "--use-mock-keychain", "--password-store=basic",
+                               "--no-first-run", "--no-default-browser-check", SIGN_IN],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # the browser's own log is noise here
     print("A normal browser window is open. It is not automated, because Google refuses to sign in inside an automated "
           "one. Sign in to each Google account this computer should read, then come back here and press Enter.")
     try:

@@ -152,6 +152,10 @@ class TestLogin(unittest.TestCase):
         self.assertEqual(argv[0], "/bin/browser")
         self.assertIn(f"--user-data-dir={self.tmp / 'profile'}", argv)
         self.assertNotIn("--remote-debugging-pipe", " ".join(argv))
+        # same cookie encryption as the automated browser, or the sign-in is saved but unreadable
+        self.assertIn("--use-mock-keychain", argv)
+        self.assertIn("--password-store=basic", argv)
+        self.assertEqual(popen.call_args.kwargs.get("stderr"), cli.subprocess.DEVNULL)
         window.terminate.assert_called_once()
 
 
