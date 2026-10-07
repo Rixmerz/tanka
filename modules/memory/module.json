@@ -1,0 +1,5 @@
+{
+  "name": "memory",
+  "description": "Long-term memory for your assistant: facts, decisions, preferences and people it should not forget, one private SQLite database per workspace.",
+  "requires": []
+}

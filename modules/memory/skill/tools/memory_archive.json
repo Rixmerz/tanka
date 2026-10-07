@@ -1,0 +1,32 @@
+{
+  "name": "memory_archive",
+  "effect": "modify",
+  "description": "Archives one memory of this workspace so memory_search no longer shows it, or restores an archived one. Use it when the user says a memory is wrong, outdated or no longer relevant, or asks to bring one back; when a fact changed, archive the old memory and store the new one with memory_remember. It needs the id: call memory_search first. Nothing is deleted and it can always be undone; only the user can delete memories, by hand. Returns the memory's line and its new state.",
+  "params": {
+    "id": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "The memory's id, as memory_search shows it (e.g. 42)."
+    },
+    "restore": {
+      "type": "boolean",
+      "default": false,
+      "description": "true to bring an archived memory back into search; leave it out to archive (e.g. true)."
+    }
+  },
+  "examples": [
+    {
+      "id": 42
+    },
+    {
+      "id": 42,
+      "restore": true
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "memory_archive.py"
+  ]
+}

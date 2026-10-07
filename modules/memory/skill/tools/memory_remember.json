@@ -1,0 +1,52 @@
+{
+  "name": "memory_remember",
+  "effect": "draft",
+  "description": "Stores one memory in the long-term memory of this workspace: a stable fact, a decision with its reason, a preference, or context about a person or project that the user stated or confirmed. Use it when the user asks you to remember something, or states such a fact plainly; never store guesses, one-off chatter or secrets (it refuses text that looks like a key, token or password). Storing the same text again returns the existing id instead of a copy. It does not search (that is memory_search) or hide memories (that is memory_archive). Returns the id; tell the user in one line what was stored.",
+  "params": {
+    "text": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[\\s\\S]{1,2000}$",
+      "description": "The memory itself, one or two plain sentences (e.g. Clara Client wants invoices on the 1st of each month)."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "fact",
+        "decision",
+        "preference",
+        "person",
+        "project",
+        "note"
+      ],
+      "default": "note",
+      "description": "What it is: fact, decision, preference, person, project or note (e.g. preference)."
+    },
+    "tags": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 _,-]{1,200}$",
+      "description": "Comma-separated tags, at most 8, such as a project key or a name (e.g. clara-client,proj-123)."
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,120}$",
+      "description": "Where it came from, in a few words (e.g. user in chat, email from someone@example.com)."
+    }
+  },
+  "examples": [
+    {
+      "text": "Clara Client wants invoices on the 1st of each month.",
+      "kind": "preference",
+      "tags": "clara-client",
+      "source": "user in chat"
+    },
+    {
+      "text": "PROJ-123 uses PostgreSQL because the team already runs it."
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "memory_remember.py"
+  ]
+}
