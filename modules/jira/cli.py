@@ -18,14 +18,22 @@ STARTER = {"scopes": {"personal": {"projects": ["PROJ"], "write": False}}}
 
 
 def status() -> int:
-    site = os.environ.get("TANKA_JIRA_SITE", "")
-    email = os.environ.get("TANKA_JIRA_EMAIL", "")
+    site = jira.setting("TANKA_JIRA_SITE", "site")
+    email = jira.setting("TANKA_JIRA_EMAIL", "email")
     var = jira.token_var()
-    print(f"Site (TANKA_JIRA_SITE): {site or 'not set'}")
-    print(f"Email (TANKA_JIRA_EMAIL): {email or 'not set'}")
-    print(f"Token ({var}): {'set' if os.environ.get(var) else 'not set'}")
-    if os.environ.get("TANKA_JIRA_CA_FILE"):
-        print(f"CA bundle (TANKA_JIRA_CA_FILE): {os.environ['TANKA_JIRA_CA_FILE']}")
+    wrapper = jira.file_config().get("token_wrapper")
+    print(f"Settings file: {jira.CONFIG} ({'present' if jira.CONFIG.is_file() else 'not created; environment variables only'})")
+    print(f"Site: {site or 'not set'}")
+    print(f"Email: {email or 'not set'}")
+    if os.environ.get(var):
+        print(f"Token ({var}): set in the environment")
+    elif wrapper:
+        print(f"Token ({var}): injected by the token_wrapper when a tool runs ({wrapper[0]})")
+    else:
+        print(f"Token ({var}): not set")
+    ca = jira.setting("TANKA_JIRA_CA_FILE", "ca_file")
+    if ca:
+        print(f"CA bundle: {ca}")
     print(f"Scopes: {jira.SCOPES} ({'present' if jira.SCOPES.is_file() else 'not created yet'})")
     if not jira.SCOPES.is_file():
         return 0
@@ -48,8 +56,8 @@ def post_install(ws: Path, scope: str) -> int:
         jira.HOME.mkdir(parents=True, exist_ok=True)
         jira.SCOPES.write_text(json.dumps(STARTER, indent=2) + "\n", encoding="utf-8")
         print(f"+ Created {jira.SCOPES} with an example; put your workspaces and project keys there.")
-    print(f"  The projects listed under \"{scope}\" are usable by it. Set TANKA_JIRA_SITE, TANKA_JIRA_EMAIL "
-          f"and the token variable ({jira.token_var()}); check with: tanka jira status")
+    print(f"  The projects listed under \"{scope}\" are usable by it. Put the site, the email and the token "
+          f"variable's name in {jira.CONFIG} (or the environment); check with: tanka jira status")
     return 0
 
 

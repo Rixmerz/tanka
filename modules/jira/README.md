@@ -50,11 +50,26 @@ Nothing deletes. Rate limits (429) and gateway errors (502, 503) are retried up 
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
-| `TANKA_JIRA_HOME` | `~/.tanka/shared/jira` | Where `scopes.json` lives |
-| `TANKA_JIRA_SITE` | (required) | The Jira Cloud site, e.g. `https://your-company.atlassian.net` |
-| `TANKA_JIRA_EMAIL` | (required) | The Atlassian account email the token belongs to |
-| `TANKA_JIRA_TOKEN_VAR` | `JIRA_API_TOKEN` | The **name** of the environment variable that holds the API token |
-| `TANKA_JIRA_CA_FILE` | (none) | A CA bundle for a corporate proxy that re-signs TLS |
+| `TANKA_JIRA_HOME` | `~/.tanka/shared/jira` | Where `scopes.json` and `config.json` live |
+| `TANKA_JIRA_SITE` (`site`) | (required) | The Jira Cloud site, e.g. `https://your-company.atlassian.net` |
+| `TANKA_JIRA_EMAIL` (`email`) | (required) | The Atlassian account email the token belongs to |
+| `TANKA_JIRA_TOKEN_VAR` (`token_var`) | `JIRA_API_TOKEN` | The **name** of the environment variable that holds the API token |
+| `TANKA_JIRA_CA_FILE` (`ca_file`) | (none) | A CA bundle for a corporate proxy that re-signs TLS |
+
+## The settings file
+
+Everything above except the token can also live in `config.json`, beside `scopes.json` and outside every workspace. An environment variable always wins over the file. The file never holds a token:
+
+```json
+{
+  "site": "https://your-company.atlassian.net",
+  "email": "someone@example.com",
+  "token_var": "MY_JIRA_TOKEN",
+  "token_wrapper": ["secrets-tool", "exec", "MY_JIRA_TOKEN", "--"]
+}
+```
+
+`token_wrapper` is for a token that is kept in a secrets manager instead of the environment. When the variable is missing, a tool runs its own script once more under that command, which injects the variable for that one short process. Tanka's MCP server and Claude Code keep running without the secret. The wrapper must be a command that runs another command and exits when it does, and its output must not be needed live: a wrapper that buffers output is fine here, because every tool call is short. If the wrapper is missing or fails, the tool ends in the usual "token is not set" error instead of looping.
 
 ## Files
 
@@ -63,6 +78,7 @@ Nothing deletes. Rate limits (429) and gateway errors (502, 503) are retried up 
 | `module.json` | Name and description, read by `tanka modules` |
 | `jira.py` | Scope, JQL wrapping, ADF conversion, HTTP with retries, the six operations |
 | `cli.py` | `tanka jira status`, and `post-install` |
+| `config.json` | Yours, not shipped: the site, email, token variable's name and an optional `token_wrapper` (see above) |
 | `skill/` | The skill `tanka install` copies: `SKILL.md` and six tools |
 
 Tests: `tests/test_jira.py`.

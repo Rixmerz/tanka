@@ -10,7 +10,11 @@ What each assistant may touch is decided here, never by the model:
 
 The API token is read at call time from the environment variable named by
 TANKA_JIRA_TOKEN_VAR (default JIRA_API_TOKEN). It never appears in output,
-errors or files.
+errors or files. The other settings (site, email, the variable's name, a CA
+bundle) can live in `config.json` beside `scopes.json`; an environment variable
+always wins over the file. When the token is not in the environment, a
+`token_wrapper` in that file (a command that injects it, such as a secrets
+manager's "run with these secrets") launches this same script once.
 """
 import base64
 import json
@@ -27,6 +31,8 @@ from pathlib import Path
 # Every setting has a default and an environment variable; see README.md.
 HOME = Path(os.environ.get("TANKA_JIRA_HOME", Path.home() / ".tanka" / "shared" / "jira"))
 SCOPES = HOME / "scopes.json"
+CONFIG = HOME / "config.json"
+WRAPPED = "TANKA_JIRA_WRAPPED"  # set on the relaunch, so a wrapper that fails cannot loop
 MAX_OUTPUT = 5800  # under tanka_tools.MAX_OUTPUT_CHARS (6000), leaving room for the marker
 RETRY_STATUSES = (429, 502, 503)
 MAX_TRIES = 4
@@ -40,6 +46,7 @@ class ToolError(Exception):
 
 
 def run(main) -> None:
+    relaunch_with_token()
     try:
         out = main(json.load(sys.stdin))
         if out:
@@ -54,8 +61,40 @@ def cap(text: str, limit: int = MAX_OUTPUT) -> str:
 
 # ---------------------------------------------------------------- configuration
 
+def file_config() -> dict:
+    """The non-secret settings the user keeps in config.json (nothing here is a token)."""
+    try:
+        data = json.loads(CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def setting(env_name: str, key: str, default: str = "") -> str:
+    """An environment variable, else the file's key, else the default."""
+    return os.environ.get(env_name, "").strip() or str(file_config().get(key) or "").strip() or default
+
+
 def token_var() -> str:
-    return os.environ.get("TANKA_JIRA_TOKEN_VAR", "JIRA_API_TOKEN") or "JIRA_API_TOKEN"
+    return setting("TANKA_JIRA_TOKEN_VAR", "token_var", "JIRA_API_TOKEN")
+
+
+def relaunch_with_token() -> None:
+    """Run this same script under the user's wrapper when the token is not in the environment.
+
+    The wrapper (an argv prefix in config.json, for example a secrets manager's exec command) injects the token
+    variable; nothing is read or printed here, and stdin is untouched so the tool's arguments still arrive. It
+    happens once: a wrapper that is missing or fails ends in the normal "token is not set" error.
+    """
+    if os.environ.get(token_var()) or os.environ.get(WRAPPED):
+        return
+    wrapper = file_config().get("token_wrapper")
+    if not (isinstance(wrapper, list) and wrapper and all(isinstance(a, str) and a for a in wrapper)):
+        return
+    try:
+        os.execvpe(wrapper[0], [*wrapper, sys.executable, *sys.argv], {**os.environ, WRAPPED: "1"})
+    except OSError:
+        return
 
 
 def token() -> str:
@@ -71,13 +110,13 @@ def redact(text: str) -> str:
 
 
 def config() -> dict:
-    site = os.environ.get("TANKA_JIRA_SITE", "").strip().rstrip("/")
-    email = os.environ.get("TANKA_JIRA_EMAIL", "").strip()
-    missing = [n for n, v in (("TANKA_JIRA_SITE", site), ("TANKA_JIRA_EMAIL", email)) if not v]
+    site = setting("TANKA_JIRA_SITE", "site").rstrip("/")
+    email = setting("TANKA_JIRA_EMAIL", "email")
+    missing = [n for n, v in (("site", site), ("email", email)) if not v]
     if missing:
-        raise ToolError(f"Jira is not configured ({', '.join(missing)} not set). Tell the user; do not retry.")
+        raise ToolError(f"Jira is not configured ({', '.join(missing)} not set in config.json or the environment). Tell the user; do not retry.")
     if not site.startswith("https://"):
-        raise ToolError("TANKA_JIRA_SITE must start with https:// (e.g. https://your-company.atlassian.net). Tell the user.")
+        raise ToolError("The Jira site must start with https:// (e.g. https://your-company.atlassian.net). Tell the user.")
     return {"site": site, "email": email}
 
 
@@ -263,7 +302,7 @@ def from_adf(node) -> str:
 # ---------------------------------------------------------------- HTTP
 
 def ssl_context():
-    ca = os.environ.get("TANKA_JIRA_CA_FILE")
+    ca = setting("TANKA_JIRA_CA_FILE", "ca_file")
     return ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context()
 
 

@@ -252,5 +252,115 @@ class TestTools(unittest.TestCase):
         self.assertNotIn(FAKE_TOKEN, st.stdout)
 
 
+class TestSettingsFile(JiraCase):
+    def write_config(self, data):
+        (self.tmp / "config.json").write_text(data if isinstance(data, str) else json.dumps(data), encoding="utf-8")
+        self.patch("CONFIG", self.tmp / "config.json")
+
+    def drop_env(self, *names):
+        for n in names:
+            old = os.environ.pop(n, None)
+            if old is not None:
+                self.addCleanup(os.environ.__setitem__, n, old)
+
+    def test_the_file_supplies_what_the_environment_does_not(self):
+        self.drop_env("TANKA_JIRA_SITE", "TANKA_JIRA_EMAIL", "TANKA_JIRA_TOKEN_VAR")
+        self.write_config({"site": "https://file.example.net/", "email": "file@example.com", "token_var": "FILE_TOKEN"})
+        self.assertEqual(jira.config(), {"site": "https://file.example.net", "email": "file@example.com"})
+        self.assertEqual(jira.token_var(), "FILE_TOKEN")
+
+    def test_an_environment_variable_wins_over_the_file(self):
+        self.write_config({"site": "https://file.example.net", "email": "file@example.com", "token_var": "FILE_TOKEN"})
+        self.assertEqual(jira.config()["site"], "https://your-company.atlassian.net")
+        self.assertEqual(jira.token_var(), "JIRA_TEST_TOKEN")
+
+    def test_a_missing_or_broken_file_is_just_no_settings(self):
+        self.patch("CONFIG", self.tmp / "absent.json")
+        self.assertEqual(jira.file_config(), {})
+        for broken in ("{not json", "[1, 2]", '"text"'):
+            self.write_config(broken)
+            self.assertEqual(jira.file_config(), {}, broken)
+
+    def test_without_site_or_email_anywhere_it_says_what_is_missing(self):
+        self.drop_env("TANKA_JIRA_SITE", "TANKA_JIRA_EMAIL")
+        self.patch("CONFIG", self.tmp / "absent.json")
+        with self.assertRaisesRegex(jira.ToolError, "site, email not set"):
+            jira.config()
+
+
+class TestTokenWrapper(JiraCase):
+    def setUp(self):
+        super().setUp()
+        self.token_var = "JIRA_WRAP_TOKEN"
+        for n in (self.token_var, jira.WRAPPED):
+            self.assertNotIn(n, os.environ)
+        self.patch("CONFIG", self.tmp / "config.json")
+
+    def configure(self, wrapper):
+        (self.tmp / "config.json").write_text(json.dumps({"token_var": self.token_var, "token_wrapper": wrapper}), encoding="utf-8")
+        os.environ.pop("TANKA_JIRA_TOKEN_VAR", None)
+
+    def relaunch(self):
+        from unittest import mock
+        with mock.patch.object(os, "execvpe") as ex:
+            jira.relaunch_with_token()
+        return ex
+
+    def test_it_relaunches_this_script_under_the_wrapper_once(self):
+        self.configure(["wrap", "exec", "--"])
+        ex = self.relaunch()
+        ex.assert_called_once()
+        prog, argv, env = ex.call_args.args
+        self.assertEqual((prog, argv), ("wrap", ["wrap", "exec", "--", sys.executable, *sys.argv]))
+        self.assertEqual(env[jira.WRAPPED], "1")
+
+    def test_it_does_nothing_when_the_token_is_already_there(self):
+        self.configure(["wrap"])
+        os.environ[self.token_var] = FAKE_TOKEN
+        self.addCleanup(os.environ.pop, self.token_var, None)
+        self.relaunch().assert_not_called()
+
+    def test_it_never_loops(self):
+        self.configure(["wrap"])
+        os.environ[jira.WRAPPED] = "1"
+        self.addCleanup(os.environ.pop, jira.WRAPPED, None)
+        self.relaunch().assert_not_called()
+
+    def test_it_ignores_anything_that_is_not_a_command(self):
+        for bad in ("wrap exec", [], ["wrap", 3], ["", "x"], None):
+            self.configure(bad)
+            self.relaunch().assert_not_called()
+
+    def test_a_missing_wrapper_falls_through_to_the_normal_error(self):
+        self.configure([str(self.tmp / "no-such-program")])
+        jira.relaunch_with_token()  # must neither raise nor replace this process
+        with self.assertRaisesRegex(jira.ToolError, "token is not set"):
+            jira.token()
+
+    def test_end_to_end_the_token_is_injected_for_that_one_process(self):
+        wrapper = self.tmp / "wrap.sh"
+        wrapper.write_text(f'#!/bin/sh\n{self.token_var}={FAKE_TOKEN} exec "$@"\n', encoding="utf-8")
+        wrapper.chmod(0o755)
+        script = self.tmp / "probe.py"
+        script.write_text(
+            "import json, os, sys\n"
+            f"sys.path.insert(0, {str(REPO / 'modules' / 'jira')!r})\n"
+            "import jira\n"
+            "jira.run(lambda a: 'token=' + ('yes' if os.environ.get(jira.token_var()) else 'no') + ' args=' + json.dumps(a))\n",
+            encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("TANKA_JIRA", "JIRA_"))}
+        env["TANKA_JIRA_HOME"] = str(self.tmp)
+
+        def probe():
+            return subprocess.run([sys.executable, str(script)], input='{"x": 1}', capture_output=True, text=True, env=env, timeout=30)
+
+        self.configure([str(wrapper)])
+        r = probe()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'token=yes args={"x": 1}'), r.stderr)
+        self.assertNotIn(FAKE_TOKEN, r.stdout + r.stderr)
+        self.configure(None)
+        self.assertEqual(probe().stdout.strip(), 'token=no args={"x": 1}')
+
+
 if __name__ == "__main__":
     unittest.main()
