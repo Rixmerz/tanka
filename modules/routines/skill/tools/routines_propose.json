@@ -1,0 +1,56 @@
+{
+  "name": "routines_propose",
+  "effect": "draft",
+  "description": "Saves a proposal for a new routine: a task the assistant would run on its own on a schedule. It is a draft and does nothing until the user approves it; it never creates a trigger and never changes an existing routine. Use it only when the user asks for something recurring, or agrees after you suggest it, and after routines_list shows no routine with the same purpose. If the schedule or the task is not clear, ask; do not guess. Returns the proposal id and how the user approves it: tell them it is NOT active until they do.",
+  "params": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z][a-z0-9-]{1,31}$",
+      "description": "Short name for the routine: lowercase letters, digits and -, starting with a letter (e.g. morning-issues)."
+    },
+    "every": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9]{1,4} ?(m|min|h|d)$",
+      "description": "How often it runs: a number and m, h or d, at least the user's minimum interval (e.g. 1d)."
+    },
+    "task": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[\\s\\S]{1,800}$",
+      "description": "What each run does, in plain words, as the user said it (e.g. Summarise the open issues of PROJ every morning)."
+    },
+    "budget": {
+      "type": "number",
+      "default": 0.25,
+      "minimum": 0.01,
+      "maximum": 5,
+      "description": "Spend cap per run in US dollars, never above the user's limit shown by routines_list (e.g. 0.25)."
+    },
+    "why": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,200}$",
+      "description": "One line telling the user why it helps, shown with the proposal (e.g. You ask for this every morning)."
+    }
+  },
+  "examples": [
+    {
+      "name": "morning-issues",
+      "every": "1d",
+      "task": "Summarise the open issues of PROJ every morning",
+      "why": "You ask for this every morning"
+    },
+    {
+      "name": "inbox-digest",
+      "every": "6h",
+      "task": "List the unread emails that need a reply, with a one-line summary each",
+      "budget": 0.2
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "routines_propose.py"
+  ]
+}

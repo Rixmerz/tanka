@@ -1,0 +1,23 @@
+{
+  "name": "routines_withdraw",
+  "effect": "modify",
+  "description": "Withdraws one pending routine proposal that the assistant made, so it never runs. Use it when the user says they no longer want a proposal, or it was made by mistake. It cannot touch approved or rejected proposals, nor any active routine or trigger: removing those is for the user, on the page or from the command line. Needs the proposal id: call routines_list first. Returns one confirmation line.",
+  "params": {
+    "proposal_id": {
+      "type": "string",
+      "required": true,
+      "pattern": "^p-[0-9a-f]{6}$",
+      "description": "The proposal id as routines_list shows it (e.g. p-3f2a9c)."
+    }
+  },
+  "examples": [
+    {
+      "proposal_id": "p-3f2a9c"
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "routines_withdraw.py"
+  ]
+}

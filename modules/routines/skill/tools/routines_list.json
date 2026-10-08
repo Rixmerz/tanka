@@ -1,0 +1,14 @@
+{
+  "name": "routines_list",
+  "effect": "read",
+  "description": "Lists this workspace's automations: each routine (its schedule, budget per run and who made it: you or assistant), each trigger (the event it listens to), and the proposals still waiting for the user's approval, plus the user's limits and whether the automation daemon is running. Use it when the user asks what routines or scheduled tasks they have, and always before routines_propose, to avoid a duplicate. It does not show past runs (that is routines_history). Returns one line per routine, trigger or proposal, with the proposal ids routines_withdraw needs; never say a routine is running unless it is listed here as a routine.",
+  "params": {},
+  "examples": [
+    {}
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "routines_list.py"
+  ]
+}

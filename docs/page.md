@@ -12,6 +12,7 @@ modules plug into it.
 | [`whatsapp`](../modules/whatsapp/README.md) | **People**: the contacts of the workspace's roles, grouped, with what the assistant keeps about each, and their roles and permissions |
 | [`codepanion`](../modules/codepanion/README.md) | **Notes**, **Sessions** and **Lenses**: what it noticed in your coding sessions, and their timelines |
 | [`cauce`](../modules/cauce/README.md) | **Code**: the coding tasks [cauce](https://github.com/Rixmerz/cauce) runs, per project — what needs you, the workers out now, what is pending, what is done, each with its description and its way through the model × effort ladder; the Claude Code sessions seen in each project, with the command that resumes them; and cauce's memory of problems and fixes — and finished or stuck tasks in the chat |
+| [`routines`](../modules/routines/README.md) | **Routines**: the assistant's proposed routines waiting for you, each with its schedule, budget, reason and full task, to approve or reject; the routines that run (with their last report, to remove) and the triggers; and what was decided lately |
 
 A workspace with none of them still has the chat.
 

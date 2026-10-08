@@ -1,0 +1,25 @@
+{
+  "name": "routines_history",
+  "effect": "read",
+  "description": "Lists the last runs of this workspace's routines and triggers, newest first, from the automation daemon's log: when it ran, its name, ok or failed, and the start of what it reported. Use it when the user asks whether a routine ran, what it found, or why it failed. It does not list the routines themselves or the proposals (that is routines_list). Returns one line per run; if there are none, say that nothing has run yet.",
+  "params": {
+    "limit": {
+      "type": "integer",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 30,
+      "description": "How many runs to show, newest first, from 1 to 30 (e.g. 10)."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "limit": 5
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "routines_history.py"
+  ]
+}

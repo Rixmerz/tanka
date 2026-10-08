@@ -1,0 +1,5 @@
+{
+  "name": "routines",
+  "description": "Routines your assistant proposes and you approve: it drafts a recurring task, and nothing runs until you activate it on the page or from the command line.",
+  "requires": []
+}
