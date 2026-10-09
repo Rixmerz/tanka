@@ -3,17 +3,19 @@
 Your coding tasks on the page. [cauce](https://github.com/Rixmerz/cauce) routes
 coding work to one-shot Claude Code workers, escalates on evidence and keeps
 every attempt; this module shows its board in the **Code** tab of the page
-(`tanka ui`) and gives the assistant three tools to read it and to queue new
-tasks, in the repositories you allow for that workspace.
+(`tanka ui`) and gives the assistant tools to read it, to queue new tasks, and
+to see and steer your Claude Code sessions that work with cauce, in the
+repositories you allow for that workspace.
 
 ## Setup
 
 ```bash
 claude plugin marketplace add Rixmerz/claude-plugins   # cauce itself, if it is not installed yet
 claude plugin install cauce@rixmerz
-tanka install cauce <workspace>                       # cauce_board, cauce_task, cauce_queue
+tanka install cauce <workspace>                       # cauce_board, cauce_task, cauce_memory, cauce_queue, cauce_sessions, cauce_send
 tanka cauce allow <workspace> ~/code/webapp           # a repository this workspace may use
 tanka ui <workspace>                                  # the page, Code tab
+claude plugin install tanka-link@tanka                # optional: send your sessions prompts (see modules/link)
 ```
 
 ## How it works
@@ -22,7 +24,8 @@ tanka ui <workspace>                                  # the page, Code tab
 | --- | --- |
 | The program | Every read and write goes through the `cauce` program and the JSON it prints (`board --full --repo`, `show --json`, `queue add --json`). The module never opens cauce's database. It finds the program at `TANKA_CAUCE_BIN`, then on `PATH`, then in the newest Claude Code plugin install. |
 | Scope | `repos.json` lists, per workspace, the repositories it may see and queue in, by a short name. A task in any other repository is refused before cauce runs, and the board asks cauce only for the allowed ones. No tool writes that file. |
-| Tools | `cauce_board` (read): what needs you, what runs, the queue, what finished. `cauce_task` (read): one task's attempts and branch. `cauce_memory` (read): problems and every fix tried on them, in this workspace's repositories. `cauce_queue` (modify): one task into one repository's queue. |
+| Tools | `cauce_board` (read): what needs you, what runs, the queue, what finished. `cauce_task` (read): one task's attempts and branch. `cauce_memory` (read): problems and every fix tried on them, in this workspace's repositories. `cauce_queue` (modify): one task into one repository's queue. `cauce_sessions` (read): every cauce session in these repositories with its work (`cauce overview`). `cauce_send` (send): a prompt into one of them, through tanka-link, after the user's yes. |
+| Sessions | A cauce session and a [tanka-link](../link/README.md) session are the same Claude Code session id, so one joins the other: each session in the Sessions view shows the tasks it sent and, when tanka-link listens in it, a box to send it a prompt. The prompt goes in that session's inbox and it acts on it with its own permissions, as if you had typed it. Nothing reads or claims a session's endings: cauce still hands each session its own. |
 | The page | `page.py` and `page.js` ([`docs/page.md`](../../docs/page.md)): the Code tab — what needs you, the **agents working**, what is pending per repository, what is done — with its badge, finished and stuck tasks in the chat, and the context the next message carries. Every task shows its **workflow**: the ladder of model × effort cells the router planned, where it started, where an attempt failed and moved on, where it passed, and the cell a worker runs in now; Details adds why it started there and each attempt's outcome and move. Its buttons are yours: cancel a task, reopen a paused repository, and **Run queue**, which starts `cauce work` for that repository, detached, logging to `work/<workspace>--<repo>.log`. |
 
 ### The Code tab
@@ -39,7 +42,8 @@ tanka ui <workspace>                                  # the page, Code tab
   folder, lists its sessions — each under the name Haiku gave it (yours, if you edited
   `.cauce/sessions.json`): the last prompt, how many,
   whether a task in it runs, and the command that resumes it where it ran (`claude --resume`), with Copy.
-  The page cannot attach to a session; resuming opens it in your terminal.
+  Under it, the tasks that session sent and how each stands. With tanka-link in it, a box sends it a
+  prompt (Send, then Confirm); without it, resuming opens it in your terminal.
 - **Problems.** cauce's memory: every problem with every fix tried, whether it worked, failed, worked in
   part, or worked and then stopped holding, why, and the task and commit behind it. It searches as you
   type. *All of cauce* is the whole memory across repositories, because a dead end found next door is
@@ -52,7 +56,8 @@ servers that task needs; the tab shows each one out now with those limits, how l
 its process is alive. A turn in your own Claude Code session shows apart, under *In your Claude Code sessions*.
 
 The assistant cannot start the queue, cancel or merge: running the queue spends
-money, so only a person starts it. Queueing spends nothing.
+money, so only a person starts it. Queueing spends nothing. Sending a session a
+prompt is a `send`: the assistant shows the exact text and waits for your yes.
 
 ## Configuration
 
@@ -75,9 +80,9 @@ money, so only a person starts it. Queueing spends nothing.
 
 | File | What it does |
 | --- | --- |
-| `cauce_link.py` | Finding and calling cauce, the scope, the text the tools print |
+| `cauce_link.py` | Finding and calling cauce, the scope, joining sessions with tanka-link, the text the tools print |
 | `cli.py` | `tanka cauce allow\|deny\|repos\|board`, and `post-install` |
 | `page.py`, `page.js` | Its part of the page |
-| `skill/` | `SKILL.md` and the three tools |
+| `skill/` | `SKILL.md` and the tools |
 
 Tests: `tests/test_cauce.py`, against a fake `cauce` that prints recorded JSON.

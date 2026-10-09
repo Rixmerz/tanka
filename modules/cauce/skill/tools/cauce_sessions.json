@@ -1,0 +1,18 @@
+{
+  "name": "cauce_sessions",
+  "effect": "read",
+  "description": "Lists the user's Claude Code sessions that work with cauce in the repositories this workspace may use, numbered, each with its last prompt, the tasks it sent (what waits on the user, what runs on which model, what is queued, what ended) and whether it can be sent a prompt now. Use it when the user asks how their coding sessions are going, which one is working on what, or wants a session to do something; always before cauce_send. It does not show one task's attempts (that is cauce_task). Returns one line per session and one per task.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,60}$",
+      "description": "Only this repository, by the name cauce_board lists (e.g. webapp). Leave it out for all of them."
+    }
+  },
+  "examples": [
+    {},
+    {"repo": "webapp"}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_sessions.py"]
+}

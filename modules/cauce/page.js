@@ -32,6 +32,12 @@
     lastPrompt: p => `last: ${p}`, session: id => `session ${String(id).slice(0, 8)}`,
     sessionMeta: x => `${plural(x.prompts || 0, "prompt", "prompts")} · started ${when(epoch(x.started_at))} · $${(x.cost_usd || 0).toFixed(2)}`,
     noPrompt: "(no prompt recorded)", runningNow: "a task is running", copy: "Copy", copied: "Copied",
+    link: { listening: "listening", busy: "busy: gets it when its turn ends" }, noLink: "not reachable from here",
+    noLinkWhy: "Install the tanka-link plugin (claude plugin install tanka-link@tanka) and restart this session to send it prompts from here.",
+    sendPh: "A prompt for this session, complete on its own", send: "Send", confirmSend: "Confirm: send it",
+    sent: "Sent. Look at the session for its answer.",
+    work: t => ({ needs_you: `waits on you: ${t.asks || t.status}`, running: `attempt ${t.attempt || "?"} on ${t.cell || "?"}`,
+                  queued: t.paused ? `queued, paused: ${t.reason || ""}` : "queued" }[t.state] || `${t.status} at ${t.cell || "-"}`),
     searchPh: "Search problems and fixes", everywhere: "All of cauce", here: "These projects",
     noProblems: q => q ? `cauce remembers nothing matching “${q}”.` : "cauce has not recorded a problem yet.",
     state: { open: "open", solved: "solved", recurring: "came back" },
@@ -46,7 +52,7 @@
   const stored = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const st = { open: null, detail: null, confirm: "", project: stored("cauce.project"), view: stored("cauce.view") || "tasks",
     adding: false, known: null, sessions: null, problems: null, q: "", everywhere: true,
-    copied: "", msg: "", editing: false, searching: false, lastSig: "", loadedAt: 0, scope: "" };
+    copied: "", msg: "", drafts: {}, sentTo: "", sendError: null, editing: false, searching: false, lastSig: "", loadedAt: 0, scope: "" };
   const epoch = iso => (Date.parse(iso) || 0) / 1000;
   const post = (sc, name, body) => act(api(`/api/m/cauce/${name}`, Object.assign({ scope: sc.scope }, body)));
   const get = (sc, name, q) => api(`/api/m/cauce/${name}?scope=${encodeURIComponent(sc.scope)}` + Object.entries(q || {}).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join(""));
@@ -232,6 +238,26 @@
       if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => {}); } } }, st.copied === key ? T.copied : T.copy);
   }
 
+  // The user's own prompt into a session, through tanka-link: that session acts on it with its own permissions.
+  function sendBox(sc, x) {
+    if (!x.link) return el("div", { class: "meta", title: T.noLinkWhy }, T.noLink);
+    return el("div", { class: "row" },
+      el("span", { class: "chip" + (x.link === "listening" ? " on" : "") }, T.link[x.link] || x.link),
+      field("input", { type: "text", placeholder: T.sendPh, "aria-label": T.sendPh, value: st.drafts[x.id] || "",
+        on: { input: e => { st.drafts[x.id] = e.target.value; } } }),
+      st.sentTo === x.id ? el("span", { class: "meta" }, T.sent) : null,
+      st.sendError && st.sendError.id === x.id ? el("span", { class: "meta" }, st.sendError.text) : null,
+      guarded("send:" + x.id, T.send, T.confirmSend, async () => {
+        const text = (st.drafts[x.id] || "").trim();
+        if (!text) return;
+        try {
+          await api("/api/m/cauce/send", { scope: sc.scope, id: x.id, text });
+          st.drafts[x.id] = ""; st.sentTo = x.id; st.sendError = null;
+        } catch (e) { st.sentTo = ""; st.sendError = { id: x.id, text: e.message }; }
+        Tanka.render();
+      }));
+  }
+
   function sessionsView(sc) {
     if (!st.sessions) { load(sc, "sessions"); return [el("p", { class: "meta" }, T.loading)]; }
     if (st.sessions.error) return [el("div", { class: "note-banner" }, T.notReachable + " " + st.sessions.error)];
@@ -243,7 +269,10 @@
         el("p", { class: "text" }, x.name || x.last_prompt || T.noPrompt),
         x.name && x.last_prompt ? el("div", { class: "meta" }, T.lastPrompt(x.last_prompt)) : null,
         el("div", { class: "meta" }, T.sessionMeta(x)),
-        el("div", { class: "cmdline" }, el("code", {}, x.resume), copyBtn("s:" + x.id, x.resume))))
+        (x.tasks || []).length ? el("ul", { class: "fixes" }, x.tasks.slice(0, 6).map(t => el("li", {},
+          el("span", { class: "mk" }, "#" + t.id), el("span", {}, t.title), el("span", { class: "why" }, T.work(t))))) : null,
+        el("div", { class: "cmdline" }, el("code", {}, x.resume), copyBtn("s:" + x.id, x.resume)),
+        sendBox(sc, x)))
         : [el("p", { class: "empty" }, T.noSessions)])];
   }
 
@@ -321,7 +350,7 @@
     // The minute is in the signature so a worker's "running for" moves on; a focused field freezes it.
     tabs: [{ id: "cauce", label: T.tab, render, badge: (sc, mod) => needs(mod),
              sig: (sc, mod) => st.editing ? st.lastSig : (st.lastSig = JSON.stringify([mod, st.open, st.detail, st.confirm, st.project,
-               st.view, st.adding, st.known, st.sessions, st.problems, st.everywhere, st.copied, st.msg, Math.floor(Date.now() / 60000)])) }],
+               st.view, st.adding, st.known, st.sessions, st.problems, st.everywhere, st.copied, st.msg, st.sentTo, st.sendError, Math.floor(Date.now() / 60000)])) }],
     // Sessions and problems are loaded by the tab itself; a poll refreshes them every half minute.
     refresh: async (sc) => {
       if (Tanka.ui.tab !== "cauce" || st.editing || Date.now() - st.loadedAt < 30000) return;
@@ -329,7 +358,8 @@
     },
     items: { task: taskEvent },
     attention: (sc, mod) => needs(mod),
-    using: name => /cauce_queue/.test(name) ? "queueing it for cauce…" : /cauce_memory/.test(name) ? "checking what cauce remembers…" : /cauce_/.test(name) ? "checking your code tasks…" : null,
+    using: name => /cauce_queue/.test(name) ? "queueing it for cauce…" : /cauce_send/.test(name) ? "sending it to your coding session…" :
+      /cauce_sessions/.test(name) ? "looking at your coding sessions…" : /cauce_memory/.test(name) ? "checking what cauce remembers…" : /cauce_/.test(name) ? "checking your code tasks…" : null,
     suggest: T.suggest,
     hello: () => T.hello,
   });
