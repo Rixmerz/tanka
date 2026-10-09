@@ -1,0 +1,23 @@
+{
+  "name": "calendar_delete",
+  "effect": "modify",
+  "description": "Asks the user to delete one event of their Google Calendar. It deletes nothing: it leaves a request that the user confirms or dismisses with a button in the chat, and only their click deletes. Use it when the user asks to remove, cancel or move an event (to move one, calendar_create the new time first, then this for the old one) and only for the event they named, by its number from the last calendar_agenda. Events with guests, repeating events and multi-day events are refused at the click. Returns one line saying the request is waiting for the user.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "Event number from the last calendar_agenda (e.g. 2)."
+    }
+  },
+  "examples": [
+    {
+      "number": 2
+    }
+  ],
+  "timeout_sec": 30,
+  "run": [
+    "python3",
+    "calendar_delete.py"
+  ]
+}

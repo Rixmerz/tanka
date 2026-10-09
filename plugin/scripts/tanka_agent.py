@@ -122,7 +122,9 @@ def sandbox_settings() -> dict:
 
 def command(model: str, effort: str, tools: list[str], prompt: str, budget_usd: float,
             schema: dict | None = None, add_dirs: list[str] | None = None) -> list[str]:
-    cmd = ["claude", "-p", prompt, "--model", model, "--effort", effort, "--restricted",
+    # The full id pins the version: an alias lets Claude Code resolve it to another one.
+    full = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}.get(model, model)
+    cmd = ["claude", "-p", prompt, "--model", full, "--effort", effort, "--restricted",
            "--tools", ",".join(tools), "--strict-mcp-config", "--permission-prompts", "none",
            "--no-session-persistence", "--append-system-prompt", PREAMBLE,
            "--max-budget-usd", f"{budget_usd:g}", "--output-format", "json"]

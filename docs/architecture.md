@@ -168,6 +168,8 @@ A profile changes only what compensates for a small model, in one place each:
 |---|---|
 | Loop-guard budgets, the rules repeated every turn | `PROFILE_POLICY` in `plugin/scripts/tanka_common.py`, merged between the defaults and the user's `policy.json` |
 | Tool-count and parameter limits | `LIMITS` in `plugin/scripts/tanka_tools.py` (`limits(ws)`) |
-| Model, compaction point, tool search | `PROFILE_LAUNCH` in `tanka_common.py`, applied by `apply_profile` in `bin/tanka` |
+| Default model, compaction point, tool search | `PROFILE_LAUNCH` in `tanka_common.py`, applied by `apply_profile` in `bin/tanka` |
+
+The model and its effort may also be set apart from the profile (`model`, `effort` in `workspace.json`; `launch(ws)` in `tanka_common.py` resolves them). The launcher always passes the full model id (`MODEL_IDS`), never an alias.
 
 What it never changes: the effect classes, `destructive` not being a tool, confirmation for `send` and `modify`, outgoing-message validation, the unbacked-claim check, the closing report, the deny-by-default for foreign MCP servers, and the rules for descriptions, names and examples.

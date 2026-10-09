@@ -1,0 +1,37 @@
+{
+  "name": "calendar_free",
+  "effect": "read",
+  "description": "Finds free time in the user's Google Calendar from today over the next days, inside working hours on working days, as slots of at least the given minutes. Use it when the user asks when they are free, for a gap for a meeting, or before proposing a time for calendar_create. It does not list the events themselves (that is calendar_agenda). All-day events do not count as busy. Returns one line per slot: date | weekday | from-to | minutes.",
+  "params": {
+    "days": {
+      "type": "integer",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 14,
+      "description": "How many days from today to look at (e.g. 5)."
+    },
+    "minutes": {
+      "type": "integer",
+      "default": 30,
+      "minimum": 5,
+      "maximum": 600,
+      "description": "Shortest slot worth showing, in minutes (e.g. 60 for a one-hour meeting)."
+    },
+    "account": {
+      "type": "string",
+      "description": "Address of the Google account to use, when this assistant has more than one (e.g. someone@example.com). Leave it out to use the only one."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "days": 5,
+      "minutes": 60
+    }
+  ],
+  "timeout_sec": 150,
+  "run": [
+    "python3",
+    "calendar_free.py"
+  ]
+}

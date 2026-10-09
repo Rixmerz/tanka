@@ -1,0 +1,23 @@
+{
+  "name": "gmail_trash",
+  "effect": "modify",
+  "description": "Asks the user to move one conversation of their Gmail to the trash. It moves nothing: it leaves a request that the user confirms or dismisses with a button in the chat, and only their click moves it (Gmail keeps the trash 30 days). Use it only when the user asks to delete a message, by its number from the last gmail_inbox; to just clear the inbox, gmail_archive is enough. Returns one line saying the request is waiting for the user.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "Conversation number from the last gmail_inbox (e.g. 3)."
+    }
+  },
+  "examples": [
+    {
+      "number": 3
+    }
+  ],
+  "timeout_sec": 30,
+  "run": [
+    "python3",
+    "gmail_trash.py"
+  ]
+}

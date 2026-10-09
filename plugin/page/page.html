@@ -119,15 +119,37 @@ select, option { background-color: var(--raised); color: var(--ink); }
 .you .bubble { background: var(--accent); color: var(--accent-ink); white-space: pre-wrap; }
 .you.first .bubble { border-top-right-radius: 6px; }
 .bubble p { margin: 0; white-space: pre-wrap; }
-.bubble > * + * { margin-top: 8px; }
+.bubble > * + * { margin-top: 12px; }
 .bubble ul, .bubble ol { margin: 0; padding-left: 20px; }
-.bubble li + li { margin-top: 3px; }
 .bubble code { font-family: var(--mono); font-size: .88em; background: color-mix(in srgb, var(--ink) 9%, transparent); padding: 1px 5px; border-radius: 5px; }
-.bubble .h { font-weight: 650; }
+.bubble .h { font-weight: 650; font-size: 1.04em; margin-top: 16px; }
+.bubble .h:first-child { margin-top: 0; }
+.bubble strong { font-weight: 650; }
+.bubble .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
+.bubble .kv b { font-weight: 650; color: var(--muted); }
+.bubble li + li { margin-top: 5px; }
+.bubble li::marker { color: var(--muted); }
+.nap { display: flex; align-items: center; gap: 14px; margin: 14px 0; padding: 10px 14px; border-radius: 18px; background: var(--bubble); position: relative; width: fit-content; max-width: 100%; }
+.nap img { width: 84px; height: 84px; object-fit: cover; border-radius: 14px; flex: none; }
+.nap span { color: var(--muted); font-size: 13.5px; }
+.nap.done { animation: wake .7s ease-out; }
+.nap .zz { position: absolute; left: 84px; top: 4px; font-size: 13px; letter-spacing: 3px; color: var(--muted); animation: zz 2.4s ease-in-out infinite; }
+#nap img { animation: breathe 3s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.04); } }
+@keyframes zz { 0% { opacity: 0; transform: translate(0, 8px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -10px); } }
+@keyframes wake { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .nap, .nap img, .nap .zz { animation: none !important; } }
+.codeblock { position: relative; border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.codeblock pre { margin: 0; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.codeblock .btn { position: absolute; top: 6px; right: 6px; }
 .bubble.error { background: color-mix(in srgb, var(--bad) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
 .bubble.dots-b { padding: 0; }
 .fxs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .fx { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 11px 4px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--raised); cursor: pointer; max-width: 100%; box-shadow: var(--shadow-sm); }
+.confirm { flex-basis: 100%; max-width: 100%; box-sizing: border-box; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--warn, var(--accent)); background: var(--raised); display: flex; flex-direction: column; gap: 8px; }
+.confirm .what { overflow-wrap: anywhere; line-height: 1.4; }
+.confirm .k { color: var(--muted); }
+.confirm .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .fx:hover:not(:disabled) { border-color: var(--accent); }
 .fx .k { color: var(--muted); white-space: nowrap; }
 .fx .x { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -571,6 +593,7 @@ tr.rdetail td { background: var(--bubble); padding: 2px 18px 18px; border-bottom
       <div class="scroll" id="scroll">
         <div class="lane welcome" id="welcome" hidden><div class="big" data-face><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></div><h2 id="helloT"></h2><p id="helloP"></p></div>
         <div class="lane log" id="log" role="log"></div>
+        <div class="lane" id="nap" hidden><div class="nap"><img id="napImg" alt=""><span id="napTxt"></span><b class="zz" aria-hidden="true">z z z</b></div></div>
         <div class="lane" id="typing" hidden>
           <div class="msg them first">
             <span class="avatar" data-face><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="b" d="M11 7h10a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-6l-5 4v-4.4A5 5 0 0 1 6 17v-5a5 5 0 0 1 5-5z"/><path class="s" d="M16 10.2l1.3 3 3 1.3-3 1.3-1.3 3-1.3-3-3-1.3 3-1.3z"/></svg></span>
@@ -589,7 +612,7 @@ tr.rdetail td { background: var(--bubble); padding: 2px 18px 18px; border-bottom
         <div class="box">
           <button class="slash" id="slash" type="button" aria-haspopup="listbox" aria-controls="cmds" aria-expanded="false">/</button>
           <button class="attach" id="attach" type="button"></button>
-          <textarea id="say" rows="1" maxlength="1000"></textarea>
+          <textarea id="say" rows="1" maxlength="100000"></textarea>
           <button class="send" id="send" type="button" disabled></button>
         </div>
         <div class="hint" id="hint"></div>
@@ -626,13 +649,15 @@ const T = {
   hello: n => `Hi, I'm ${n}`,
   helloText: "Write to me here. Each message is one run of your assistant in this workspace, with its own tools.",
   today: "Today", yesterday: "Yesterday", retry: "Retry",
+  napping: "Compacting the conversation… back in a moment",
+  copy: "Copy", copied: "Copied", copyTip: "Copy this text to the clipboard",
   err: { noanswer: d => `It did not answer (${d}). Try again.`, timeout: d => `It took more than ${d} min and was stopped. Try something shorter.`, nostart: d => `Could not start tanka: ${d}` },
   now: "now", ago: s => `${s} ago`, inSpan: s => `in ${s}`, days: n => plural(n, "day", "days"),
   unreachable: e => `Could not reach the page server (${e}). Is tanka ui still running?`,
   noScope: "No workspace yet. Create one with: tanka start <name>",
   modes: "Who answers", devName: "Dev", toDev: "to Dev",
   devPlaceholder: n => `Ask dev to build or change something for ${n}…`,
-  devHint: left => ` · dev runs your strong model, US$${Math.max(left, 0).toFixed(2)} left today`,
+  devHint: left => ` · dev runs your strong model` + (left == null ? "" : `, US$${Math.max(left, 0).toFixed(2)} left today`),
   devTitle: "Dev builds what the assistant uses (boards, lenses, simple tools) and checks it. It does not do your tasks.",
   devUsing: name => /^(Edit|Write|MultiEdit)$/.test(name) ? "writing…" : name === "Bash" ? "checking…" : /^(Read|Glob)$/.test(name) ? "reading…" : "working…",
   devSuggest: [["Create a board for ", false], ["Add a field to the board ", false], ["Why can't the assistant record on ", false]],
@@ -644,6 +669,7 @@ const T = {
 };
 // The Workspace tab's strings.
 const TW = {
+  autonomy: "Autonomy", autonomyHint: "What the assistant may do on its own, with nobody watching (routines and triggers). Off, it leaves you a draft or asks. Deleting and sending email always wait for you.",
   persona: "Persona", upload: "Upload picture", removePic: "Remove picture",
   picHint: "PNG, JPEG or WebP, up to 512 KB. It is kept with the page, outside the workspace, so the assistant cannot change it.",
   tooBig: "The picture is larger than 512 KB. Use a smaller one.",
@@ -666,6 +692,12 @@ const TW = {
         signature: "Signature", timezone: "Time zone", notes: "Notes" },
   pfHint: { language: "The language it writes in. Set here, the first session no longer asks.", timezone: "Like America/Santiago or Europe/Madrid.",
             notes: "Anything it should always keep in mind." },
+  model: "Model", modelHint: "The model this assistant answers with. It is launched by its full id, so it never changes on its own.",
+  modelNames: { haiku: "Haiku 5.5", sonnet: "Sonnet 5.5", opus: "Opus 5.5" },
+  effort: "Effort", effortHint: "How much it thinks before answering. More effort answers better and costs more; the default is the model's own.",
+  effortDefault: "Model default", efforts: { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" },
+  guard: "Guardrails", guardHint: "Strict: at most 15 tools, the rules repeated every turn, tighter call limits (made for small models). Standard: 40 tools and lighter reminders. Safety is the same in both.",
+  guards: { haiku: "Strict", sonnet: "Standard" },
   advisor: "Advisor model", advisorHint: "The stronger model it consults when a request needs more judgment than its tools give.",
   decisions: "What it may do without asking", cls: { read: "Read", draft: "Write drafts only you see", modify: "Change things others may notice",
     send: "Send (cannot be taken back)", unknown: "Tools it cannot classify" },
@@ -800,11 +832,29 @@ function inline(s) {
     part.length > 4 && part.startsWith("**") && part.endsWith("**") ? el("strong", {}, part.slice(2, -2))
       : part.length > 2 && part.startsWith("`") && part.endsWith("`") ? el("code", {}, part.slice(1, -1)) : part);
 }
+async function copyText(text, button) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const t = el("textarea", { style: "position:fixed;opacity:0" }); t.value = text; document.body.append(t); t.select();
+    try { document.execCommand("copy"); } catch {} t.remove();
+  }
+  const was = button.textContent; button.textContent = T.copied;
+  setTimeout(() => { button.textContent = was; }, 1500);
+}
+const copyButton = text => el("button", { type: "button", class: "btn", title: T.copyTip, on: { click: e => copyText(text, e.currentTarget) } }, T.copy);
 function rich(text) {
   const out = [];
-  let para = [], list = null;
-  const flush = () => { if (para.length) out.push(el("p", {}, inline(para.join("\n")))); para = []; };
+  let para = [], list = null, fence = null;
+  const KV = /^(Status|Done|Left|Verified|Hecho|Pendiente|Estado|Verificado):\s+(.*)$/;
+  let kv = null;
+  const flush = () => { if (para.length) out.push(el("p", {}, inline(para.join("\n")))); para = []; kv = null; };
   for (const raw of String(text || "").split("\n")) {
+    if (/^\s*```/.test(raw)) {
+      if (fence) { const body = fence.join("\n"); out.push(el("div", { class: "codeblock" }, el("pre", {}, body), copyButton(body))); fence = null; }
+      else { flush(); list = null; fence = []; }
+      continue;
+    }
+    if (fence) { fence.push(raw); continue; }
     const line = raw.trimEnd();
     const li = /^\s*([-*•]|\d+[.)])\s+(.*)$/.exec(line);
     if (li) {
@@ -815,11 +865,20 @@ function rich(text) {
       continue;
     }
     list = null;
+    const pair = KV.exec(line);
+    if (pair) {
+      if (para.length) flush();
+      if (!kv) { kv = el("div", { class: "kv" }); out.push(kv); }
+      kv.append(el("b", {}, pair[1]), el("span", {}, inline(pair[2])));
+      continue;
+    }
+    if (kv && line.trim()) kv = null;
     const h = /^#{1,6}\s+(.*)$/.exec(line);
     if (h) { flush(); out.push(el("p", { class: "h" }, inline(h[1]))); }
     else if (line.trim()) para.push(line);
     else flush();
   }
+  if (fence) { const body = fence.join("\n"); out.push(el("div", { class: "codeblock" }, el("pre", {}, body), copyButton(body))); }
   flush();
   return out;
 }
@@ -916,6 +975,8 @@ function message(sc, m, first) {
     const spec = MODS[m.module], render = spec && spec.items && spec.items[m.who];
     return render ? render(sc, m, modOf(sc, m.module)) : null;
   }
+  if (m.who === "notice" && m.code === "compacted" && art().wake)
+    return el("div", { class: "nap done", role: "note" }, el("img", { src: art().wake, alt: "" }), el("span", {}, m.text));
   if (m.who === "notice") return el("div", { class: "sep notice", role: "note" }, m.text);
   if (m.who === "access") return accessEvent(sc, m);
   if (m.who === "report") return reportEvent(m);
@@ -935,7 +996,7 @@ function message(sc, m, first) {
     el("div", { class: "col" },
       first ? el("div", { class: "who" }, el("strong", {}, dev ? T.devName : nameOf(sc)), hm(m.t)) : null,
       el("div", { class: "bubble", title: hm(m.t) }, rich(m.text)),
-      chips.length ? el("div", { class: "fxs" }, chips) : null));
+      el("div", { class: "fxs" }, chips, m.text ? copyButton(m.text) : null)));
 }
 
 // One row per day separator and per message. A message heads its group (avatar, name, time) when the author
@@ -1000,7 +1061,10 @@ function chatView(sc) {
   faces(sc);
   $("welcome").hidden = (sc.chat || []).length > 0;
   const r = runOf(sc);
-  $("typing").hidden = !r;
+  const napping = !!(r && r.draft && r.draft.tool === "compact" && art().sleep);
+  $("nap").hidden = !napping;
+  if (napping) { $("napImg").src = art().sleep; $("napTxt").textContent = T.napping; }
+  $("typing").hidden = !r || napping;
   $("typingName").textContent = r && r.mode === "dev" ? T.devName : nameOf(sc);
   const draft = r && r.draft && r.draft.text ? r.draft.text : "";
   if ($("draft").textContent !== draft) $("draft").textContent = draft;
@@ -1015,6 +1079,16 @@ function chatView(sc) {
   if (!document.hidden) for (const [, spec, mod] of active(sc)) if (spec.onChat) spec.onChat(sc, mod);
 }
 
+// The pictures shown while the conversation compacts are the user's own files (docs/page.md); without them
+// the page shows the plain "Compacting…" line.
+const ART = { loaded: false };
+function art() {
+  if (!ART.loaded) {
+    ART.loaded = true;
+    api("/api/art").then(r => { ART.sleep = r.sleep; ART.wake = r.wake; ui.wsSig = ""; render(); }).catch(() => {});
+  }
+  return ART;
+}
 function usingLabel(name) {
   if (name === "compact") return "Compacting the conversation…";
   for (const spec of Object.values(MODS)) { const s = spec.using && spec.using(name); if (s) return s; }
@@ -1207,7 +1281,7 @@ Tanka.send = text => send(text);
 Tanka.compose = text => {
   ui.tab = "chat"; ui.showDay = false; remember("tanka.tab", "chat");
   render();
-  say.value = String(text).slice(0, 1000); grow(); updateComposer();
+  say.value = String(text).slice(0, 100000); grow(); updateComposer();
   say.focus(); say.setSelectionRange(say.value.length, say.value.length);
 };
 Tanka.go = tab => { ui.tab = tab; ui.showDay = false; remember("tanka.tab", tab); render(); };
@@ -1418,7 +1492,10 @@ const row = (f, path, label, kind, opts, hint) => [el("label", { for: "set-" + p
 
 function saveSettings(sc, part) {
   const f = wsv.form || {}, body = { scope: sc.scope };
-  if (part === "profile") { body.persona = f.persona; body.advisor_model = f.advisor_model; }
+  if (part === "profile") {
+    body.persona = f.persona; body.advisor_model = f.advisor_model;
+    if (f.model) body.model = { model: f.model.model, effort: f.model.effort || "", profile: f.model.profile };
+  }
   if (part === "rules") {
     const p = clone(f.policy), sv = p.send_validation;
     for (const k of ["recipient_allowlist", "recipient_blocklist", "internal_domains"]) sv[k] = (sv[k] || []).map(x => x.trim()).filter(Boolean);
@@ -1429,6 +1506,20 @@ function saveSettings(sc, part) {
   wsDo("/api/workspace/settings", body);
 }
 
+// Each installed module may offer switches (its state's "autonomy"); flipping one is the user's own click.
+function autonomyCard(sc) {
+  const rows = Object.entries(sc.modules || {}).flatMap(([name, mod]) => ((mod && mod.autonomy) || []).map(a => ({ name, ...a })));
+  if (!rows.length) return null;
+  return el("section", { class: "card" }, el("h2", {}, TW.autonomy), el("p", { class: "meta" }, TW.autonomyHint),
+    el("div", { class: "settings" }, rows.flatMap(a => {
+      const id = `auto-${a.name}-${a.key}`;
+      return [el("label", { for: id }, a.label),
+        el("input", { id, type: "checkbox", checked: a.on ? true : null, disabled: wsv.busy,
+          on: { change: e => wsDo(`/api/m/${a.name}/autonomy`, { scope: sc.scope, key: a.key, on: e.target.checked }) } }),
+        null];
+    })));
+}
+
 function profileCard(sc, d) {
   if (!d.settings || d.settings.problem) return d.settings ? el("section", { class: "card" }, el("h2", {}, TW.profile), el("p", { class: "problem" }, d.settings.problem)) : null;
   const f = formOf(d), lim = (d.settings.limits || {}).persona || {};
@@ -1437,7 +1528,10 @@ function profileCard(sc, d) {
     el("div", { class: "settings" },
       field("user_name"), field("language"), field("timezone"), field("tone"), field("personality", true),
       field("output_format", true), field("signature", true), field("notes", true),
-      row(f, ["advisor_model"], TW.advisor, "select", { options: [["sonnet", "Sonnet"], ["opus", "Opus"]] }, TW.advisorHint)),
+      f.model ? row(f, ["model", "model"], TW.model, "select", { options: Object.keys(f.model.models || {}).map(k => [k, TW.modelNames[k] || k]) }, TW.modelHint) : null,
+      f.model ? row(f, ["model", "effort"], TW.effort, "select", { options: [["", TW.effortDefault], ...(f.model.efforts || []).map(k => [k, TW.efforts[k] || k])] }, TW.effortHint) : null,
+      f.model ? row(f, ["model", "profile"], TW.guard, "select", { options: [["haiku", TW.guards.haiku], ["sonnet", TW.guards.sonnet]] }, TW.guardHint) : null,
+      row(f, ["advisor_model"], TW.advisor, "select", { options: [["claude-sonnet-5-5", "Sonnet 5.5"], ["claude-opus-5-5", "Opus 5.5"]] }, TW.advisorHint)),
     el("div", { class: "save-row" }, el("button", { type: "button", class: "btn primary", disabled: wsv.busy, on: { click: () => saveSettings(sc, "profile") } }, TW.saveAll),
       el("button", { type: "button", class: "ghost", on: { click: undoForm } }, TW.reset)));
 }
@@ -1590,6 +1684,7 @@ function workspaceView(sc) {
     status.length ? el("div", { "aria-live": "polite" }, status) : null,
     personaCard(sc, d),
     profileCard(sc, d),
+    autonomyCard(sc),
     rulesCard(sc, d),
     el("section", { class: "card" },
       el("h2", {}, TW.tools, el("span", { class: "meta" }, TW.budget(d.tools_used, d.tools_max))),

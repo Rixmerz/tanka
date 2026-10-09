@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""jira_issue: one issue in full."""
+"""jira_delete: ask the user to delete an issue."""
 import os
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.issue(SCOPE, args["key"])
+    return jira.delete_tool(SCOPE, args["key"])
 
 
 jira.run(main)

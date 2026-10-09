@@ -1,0 +1,5 @@
+{
+  "name": "approvals",
+  "description": "Approve on the page what a workspace skill asks to do: its tool leaves the exact text, and only your Approve click runs it, once. For actions that must never happen on their own, like opening a ticket or publishing.",
+  "requires": []
+}

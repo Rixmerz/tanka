@@ -44,7 +44,7 @@ from tanka_kit import ToolError  # noqa: E402
 PAGE = kit.REPO / "plugin" / "page" / "page.html"
 DAEMON_FRESH_SECONDS = 60
 MODULES_MARK = "/*__MODULES__*/"
-BODY_MAX = 10_000
+BODY_MAX = 1_000_000           # a chat message of TEXT_CHARS characters, even all escaped, fits
 AVATAR_BODY_MAX = 800_000      # a 512 KB picture in base64, inside JSON
 AVATAR_MAX = 512 * 1024
 AVATAR_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
@@ -291,12 +291,46 @@ LOOP_LIMITS = {"max_identical_calls_per_turn": (1, 10), "max_calls_per_turn": (1
                "max_calls_per_session": (10, 5000)}
 SEND_LIMITS = {"min_body_chars": (0, 2000), "max_recipients": (1, 100)}
 PATTERN_LISTS = ("recipient_allowlist", "recipient_blocklist")
-ADVISOR_MODELS = ("sonnet", "opus")
+ADVISOR_MODELS = (tc.MODEL_IDS["sonnet"], tc.MODEL_IDS["opus"])
+MODEL_NAMES = tuple(tc.MODEL_IDS)  # haiku, sonnet, opus: the workspace's model
 DOMAIN_RE = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 
 
 def settings_file(ws: Path) -> Path:
     return ws / ".claude" / "settings.json"
+
+
+def model_report(ws: Path) -> dict:
+    launch = tc.launch(ws)
+    return {"model": launch["model_name"], "id": launch["model"], "effort": launch["effort"], "profile": launch["profile"],
+            "models": {k: v for k, v in tc.MODEL_IDS.items()}, "efforts": list(tc.EFFORTS)}
+
+
+def checked_model(ws: Path, spec) -> dict:
+    """The workspace's model, effort and guardrails (profile), written to .tanka/workspace.json keeping its other keys.
+    Stricter guardrails are refused while the workspace has more tools than they allow: the assistant would lose some."""
+    import tanka_tools as tt
+    if not isinstance(spec, dict):
+        raise ToolError("model must be an object with model, effort and profile.")
+    model, effort, profile = spec.get("model"), spec.get("effort") or "", spec.get("profile")
+    if model not in MODEL_NAMES:
+        raise ToolError(f"The model must be one of {', '.join(MODEL_NAMES)}.")
+    if effort and effort not in tc.EFFORTS:
+        raise ToolError(f"The effort must be one of {', '.join(tc.EFFORTS)}, or empty for the model's default.")
+    if profile not in tc.PROFILE_NAMES:
+        raise ToolError(f"The guardrails must be one of {', '.join(tc.PROFILE_NAMES)}.")
+    tools, _ = tt.scan(ws)
+    room = tt.limits_for_profile(profile)["total"]
+    if len(tools) > room:
+        raise ToolError(f"These guardrails allow {room} tools and the workspace has {len(tools)}: uninstall some first, "
+                        "or keep the wider guardrails.")
+    data = tc.load_workspace(ws)
+    data.update(profile=profile, model=model)
+    if effort:
+        data["effort"] = effort
+    else:
+        data.pop("effort", None)
+    return data  # written by save_settings with the rest, once everything is valid
 
 
 def settings_report(ws: Path) -> dict:
@@ -316,7 +350,8 @@ def settings_report(ws: Path) -> dict:
             "closing_report": bool(policy.get("objective", {}).get("require_closing_report_when_tools_used", True)),
             "read_dirs": [str(d) for d in policy.get("read_dirs") or []],
         },
-        "advisor_model": str(advisor.get("advisorModel") or "sonnet") if isinstance(advisor, dict) else "sonnet",
+        "advisor_model": tc.model_id(str(advisor.get("advisorModel") or "sonnet")) if isinstance(advisor, dict) else ADVISOR_MODELS[0],
+        "model": model_report(ws),
         "limits": {"loop_guard": LOOP_LIMITS, "send_validation": SEND_LIMITS, "persona": {k: v[0] for k, v in PERSONA_FIELDS.items()}},
     }
 
@@ -475,20 +510,24 @@ def save_settings(scope: str, body: dict) -> dict:
             raw["read_dirs"] = readable_dirs(policy_in["read_dirs"])
         if "closing_report" in policy_in:
             raw.setdefault("objective", {})["require_closing_report_when_tools_used"] = policy_in["closing_report"] is True
+    workspace = checked_model(ws, body["model"]) if "model" in body else None
     settings = None
     if "advisor_model" in body:
-        if body["advisor_model"] not in ADVISOR_MODELS:
+        advisor_id = tc.model_id(str(body["advisor_model"] or ""))
+        if advisor_id not in ADVISOR_MODELS:
             raise ToolError(f"The advisor must be one of {', '.join(ADVISOR_MODELS)}.")
         settings = kit.read_json(settings_file(ws), {})
         if not isinstance(settings, dict):
             raise ToolError("settings.json is not a JSON object; fix it by hand.")
-        settings["advisorModel"] = body["advisor_model"]
+        settings["advisorModel"] = advisor_id
     if persona_in is not None:
         kit.write_json(persona_file(ws), persona)
     if policy_in is not None:
         kit.write_json(tc.tanka_dir(ws) / tc.POLICY_FILE, raw)
     if settings is not None:
         kit.write_json(settings_file(ws), settings)
+    if workspace is not None:
+        kit.write_json(tc.tanka_dir(ws) / tc.WORKSPACE_FILE, workspace)
     return {"ok": True, "message": "Saved. The assistant uses it from its next message."}
 
 
@@ -571,6 +610,15 @@ def avatar_data(scope: str) -> str | None:
     if f is None:
         return None
     return f"data:{AVATAR_TYPES[f.suffix[1:]]};base64,{base64.b64encode(f.read_bytes()).decode()}"
+
+
+def art_data() -> dict:
+    """The pictures shown while the conversation compacts: the user's own files in PAGE_HOME/art, never in the repo."""
+    out: dict = {}
+    for name in ("sleep", "wake"):
+        f = next((p for p in sorted((kit.PAGE_HOME / "art").glob(name + ".*")) if p.suffix[1:] in AVATAR_TYPES), None)
+        out[name] = f"data:{AVATAR_TYPES[f.suffix[1:]]};base64,{base64.b64encode(f.read_bytes()).decode()}" if f else None
+    return out
 
 
 def workspace_report(scope: str) -> dict:
@@ -711,6 +759,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, chat.commands(known_scope(q.get("scope", ""))))
             if url.path == "/api/workspace":
                 return self.json(200, workspace_report(q.get("scope", "")))
+            if url.path == "/api/art":
+                return self.json(200, art_data())
             if url.path == "/api/persona/avatar":
                 return self.json(200, {"data": avatar_data(q.get("scope", ""))})
             if url.path.startswith("/api/m/"):

@@ -1,5 +1,5 @@
 {
   "name": "jira",
-  "description": "Search, read, create, transition, comment on and link Jira Cloud issues, only in the projects the user assigned to the workspace.",
+  "description": "Search, read, create, update, comment on, link and ask to delete Jira Cloud issues, only in the projects the user assigned to the workspace.",
   "requires": []
 }

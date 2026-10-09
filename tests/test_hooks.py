@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -187,6 +188,15 @@ class TestObjective(HookTestCase):
         code, out, _ = self.pre("mcp__gmail__send_message", {"to": "a@b.com", "body": "Hello, this is a valid and long enough body."})
         self.assertEqual(decision(out), "deny")
         self.assertIn("does not authorise the 'send' class", reason(out))
+
+    def test_a_routines_objective_does_not_hold_the_users_chat(self):
+        call = ("mcp__gmail__label_message", {"id": "1"})
+        self.set_objective(id="auto-watch", allowed_tool_classes=["read", "draft"])
+        self.assertEqual(decision(self.pre(*call)[1]), "deny")
+        with mock.patch.dict(os.environ, {"TANKA_CHAT": "1"}):
+            self.assertNotEqual(decision(self.pre(*call, tool_use_id="tu2")[1]), "deny")
+            self.set_objective(id="mine", allowed_tool_classes=["read"])
+            self.assertEqual(decision(self.pre(*call, tool_use_id="tu3")[1]), "deny")  # the user's own still holds
 
     def test_read_always_allowed_under_objective(self):
         self.set_objective(allowed_tool_classes=["draft"])

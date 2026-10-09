@@ -1,0 +1,23 @@
+{
+  "name": "gmail_archive",
+  "effect": "modify",
+  "description": "Archives one conversation of the user's Gmail: it leaves the inbox and stays in All Mail, so it can be found and moved back at any time. Use it when the user says to archive, clear or get a message out of the inbox, by its number from the last gmail_inbox. It does not delete anything (moving to the trash is gmail_trash) and does not reply. Returns one line confirming the conversation left the inbox; never repeat a call that succeeded.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "Conversation number from the last gmail_inbox (e.g. 3)."
+    }
+  },
+  "examples": [
+    {
+      "number": 3
+    }
+  ],
+  "timeout_sec": 240,
+  "run": [
+    "python3",
+    "gmail_archive.py"
+  ]
+}

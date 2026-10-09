@@ -1,6 +1,6 @@
 ---
 name: gmail
-description: The user's Gmail for the mailboxes assigned to this assistant: see what arrived, search, read a message in full, download its documents and look at them, reply inside a conversation and send new mail, with an attachment. Use it whenever email, Gmail, a mail, the inbox, an attachment, "what did they send", "reply to that email" or "send an email to" comes up.
+description: The user's Gmail for the mailboxes assigned to this assistant: see what arrived, search, read a message in full, download its documents and look at them, reply inside a conversation and send new mail, with an attachment, archive, and ask to move mail to the trash. Use it whenever email, Gmail, a mail, the inbox, an attachment, "what did they send", "reply to that email" or "send an email to" comes up.
 ---
 
 # Gmail
@@ -18,6 +18,8 @@ always wait for the user's yes.
 | looking at an attached image or PDF | Read at the path `gmail_read` gave |
 | answering a message | `gmail_reply` (after confirming) |
 | writing to someone new | `gmail_send` (after confirming) |
+| archiving, clearing the inbox | `gmail_archive` with its number (reversible, no need to ask) |
+| deleting a message | `gmail_trash` with its number: it only asks; say the user must press Delete in the chat |
 
 ## Recipes
 
@@ -50,6 +52,6 @@ always wait for the user's yes.
 
 ## Out of scope
 
-There is no tool to delete, archive, label or move mail, or to forward. Say
+There is no tool to label or move mail to a folder, or to forward. Say
 Tanka does not have one yet and that it can be added with `tanka dev`. Do
 not try another way.

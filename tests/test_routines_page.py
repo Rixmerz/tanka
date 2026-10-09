@@ -58,6 +58,14 @@ class FakeRoutines(types.ModuleType):
         self._pending(scope, pid)["status"] = "rejected"
         return f"Rejected {pid}."
 
+    auto = False
+
+    def auto_start(self):
+        return self.auto
+
+    def set_auto_start(self, on):
+        self.auto = bool(on)
+
     def remove(self, scope, ws, name):
         rs = self.scope(scope)["routines"]
         if not any(x["name"] == name for x in rs):

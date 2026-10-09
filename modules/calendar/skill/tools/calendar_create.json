@@ -1,0 +1,55 @@
+{
+  "name": "calendar_create",
+  "effect": "modify",
+  "description": "Creates one event in the user's Google Calendar, without guests, so nobody gets an invitation. Use it only after the user agreed on the title, day and time. It refuses when the time overlaps another event unless allow_overlap is true (ask the user first), and does nothing if an event with the same title already starts then. With several calendars it uses the one of the last calendar_agenda. It cannot invite people, edit or delete events. Returns one line confirming the event; never repeat a call that succeeded.",
+  "params": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "description": "Event title the user agreed on (e.g. \"Team sync\")."
+    },
+    "start": {
+      "type": "string",
+      "required": true,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{1,2}:\\d{2}$",
+      "description": "Day and start time, as YYYY-MM-DD HH:MM in 24 hours (e.g. 2026-10-20 15:00)."
+    },
+    "end": {
+      "type": "string",
+      "required": true,
+      "pattern": "^(\\d{1,2}:\\d{2}|\\d{1,3}m)$",
+      "description": "End time as HH:MM the same day (e.g. 15:30), or a duration in minutes ending in m (e.g. 45m)."
+    },
+    "place": {
+      "type": "string",
+      "description": "Where it happens, if the user said (e.g. \"Room 2\"). Leave it out otherwise."
+    },
+    "description": {
+      "type": "string",
+      "description": "Notes for the event, only if the user gave them. Leave it out otherwise."
+    },
+    "allow_overlap": {
+      "type": "boolean",
+      "default": false,
+      "description": "true only when the user said to create it even though it overlaps another event."
+    }
+  },
+  "examples": [
+    {
+      "title": "Team sync",
+      "start": "2026-10-20 15:00",
+      "end": "45m"
+    },
+    {
+      "title": "Dentist",
+      "start": "2026-10-21 09:30",
+      "end": "10:30",
+      "place": "Main Street clinic"
+    }
+  ],
+  "timeout_sec": 240,
+  "run": [
+    "python3",
+    "calendar_create.py"
+  ]
+}

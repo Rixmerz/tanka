@@ -1,0 +1,14 @@
+{
+  "name": "approvals_list",
+  "effect": "read",
+  "description": "Lists the requests this workspace's tools left for the user to approve: which are still waiting, which the user approved (with what the action returned, such as a new ticket's key) or dismissed, and which failed. Use it when the user asks whether something went through, or before telling them the result of a request they approved. It approves nothing; only the user's click in the chat does. Returns one line per request, newest first.",
+  "params": {},
+  "examples": [
+    {}
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "approvals_list.py"
+  ]
+}

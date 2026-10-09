@@ -126,7 +126,7 @@ class TestLimits(ProfileCase):
 
     def test_sonnet_gets_the_wide_budget(self):
         self.set_profile("sonnet")
-        self.assertEqual(tt.limits(self.ws), {"total": 30, "per_skill": 10, "params": 8, "required": 6})
+        self.assertEqual(tt.limits(self.ws), {"total": 40, "per_skill": 10, "params": 8, "required": 6})
 
     def test_a_skill_of_eight_tools_loads_for_sonnet_only(self):
         self.add_skill("big", 8)
@@ -159,9 +159,9 @@ class TestLimits(ProfileCase):
         def line():
             return subprocess.run([sys.executable, str(REPO / "plugin" / "scripts" / "tanka_tools.py"), "profile", str(self.ws)],
                                   capture_output=True, text=True).stdout.strip()
-        self.assertEqual(line(), "haiku haiku 60 false")
+        self.assertEqual(line(), "haiku claude-haiku-5-5 60 false -")
         self.set_profile("sonnet")
-        self.assertEqual(line(), "sonnet sonnet 75 auto")
+        self.assertEqual(line(), "sonnet claude-sonnet-5-5 75 auto -")
 
 
 class TestLauncher(unittest.TestCase):
@@ -176,34 +176,41 @@ class TestLauncher(unittest.TestCase):
         return subprocess.run(["bash", str(LAUNCHER), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
                               env={**self.env, **(env or {})})
 
+    def workspace(self, name):
+        return json.loads((self.home / name / ".tanka" / "workspace.json").read_text())
+
     def profile_file(self, name):
-        return json.loads((self.home / name / ".tanka" / "workspace.json").read_text())["profile"]
+        return self.workspace(name)["profile"]
 
     def test_init_with_the_flag(self):
-        self.assertEqual(self.tanka("init", "mei", "--model", "sonnet").returncode, 0)
-        self.assertEqual(self.profile_file("mei"), "sonnet")
-        self.assertIn("sonnet", self.tanka("profile", "mei").stdout)
+        self.assertEqual(self.tanka("init", "helper", "--model", "sonnet").returncode, 0)
+        self.assertEqual(self.workspace("helper"), {"profile": "sonnet", "model": "sonnet"})
+        self.assertIn("claude-sonnet-5-5", self.tanka("profile", "helper").stdout)
 
-    def test_init_without_a_terminal_or_a_choice_is_strict(self):
+    def test_init_without_a_choice_is_haiku_with_standard_guardrails(self):
         self.assertEqual(self.tanka("init", "plain").returncode, 0)
-        self.assertEqual(self.profile_file("plain"), "haiku")
+        self.assertEqual(self.workspace("plain"), {"profile": "sonnet", "model": "haiku"})
+
+    def test_strict_guardrails_are_asked_for(self):
+        self.assertEqual(self.tanka("init", "tight", "--model", "haiku", "--strict").returncode, 0)
+        self.assertEqual(self.workspace("tight"), {"profile": "haiku", "model": "haiku"})
 
     def test_init_reads_the_environment_variable(self):
-        self.assertEqual(self.tanka("init", "viaenv", env={"TANKA_INIT_MODEL": "Sonnet"}).returncode, 0)
-        self.assertEqual(self.profile_file("viaenv"), "sonnet")
+        self.assertEqual(self.tanka("init", "viaenv", env={"TANKA_INIT_MODEL": "Opus"}).returncode, 0)
+        self.assertEqual(self.workspace("viaenv")["model"], "opus")
 
     def test_an_unknown_model_creates_nothing(self):
         r = self.tanka("init", "bad", "--model", "gpt")
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("haiku or sonnet", r.stderr)
+        self.assertIn("haiku, sonnet or opus", r.stderr)
         self.assertFalse((self.home / "bad").exists())
 
-    def test_profile_changes_a_workspace_and_rejects_nonsense(self):
+    def test_profile_changes_the_guardrails_keeps_the_model_and_rejects_nonsense(self):
         self.tanka("init", "w")
-        self.assertEqual(self.tanka("profile", "w", "sonnet").returncode, 0)
-        self.assertEqual(self.profile_file("w"), "sonnet")
+        self.assertEqual(self.tanka("profile", "w", "strict").returncode, 0)
+        self.assertEqual(self.workspace("w"), {"profile": "haiku", "model": "haiku"})
         self.assertNotEqual(self.tanka("profile", "w", "banana").returncode, 0)
-        self.assertEqual(self.profile_file("w"), "sonnet")
+        self.assertEqual(self.profile_file("w"), "haiku")
 
     def test_a_workspace_from_before_profiles_is_strict(self):
         self.tanka("init", "old")

@@ -98,7 +98,7 @@ class AgentCommandCase(unittest.TestCase):
         for flag in ("--restricted", "--strict-mcp-config", "--no-session-persistence", "--json-schema"):
             self.assertIn(flag, cmd)
         self.assertEqual(cmd[cmd.index("--permission-prompts") + 1], "none")
-        self.assertEqual(cmd[cmd.index("--model") + 1], "haiku")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "claude-haiku-5-5")
 
     def test_child_does_not_inherit_the_session(self):
         keep = dict(os.environ)

@@ -13,6 +13,8 @@ modules plug into it.
 | [`codepanion`](../modules/codepanion/README.md) | **Notes**, **Sessions** and **Lenses**: what it noticed in your coding sessions, and their timelines |
 | [`cauce`](../modules/cauce/README.md) | **Code**: the coding tasks [cauce](https://github.com/Rixmerz/cauce) runs, per project — what needs you, the workers out now, what is pending, what is done, each with its description and its way through the model × effort ladder; the Claude Code sessions seen in each project, with the command that resumes them; and cauce's memory of problems and fixes — and finished or stuck tasks in the chat |
 | [`routines`](../modules/routines/README.md) | **Routines**: the assistant's proposed routines waiting for you, each with its schedule, budget, reason and full task, to approve or reject; the routines that run (with their last report, to remove) and the triggers; and what was decided lately |
+| [`link`](../modules/link/README.md) | **Sessions**: the Claude Code sessions open with the tanka-link plugin (project, branch, waiting or working, last messages), each with a box to send it a prompt |
+| [`approvals`](../modules/approvals/README.md) | under an answer, a request a workspace skill left (the exact text) with **Approve** and **Dismiss**; only Approve runs the skill's `approve.py`, once |
 
 A workspace with none of them still has the chat.
 
@@ -33,9 +35,9 @@ forged without going through a tool.
 ## The chat
 
 Each message is one `tanka run` in the workspace. Nothing is limited per message: the assistant spends at
-most `TANKA_PAGE_DAY_USD` a day (5), and a run may use what is left of it. A message sent while it answers
-stops that answer and takes its place; past `TANKA_COMPACT_TOKENS` of context (90000) the session is
-compacted before the next message, keeping the task and the decisions, and `/compact` does it on demand. The day's messages share one Claude Code session, so it remembers what was said earlier today;
+most `TANKA_PAGE_DAY_USD` a day (no cap by default; set it to cap), and a run may use what is left of it. A message sent while it answers
+stops that answer and takes its place; past `TANKA_COMPACT_TOKENS` of context (off by default) the session is
+compacted before the next message, keeping the task and the decisions, and `/compact` does it on demand. The assistant decides when to compact: when it finished and checked a task, nothing is left, and the conversation holds a lot of finished work, it ends its answer with `Compact: yes`; the page hides that line and compacts by itself, showing the picture `sleep` while it works and `wake` on the notice when done (the user's own files `sleep.*` and `wake.*` in `~/.tanka/shared/page/art/`, kept out of the repo; without them the page shows a plain line). The day's messages share one Claude Code session, so it remembers what was said earlier today;
 a new day starts a new session opened with the end of the earlier chat. A session also starts over when
 the assistant's skills or tools changed since it began (a tool Dev just built, a module installed): resuming
 would keep it answering from the old ones, as in "that parameter does not exist". The new one opens with the
@@ -91,7 +93,7 @@ and send; the menu never sends. A skill whose frontmatter says `user-invocable: 
 A selector over the chat's box picks who answers: **Tanka**, the workspace's assistant, or **Dev**, the
 user's strong model (`TANKA_DEV_MODEL`, default `opus`), which builds what the assistant uses. It starts
 on Tanka each time the page opens. Dev has its own session of the day and its own conversation in the
-same chat, spends at most `TANKA_DEV_PAGE_DAY_USD` a day (10), and what it makes shows on the page at once: a board within seconds, a new tool on the
+same chat, spends at most `TANKA_DEV_PAGE_DAY_USD` a day (no cap by default), and what it makes shows on the page at once: a board within seconds, a new tool on the
 assistant's next message.
 
 What dev may touch is decided by a PreToolUse hook, [`tanka_dev_guard.py`](../plugin/scripts/tanka_dev_guard.py):
@@ -128,7 +130,7 @@ switcher. `POST /api/persona/avatar-remove` goes back to the initial.
 
 **Profile and Rules.** Every parameter of the workspace, by hand. *Profile* is the rest of
 `.tanka/persona.json` — your name, the language (set here, the first session no longer asks), time zone,
-tone, personality, answer format, signature, notes — and the advisor model in `.claude/settings.json`.
+tone, personality, answer format, signature, notes — the workspace's model, effort and guardrails in `.tanka/workspace.json` (stricter guardrails are refused while the workspace has more tools than they allow), and the advisor model in `.claude/settings.json`.
 *Rules* is `.tanka/policy.json`: what the assistant may do without asking for each class of tool (read,
 drafts, changes, sending, unclassified), whether other MCP servers load, the checks before anything is
 sent (subject, shortest message, most recipients, allowed and blocked recipients, your own domains), the
@@ -188,7 +190,7 @@ terminal sessions update their tools by themselves, and a new skill needs `/relo
 | `POST /api/workspace/install` `{scope, module}` | install a module (and what it needs) |
 | `POST /api/workspace/uninstall` `{scope, module}` | remove a module's skill |
 | `POST /api/workspace/skill` `{scope, skill, enabled}` | turn an own skill on or off |
-| `POST /api/workspace/settings` `{scope, persona?, policy?, advisor_model?}` | save the profile, the rules or the advisor |
+| `POST /api/workspace/settings` `{scope, persona?, policy?, model?: {model, effort, profile}, advisor_model?}` | save the profile, the rules or the advisor |
 | `POST /api/workspace/create` `{scope, name?}` | a new workspace (`tanka init`) with its assistant's name |
 | `POST /api/workspace/reload` `{scope, what, mode?}` | rescan the skills, start and ask the MCP servers, or start a new conversation |
 | `POST /api/access` `{scope, id, decision, dir?}` | approve (read only) or deny the assistant's request to read a folder |

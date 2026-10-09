@@ -230,7 +230,7 @@ class TestChat(PageCase):
 
         def fake(scope, text, extra):
             self.runs.append((scope, text, list(extra)))
-            return self.replies.pop(0) if self.replies else (0, "Listo: te lo recuerdo a las 18:00.", "")
+            return self.replies.pop(0) if self.replies else (0, "Done: I will remind you at 18:00.", "")
         self.patch(chat, "run_tanka", fake)
         os.environ["TANKA_CODEPANION_BACKTEST"] = "1"  # no desktop notification from a test
         self.addCleanup(os.environ.pop, "TANKA_CODEPANION_BACKTEST", None)
@@ -295,7 +295,7 @@ class TestChat(PageCase):
             self.t[0] = time.time()  # the cards are made while it answers
             d.add_card("duck", "reminder", "", "Llamar", "23:59", by=d.ASSISTANT)
             d.close_card("duck", "check", "app", "Pagar la luz", by=d.ASSISTANT)
-            return 0, "Listo.", ""
+            return 0, "Done.", ""
         chat.run_tanka = acting
         self.say("recuérdame llamar y ya pagué la luz")
         reply = [m for m in self.stream() if m["who"] == "tanka"][-1]
@@ -315,9 +315,9 @@ class TestChat(PageCase):
         self.assertEqual([m["state"] for m in self.stream() if m["who"] == "reminder"], ["done"])
 
     def test_a_reply_reads_what_was_said_on_its_own(self):
-        self.say("hola")
+        self.say("hello")
         r = self.due_now("Tomar agua")
-        self.t[0] = time.time()  # it fires after "hola"
+        self.t[0] = time.time()  # it fires after "hello"
         d.fire_reminders()
         self.say("listo")
         sent = self.runs[-1][1]
@@ -369,12 +369,12 @@ class TestChat(PageCase):
 
     def test_bad_messages_are_refused(self):
         self.assertEqual(self.say("   ")[0], 400)
-        self.assertEqual(self.say("x" * 1001)[0], 400)
-        self.assertEqual(self.call("POST", "/api/chat", {"scope": "duck", "text": "hola"}, token=False)[0], 403)
-        self.assertEqual(self.call("POST", "/api/chat", {"scope": "nobody", "text": "hola"})[0], 400)
+        self.assertEqual(self.say("x" * (chat.TEXT_CHARS + 1))[0], 400)
+        self.assertEqual(self.call("POST", "/api/chat", {"scope": "duck", "text": "hello"}, token=False)[0], 403)
+        self.assertEqual(self.call("POST", "/api/chat", {"scope": "nobody", "text": "hello"})[0], 400)
         chat._busy["duck"] = time.time()
         self.addCleanup(chat._busy.pop, "duck", None)
-        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": "hola"})
+        status, data, _ = self.call("POST", "/api/chat", {"scope": "duck", "text": "hello"})
         self.assertEqual(status, 400)
         self.assertIn("still answering", json.loads(data)["error"])
         self.assertEqual(self.runs, [])
@@ -393,7 +393,7 @@ class TestChat(PageCase):
                 raise chat.Interrupted()
             return 0, "Ok, primero los de hoy.", ""
         self.patch(chat, "run_tanka", slow)
-        self.call("POST", "/api/chat", {"scope": "duck", "text": "revisa los correos"})
+        self.call("POST", "/api/chat", {"scope": "duck", "text": "check the emails"})
         self.assertTrue(started.wait(5))
         status, data = self.say("mejor primero los de hoy")
         self.assertEqual(status, 200, data)
@@ -416,16 +416,16 @@ class TestChat(PageCase):
                 raise chat.Interrupted()
             return 0, "Reviso IoT y Big Data.", ""
         self.patch(chat, "run_tanka", slow)
-        for i, said in enumerate(["revisa las notas de IoT", "también las de Big Data", "alo"]):
+        for i, said in enumerate(["review the IoT notes", "and the Big Data ones", "hey"]):
             if i:
                 deadline = time.time() + 5
                 while "duck" not in chat._stops and time.time() < deadline:
                     time.sleep(0.01)
             self.assertEqual(self.say(said)[0], 200)
         last = self.runs[-1][1]
-        self.assertIn("revisa las notas de IoT", last)
-        self.assertIn("también las de Big Data", last)
-        self.assertTrue(last.rstrip().endswith("alo"))
+        self.assertIn("review the IoT notes", last)
+        self.assertIn("and the Big Data ones", last)
+        self.assertTrue(last.rstrip().endswith("hey"))
         self.assertNotIn("duck", chat._unanswered)
 
     def fake_stream(self, context):
@@ -442,8 +442,9 @@ class TestChat(PageCase):
         self.patch(chat, "run_tanka", run)
 
     def test_a_long_conversation_is_compacted_before_the_next_message_keeping_the_task(self):
-        self.fake_stream(chat.COMPACT_TOKENS + 1000)
-        self.say("revisa los correos")
+        self.patch(chat, "COMPACT_TOKENS", 90000)
+        self.fake_stream(91000)
+        self.say("check the emails")
         self.assertEqual(len(self.runs), 1)  # a new session: nothing to compact yet
         self.say("sigue")
         (_, _, first), (_, compact, extra), (_, text, _) = self.runs
@@ -453,20 +454,105 @@ class TestChat(PageCase):
         note = [m for m in self.stream() if m.get("code") == "compacted"][0]
         self.assertIn("91k to 12k tokens", note["text"])
 
+    def test_without_a_threshold_a_long_conversation_is_never_compacted_on_its_own(self):
+        self.assertEqual(chat.COMPACT_TOKENS, 0)
+        self.fake_stream(900000)
+        self.say("check the emails")
+        self.say("sigue")
+        self.assertEqual(len(self.runs), 2)
+        self.assertFalse(any(r[1].startswith("/compact") for r in self.runs))
+
     def test_compact_typed_in_the_chat_compacts_with_what_the_user_adds(self):
         self.fake_stream(30000)
         self.say("/compact")
         self.assertEqual(self.runs, [])  # no conversation today yet
-        self.say("hola")
+        self.say("hello")
         self.say("/compact keep the invoice numbers")
         compact = self.runs[-1][1]
         self.assertTrue(compact.startswith("/compact ") and compact.endswith("The user adds: keep the invoice numbers"))
         self.assertTrue([m for m in self.stream() if m.get("code") == "compacted"])
         self.assertIn("/compact", [c["name"] for c in chat.commands("duck")["tanka"]])
 
+    def test_the_assistant_decides_to_compact_and_the_closing_line_is_hidden(self):
+        def run(scope, text, extra):
+            if text.startswith("/compact"):
+                chat.on_stream(scope, {"type": "system", "subtype": "compact_boundary",
+                                       "compact_metadata": {"pre_tokens": 90000, "post_tokens": 9000}})
+                return 0, "", ""
+            return 0, "Created the card.\nCompact: yes", ""
+        self.patch(chat, "run_tanka", run)
+        self.say("crea la card")
+        stream = self.stream()
+        self.assertEqual([m for m in stream if m.get("who") == "tanka"][-1]["text"], "Created the card.")
+        notice = [m for m in stream if m.get("code") == "compacted"]
+        self.assertEqual(len(notice), 1)
+        self.assertIn("finished and checked", notice[0]["text"])
+
+    def test_without_the_closing_line_nothing_is_compacted(self):
+        runs = []
+        def run(scope, text, extra):
+            runs.append(text)
+            return 0, "Created the card.", ""
+        self.patch(chat, "run_tanka", run)
+        self.say("crea la card")
+        self.assertEqual(len(runs), 1)
+
+    def test_the_closing_line_counts_only_at_the_end_of_an_answer(self):
+        self.assertEqual(chat.take_compact("Done.\nCompact: yes."), ("Done.", True))
+        self.assertEqual(chat.take_compact("COMPACT: YES"), ("Done.", True))
+        for text in ("Compact: yes, maybe", "Compact: yes\nbut one thing is left", "Compact: no", "ok"):
+            self.assertEqual(chat.take_compact(text), (text, False))
+
+    def test_the_hint_leaves_the_decision_to_compact_to_the_assistant(self):
+        self.assertIn("Compact: yes", chat.HINT)
+        self.assertIn("while the conversation is short", chat.HINT)
+
+    def test_drafts_are_fenced_and_the_page_gives_them_a_copy_button(self):
+        html = (kit.REPO / "plugin" / "page" / "page.html").read_text(encoding="utf-8")
+        self.assertIn("fenced block", chat.HINT)
+        self.assertIn('class: "codeblock"', html)
+        self.assertIn("navigator.clipboard.writeText", html)
+        self.assertIn("copyButton(m.text)", html)
+
+    def test_answers_are_formatted_and_the_page_lays_out_status_lines(self):
+        html = (kit.REPO / "plugin" / "page" / "page.html").read_text(encoding="utf-8")
+        self.assertIn("bold the key names", chat.HINT)
+        self.assertNotIn("no Markdown", chat.HINT)
+        self.assertIn('class: "kv"', html)
+
+    def test_the_page_shows_the_user_s_pictures_while_it_compacts(self):
+        html = (kit.REPO / "plugin" / "page" / "page.html").read_text(encoding="utf-8")
+        self.assertNotIn("m.compactable", html)
+        self.assertIn('id="nap"', html)
+        self.assertIn('/api/art', html)
+        self.assertIn('m.code === "compacted"', html)
+
+    def test_the_pictures_come_from_the_page_home_not_the_repo(self):
+        art = kit.PAGE_HOME / "art"
+        self.assertEqual(page.art_data(), {"sleep": None, "wake": None})
+        art.mkdir(parents=True)
+        (art / "sleep.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        got = page.art_data()
+        self.assertTrue(got["sleep"].startswith("data:image/png;base64,"))
+        self.assertIsNone(got["wake"])
+
+    def test_the_request_body_limit_leaves_room_for_the_longest_message(self):
+        import tanka_page as page
+        self.assertGreaterEqual(page.BODY_MAX, chat.TEXT_CHARS * 6)  # worst case: every character sent as \\uXXXX
+
+    def test_there_is_no_daily_cap_unless_one_is_set(self):
+        self.assertEqual((chat.DAY_USD, chat.DEV_DAY_USD), (0, 0))
+        tc.record_cost(self.ws, "chat", "chat", 1000)
+        self.assertEqual(self.say("hello")[0], 200)
+        self.assertIsNone(chat.chat_left("duck"))
+        self.assertEqual(chat.budget_arg(None), "0")
+        self.assertEqual(chat.budget_flags(None), [])
+        self.assertNotIn("--max-budget-usd", chat.dev_cmd("duck", "hello", ["--session-id", "s"]))
+
     def test_the_daily_cap_is_money_not_messages(self):
+        self.patch(chat, "DAY_USD", 5.0)
         tc.record_cost(self.ws, "chat", "chat", chat.DAY_USD)
-        status, data = self.say("hola")
+        status, data = self.say("hello")
         self.assertEqual(status, 400)
         self.assertIn("TANKA_PAGE_DAY_USD", data["error"])
         self.assertEqual(self.runs, [])
@@ -477,7 +563,7 @@ class TestChat(PageCase):
         chat._stops[dev] = lambda: self.fail("dev was stopped")
         for d in (chat._busy, chat._busy_mode, chat._stops):
             self.addCleanup(d.pop, dev, None)
-        status, data = self.say("hola")
+        status, data = self.say("hello")
         self.assertEqual(status, 200, data)
         self.assertEqual(len(self.runs), 1)
         self.assertTrue(chat.busy("duck", "dev"))
@@ -492,7 +578,7 @@ class TestChat(PageCase):
         self.assertEqual(last["who"], "error")
         self.assertIn("max turns", last["text"])
         self.assertFalse(chat.session_file("duck").exists())  # nothing was kept, so the next one starts fresh
-        self.say("hola")
+        self.say("hello")
         self.replies = [(1, "", "No conversation found with session ID"), (0, "Hola de nuevo.", "")]
         self.say("sigues ahí?")
         resumed, again = self.runs[-2][2], self.runs[-1][2]
@@ -526,7 +612,7 @@ class TestDev(PageCase):
         return status, json.loads(data)
 
     def test_dev_has_its_own_session_and_conversation(self):
-        self.say("hola")
+        self.say("hello")
         self.say("crea un tablero de clientes", mode="dev")
         self.say("y ahora?", mode="dev")
         self.say("gracias")
@@ -541,22 +627,24 @@ class TestDev(PageCase):
         yesterday = time.time() - 86400
         kit.chat_event("duck", {"t": yesterday, "who": "you", "text": "el informe va el viernes"})
         kit.chat_event("duck", {"t": yesterday + 1, "who": "you", "text": "agrega un estado al tablero", "mode": "dev"})
-        kit.chat_event("duck", {"t": yesterday + 2, "who": "dev", "text": "Listo, agregué el estado."})
+        kit.chat_event("duck", {"t": yesterday + 2, "who": "dev", "text": "Done, I added the status."})
         self.say("qué quedó?", mode="dev")
         sent = self.runs[-1][1]
         self.assertIn("agrega un estado al tablero", sent)
         self.assertNotIn("el informe va el viernes", sent)
 
     def test_dev_stops_at_its_daily_cap(self):
+        self.patch(chat, "DEV_DAY_USD", 10.0)
         kit.tc.record_cost(self.ws, "dev", "dev", chat.DEV_DAY_USD)
         status, data = self.say("otro tablero", mode="dev")
         self.assertEqual(status, 400)
         self.assertIn("for today", data["error"])
-        self.assertEqual(self.say("hola")[0], 200)  # the assistant is not affected
+        self.assertEqual(self.say("hello")[0], 200)  # the assistant is not affected
         self.assertEqual(self.say("x", mode="root")[0], 400)
 
     def test_the_dev_command_is_guarded_by_its_own_hook(self):
-        cmd = chat.dev_cmd("duck", "hola", ["--session-id", "s"])
+        self.patch(chat, "DEV_DAY_USD", 10.0)
+        cmd = chat.dev_cmd("duck", "hello", ["--session-id", "s"])
         joined = " ".join(cmd)
         hook = json.loads(cmd[cmd.index("--settings") + 1])["hooks"]["PreToolUse"][0]
         self.assertEqual(hook["matcher"], "*")
@@ -567,6 +655,7 @@ class TestDev(PageCase):
         self.assertIn("WebFetch", cmd[cmd.index("--disallowedTools") + 1:])
 
     def test_state_says_what_dev_may_still_spend(self):
+        self.patch(chat, "DEV_DAY_USD", 10.0)
         kit.tc.record_cost(self.ws, "dev", "dev", 1.5)
         dev = self.scope()["dev"]
         self.assertEqual(dev["left_usd"], round(chat.DEV_DAY_USD - 1.5, 2))
@@ -586,15 +675,15 @@ class TestStreaming(WorkspaceCase):
         self.fake_bin([{"type": "stream_event", "event": {"type": "message_start"}},
                        {"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Lis"}}},
                        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "mcp__tanka__desk_card"}]}},
-                       {"type": "result", "result": "Listo: a las 18:00.", "is_error": False, "total_cost_usd": 0.012}])
-        self.assertEqual(chat.run_tanka("duck", "hola", []), (0, "Listo: a las 18:00.", ""))
+                       {"type": "result", "result": "Done: at 18:00.", "is_error": False, "total_cost_usd": 0.012}])
+        self.assertEqual(chat.run_tanka("duck", "hello", []), (0, "Done: at 18:00.", ""))
         self.assertEqual(chat._drafts.pop("duck"), {"text": "Lis", "tool": "mcp__tanka__desk_card"})
         self.assertEqual(kit.tc.spent_today(self.ws), (0.012, 1))
 
     def test_a_resumed_session_counts_only_what_this_answer_cost(self):
         # Claude Code reports a resumed session's total so far, not the answer's own cost.
         self.fake_bin([{"type": "result", "result": "uno", "total_cost_usd": 0.05}])
-        chat.run_tanka("duck", "hola", ["--session-id", "s-1"])
+        chat.run_tanka("duck", "hello", ["--session-id", "s-1"])
         self.fake_bin([{"type": "result", "result": "dos", "total_cost_usd": 0.08}])
         chat.run_tanka("duck", "y?", ["--resume", "s-1"])
         chat._drafts.pop("duck", None)
@@ -603,7 +692,7 @@ class TestStreaming(WorkspaceCase):
 
     def test_a_run_that_ends_in_error_has_no_answer(self):
         self.fake_bin([{"type": "result", "subtype": "error_max_turns", "is_error": True}], code=1)
-        code, out, err = chat.run_tanka("duck", "hola", [])
+        code, out, err = chat.run_tanka("duck", "hello", [])
         chat._drafts.pop("duck", None)
         self.assertEqual((code, out, err), (1, "", "error_max_turns"))
 

@@ -187,6 +187,24 @@ def alert(ws: Path, cfg: dict, text: str) -> None:
                        check=False, timeout=120, capture_output=True)
 
 
+def clear_stale_objectives() -> list[Path]:
+    """When the daemon starts no automation is running, so an "auto-" objective still active in a workspace was
+    left by a run that was killed (a crash, a reboot) before it could put the user's own back. Remove it, so the
+    user's next session is not held to an automation's limits. The user's own objectives are never touched."""
+    cleared = []
+    for ws in workspaces():
+        active = ws / ".tanka" / "state" / "objective.json"
+        try:
+            oid = str(json.loads(active.read_text(encoding="utf-8")).get("id", ""))
+        except (OSError, ValueError, AttributeError):
+            continue
+        if oid.startswith("auto-"):
+            active.unlink(missing_ok=True)
+            log(ws, f"cleared the objective {oid} left by an interrupted run")
+            cleared.append(ws)
+    return cleared
+
+
 def run_once(ws: Path, kind: str, name: str, spec: dict, woke: str, runner=None) -> str:
     """Run the assistant for one routine or trigger; returns its report ('-' when nothing to tell)."""
     scope = spec.get("scope") or name_of(ws)
@@ -318,6 +336,7 @@ class Daemon:
             print(f"= The automation daemon is already running (pid {daemon_pid()}).")
             return 0
         print(f"Tanka automation running (pid {os.getpid()}): {len(workspaces())} workspace(s). Ctrl+C to stop.", flush=True)
+        clear_stale_objectives()
         while True:
             try:
                 self.tick()

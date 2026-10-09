@@ -25,6 +25,7 @@ import html
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -614,6 +615,144 @@ def reply(scope: str, number: int, message: str, attachment: str | None) -> None
         raise ToolError("Gmail did not confirm the reply: it may or may not have gone out. "
                         "Ask the user to check the conversation in Gmail; do not retry.")
     print(f"Reply sent from {address} in the conversation \"{subject}\"{' with ' + path.name if path else ''}. Do not repeat it.")
+
+
+# ---------------------------------------------------------------- archiving and the trash
+
+ACT = r"""
+  // The open conversation's toolbar: act 7 archives, act 10 moves to the trash. Done when the list is back.
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const b = [...document.querySelectorAll(`[act="${act}"]`)].find(e => e.getBoundingClientRect().width > 0);
+  if (!b) return JSON.stringify({error: "no button for it"});
+  const r = b.getBoundingClientRect();
+  const o = {bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0};
+  for (const t of ["mousedown", "mouseup", "click"]) b.dispatchEvent(new MouseEvent(t, o));
+  for (let i = 0; i < 20; i++) { await sleep(500); if (!document.querySelector("h2.hP")) return JSON.stringify({ok: true}); }
+  return JSON.stringify({unconfirmed: true});
+"""
+
+IN_VIEW = r"""
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < 20; i++) {
+    await sleep(500);
+    const rows = [...document.querySelectorAll("tr.zA")].filter(r => r.offsetParent !== null);
+    const main = document.querySelector('div[role="main"]');
+    const empty = main && /No hay|No messages|No se encontraron|didn't match|no coinciden/i.test(main.innerText.slice(0, 400));
+    if (rows.length || empty) return JSON.stringify({found: rows.some(r => r.querySelector(`[data-legacy-thread-id="${thread}"]`))});
+  }
+  return JSON.stringify({found: null});
+"""
+
+
+def _act_on(listing: dict, number: int, act: int, what: str) -> str:
+    """Open the conversation from its list, press one toolbar button, and say whether it left the inbox."""
+    thread = listing["threads"][str(number)]
+    subject = listing.get("subjects", {}).get(str(number), "")
+    index = account_index(listing["address"])
+    goto(f"{BASE}/mail/u/{index}/#{listing.get('view', 'inbox')}")
+    if step(page(OPEN_THREAD, thread=thread), "open the conversation").get("missing"):
+        raise ToolError(f"That conversation is no longer in the list. Call gmail_inbox again; nothing was {what}.")
+    res = step(page(ACT, act=act), f"{what} it", timeout=60)
+    goto(f"{BASE}/mail/u/{index}/#search/" + urllib.parse.quote(f'in:inbox subject:"{subject}"').replace("%20", "+"))
+    still = js(page(IN_VIEW, thread=thread), timeout=60).get("found")
+    if res.get("unconfirmed") or still:
+        raise ToolError(f"Gmail did not confirm it: the conversation may still be in the inbox. Ask the user to check; do not retry.")
+    return subject
+
+
+def archive(scope: str, number: int) -> None:
+    listing, address = from_listing(scope, number)
+    with session():
+        subject = _act_on(listing, number, 7, "archived")
+    print(f"Archived \"{subject}\" in {address}: it left the inbox and is still in All Mail. Do not repeat it.")
+
+
+REQUESTS = HOME / "requests"
+SCOPE_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+
+
+def requests_file(scope: str) -> Path:
+    if not SCOPE_RE.fullmatch(scope or ""):
+        raise ToolError(f"'{scope}' is not a workspace scope. Tell the user.")
+    return REQUESTS / f"{scope}.json"
+
+
+@contextlib.contextmanager
+def requests_locked(scope: str):
+    f = requests_file(scope)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f.with_suffix(".lock"), "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def read_requests(scope: str) -> list[dict]:
+    try:
+        data = json.loads(requests_file(scope).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = data.get("requests") if isinstance(data, dict) else None
+    return [r for r in items if isinstance(r, dict) and r.get("id")] if isinstance(items, list) else []
+
+
+def write_requests(scope: str, items: list[dict]) -> None:
+    f = requests_file(scope)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    pending = [r for r in items if r.get("status") == "pending"]
+    rest = [r for r in items if r.get("status") != "pending"][:30]
+    tmp = f.with_name(f".{f.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"requests": pending + rest}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(f)
+
+
+def trash_tool(scope: str, number: int) -> None:
+    """Leave a request for the user to confirm on the page. Nothing is moved here, ever."""
+    listing, address = from_listing(scope, number)
+    thread = listing["threads"][str(number)]
+    with requests_locked(scope):
+        items = read_requests(scope)
+        if any(r["thread"] == thread and r.get("status") == "pending" for r in items):
+            raise ToolError("A request to move that conversation to the trash is already waiting for the user.")
+        r = {"id": "g-" + secrets.token_hex(3), "address": address, "thread": thread, "view": listing.get("view", "inbox"),
+             "index": listing.get("index"), "subject": listing.get("subjects", {}).get(str(number), ""),
+             "t": round(time.time(), 3), "status": "pending"}
+        write_requests(scope, [r] + items)
+    print(f"Request {r['id']} saved to move \"{r['subject']}\" to the trash. NOTHING was moved: the user must press "
+          "Delete in the chat. Tell them, and do not say it is in the trash until they confirm.")
+
+
+def _pending(items: list[dict], rid: str) -> dict:
+    r = next((x for x in items if x["id"] == rid), None)
+    if r is None or r.get("status") != "pending":
+        raise ToolError(f"No pending request {rid} in this workspace.")
+    return r
+
+
+def confirm_trash(scope: str, rid: str) -> str:
+    """The user's click: move the conversation to the trash (Gmail keeps it there 30 days)."""
+    with requests_locked(scope):
+        items = read_requests(scope)
+        r = _pending(items, rid)
+        if r["address"] not in allowed(scope):
+            raise ToolError(f"{r['address']} is no longer assigned to this assistant.")
+        listing = {"address": r["address"], "view": r["view"], "threads": {"1": r["thread"]}, "subjects": {"1": r["subject"]}}
+        with session():
+            _act_on(listing, 1, 10, "moved to the trash")
+        r["status"], r["closed"] = "deleted", round(time.time(), 3)
+        write_requests(scope, items)
+    return f"Moved \"{r['subject']}\" to the trash. Gmail keeps it there for 30 days."
+
+
+def dismiss_trash(scope: str, rid: str) -> str:
+    with requests_locked(scope):
+        items = read_requests(scope)
+        r = _pending(items, rid)
+        r["status"], r["closed"] = "dismissed", round(time.time(), 3)
+        write_requests(scope, items)
+    return f"Kept \"{r['subject']}\"; nothing was moved."
 
 
 # ---------------------------------------------------------------- events (for triggers)

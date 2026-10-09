@@ -176,6 +176,17 @@ DEFAULT_POLICY: dict = {
 # denied by default.
 # --------------------------------------------------------------------------- #
 PROFILE_NAMES = ("haiku", "sonnet")
+
+# Models are always launched by their full id: an alias ("sonnet") lets Claude Code resolve it to whichever
+# version it prefers, so a workspace could change model without anyone choosing it.
+MODEL_IDS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def model_id(name: str) -> str:
+    """The full id for an alias (haiku, sonnet, opus); anything else, such as a full id, as given."""
+    n = (name or "").strip()
+    return MODEL_IDS.get(n.lower(), n)
 DEFAULT_PROFILE = "haiku"  # also what a workspace made before profiles existed gets
 
 PROFILE_POLICY: dict = {
@@ -203,6 +214,17 @@ PROFILE_LAUNCH: dict = {
     "haiku": {"model": "haiku", "autocompact_pct": 60, "tool_search": "false"},
     "sonnet": {"model": "sonnet", "autocompact_pct": 75, "tool_search": "auto"},
 }
+
+
+def launch(root: Path | None) -> dict:
+    """How the workspace runs: its guardrails (profile), the model (full id) and the effort ("" = Claude Code's
+    default). workspace.json may choose the model and effort apart from the guardrails; by default the model is
+    the profile's."""
+    name = profile_name(root)
+    ws = load_workspace(root) if root is not None else {}
+    model = ws.get("model") if ws.get("model") in MODEL_IDS else PROFILE_LAUNCH[name]["model"]
+    effort = ws.get("effort") if ws.get("effort") in EFFORTS else ""
+    return {**PROFILE_LAUNCH[name], "profile": name, "model": model_id(model), "model_name": model, "effort": effort}
 
 
 def load_workspace(root: Path) -> dict:
@@ -422,7 +444,14 @@ def objective_path(root: Path) -> Path:
 
 def load_objective(root: Path) -> dict | None:
     obj = load_json(objective_path(root), None)
-    return obj if isinstance(obj, dict) else None
+    if not isinstance(obj, dict):
+        return None
+    # A routine or trigger activates "auto-<name>" in the workspace's shared state, and a run that is killed
+    # can leave it there. A message typed in the page's chat (TANKA_CHAT) has the user present, so it is never
+    # held to an automation's objective, whether that one is still running or stale.
+    if os.environ.get("TANKA_CHAT") and str(obj.get("id", "")).startswith("auto-"):
+        return None
+    return obj
 
 
 OBJECTIVE_REQUIRED = ["title", "goal", "done_when", "allowed_tool_classes", "status"]

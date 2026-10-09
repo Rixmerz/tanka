@@ -1,0 +1,35 @@
+{
+  "name": "calendar_agenda",
+  "effect": "read",
+  "description": "Lists the events in the user's Google Calendar for one or more days, numbered, in date and time order, with time (or all day), title and place. Use it when the user asks what they have today, tomorrow, this week or on a date, and before calendar_event or calendar_create. It does not show guests or descriptions (that is calendar_event with the number) and does not find free time (that is calendar_free). The numbers are valid until the next agenda. Returns one line per event: number | date | time | title | place.",
+  "params": {
+    "start": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "First day, as YYYY-MM-DD (e.g. 2026-10-20). Leave it out for today."
+    },
+    "days": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 14,
+      "description": "How many days from start to show (e.g. 7 for a week)."
+    },
+    "account": {
+      "type": "string",
+      "description": "Address of the Google account to use, when this assistant has more than one (e.g. someone@example.com). Leave it out to use the only one."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "start": "2026-10-20",
+      "days": 7
+    }
+  ],
+  "timeout_sec": 150,
+  "run": [
+    "python3",
+    "calendar_agenda.py"
+  ]
+}

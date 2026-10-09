@@ -1,0 +1,23 @@
+{
+  "name": "jira_delete",
+  "effect": "modify",
+  "description": "Asks the user to delete one Jira issue. It deletes nothing: it leaves a request that the user confirms or dismisses with a button in the chat, and only their click deletes (for good, Jira has no trash for issues). Use it when the user asks to delete an issue, for example a card created by mistake, and only for the exact issue they named. Jira refuses to delete an issue that has subtasks. Returns one line saying the request is waiting for the user.",
+  "params": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Key of the issue to delete, as jira_search shows it (e.g. PROJ-123)."
+    }
+  },
+  "examples": [
+    {
+      "key": "PROJ-123"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_delete.py"
+  ]
+}

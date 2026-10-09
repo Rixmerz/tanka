@@ -1,0 +1,53 @@
+{
+  "name": "jira_update",
+  "effect": "modify",
+  "description": "Changes one existing Jira issue: moves it to another status by name (such as In Progress or Done, following the project's workflow), and edits its summary, its description (replaced whole) and its labels (added or removed one by one, never replacing the others). Use it only after the user said what to change. It does not comment (jira_comment), create issues (jira_create) or link them (jira_link). Leave out any field that must stay as it is. Returns one line naming what changed. If the status is not reachable it lists the available ones; ask the user which.",
+  "params": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Issue key, as jira_search shows it (e.g. PROJ-123)."
+    },
+    "status": {
+      "type": "string",
+      "description": "Target status name as the project uses it (e.g. In Progress, Done). Leave it out to keep the status."
+    },
+    "summary": {
+      "type": "string",
+      "description": "New one-line title. Leave it out to keep the current one."
+    },
+    "description": {
+      "type": "string",
+      "description": "New plain-text body that replaces the whole current one; blank lines separate paragraphs. Leave it out to keep it."
+    },
+    "add_labels": {
+      "type": "string",
+      "description": "Labels to add, separated by commas (e.g. backend,urgent). Existing labels stay. Leave it out for none."
+    },
+    "remove_labels": {
+      "type": "string",
+      "description": "Labels to remove, separated by commas (e.g. old-label). Leave it out for none."
+    }
+  },
+  "examples": [
+    {
+      "key": "PROJ-123",
+      "status": "Done"
+    },
+    {
+      "key": "PROJ-123",
+      "add_labels": "backend,urgent"
+    },
+    {
+      "key": "PROJ-123",
+      "summary": "Fix login timeout on mobile",
+      "remove_labels": "triage"
+    }
+  ],
+  "timeout_sec": 60,
+  "run": [
+    "python3",
+    "jira_update.py"
+  ]
+}

@@ -1,11 +1,11 @@
 {
   "name": "jira_search",
   "effect": "read",
-  "description": "Searches the Jira issues of the projects assigned to this assistant with a JQL query, newest matches as Jira orders them. Use it when the user asks which issues exist, what is assigned to someone, what is open or blocked, or needs an issue key they do not know. It does not show an issue's description or comments (that is jira_issue with the key) and changes nothing. The query is always limited to the assigned projects. Returns a count line, then one line per issue: KEY | status | type | assignee | summary.",
+  "description": "Searches the Jira issues of the projects assigned to this assistant with a JQL query, or shows one issue in full when given its key. Use it when the user asks which issues exist, what is assigned to someone, what is open or blocked, needs an issue key they do not know, or asks what an issue says: its status, assignee, labels, parent, description, links and last 10 comments; also before commenting, updating or deleting. It changes nothing. A query is always limited to the assigned projects. Returns a count line and one line per issue (KEY | status | type | assignee | summary), or the issue's header lines, description and comments.",
   "params": {
     "jql": {
       "type": "string",
-      "required": true,
+      "required": false,
       "description": "JQL filter as the user described it, without the project (e.g. status = \"In Progress\" ORDER BY updated DESC)."
     },
     "limit": {
@@ -14,6 +14,11 @@
       "minimum": 1,
       "maximum": 50,
       "description": "How many issues to show at most (e.g. 20)."
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]+-[0-9]+$",
+      "description": "Issue key to read in full (e.g. PROJ-123); leave jql out when you give it."
     }
   },
   "examples": [
@@ -23,6 +28,9 @@
     {
       "jql": "text ~ \"login error\"",
       "limit": 5
+    },
+    {
+      "key": "PROJ-123"
     }
   ],
   "timeout_sec": 60,

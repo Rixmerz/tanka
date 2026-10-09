@@ -17,9 +17,12 @@ always wins over the file. When the token is not in the environment, a
 manager's "run with these secrets") launches this same script once.
 """
 import base64
+import contextlib
+import fcntl
 import json
 import os
 import re
+import secrets
 import ssl
 import sys
 import time
@@ -150,7 +153,9 @@ def check_project(scope: str, project: str, write: bool = False) -> str:
         raise ToolError(f"\"{project}\" is not a Jira project this assistant may use. It may use: {', '.join(s['projects'])}.")
     if write and not s["write"]:
         raise ToolError("This assistant may only read Jira, not change it. Tell the user; only they can allow writing.")
-    if write and os.environ.get("TANKA_UNATTENDED") and not s["unattended_write"]:
+    # A message typed in the page's chat runs unattended by the launcher's definition, but the user is there
+    # reading the answer: the page marks it with TANKA_CHAT. Routines and triggers never carry that mark.
+    if write and os.environ.get("TANKA_UNATTENDED") and not os.environ.get("TANKA_CHAT") and not s["unattended_write"]:
         # Tanka's own tools are pre-approved, so nothing else stops a routine or a delegated run from writing.
         raise ToolError("Nobody is watching this run, so it may not change Jira. Tell the user what you would have done; "
                         "only they can allow unattended writes (unattended_write in their scopes file).")
@@ -374,7 +379,11 @@ def _name(user) -> str:
     return (user or {}).get("displayName") or "unassigned"
 
 
-def search(scope: str, jql: str, limit: int = 20) -> str:
+def search(scope: str, jql: str | None = None, limit: int = 20, key: str | None = None) -> str:
+    if key:
+        return issue(scope, key)
+    if not (jql or "").strip():
+        raise ToolError("Give a JQL query to search, or the key of one issue to read it in full.")
     limit = max(1, min(int(limit or 20), 50))
     q = wrap_jql(scope, jql)
     issues, page = [], None
@@ -436,7 +445,7 @@ def create(scope: str, project: str, type_: str, summary: str, description: str 
     fields = {"project": {"key": project}, "issuetype": {"name": type_}, "summary": summary.strip()}
     if description:
         fields["description"] = to_adf(description)
-    labs = [x.strip().replace(" ", "-") for x in (labels or "").split(",") if x.strip()]
+    labs = _labels(labels)
     if labs:
         fields["labels"] = labs
     if parent:
@@ -445,8 +454,11 @@ def create(scope: str, project: str, type_: str, summary: str, description: str 
     return f"Created {res.get('key', '?')} in {project}: {summary.strip()}. Do not call jira_create again for it."
 
 
-def transition(scope: str, key: str, status: str) -> str:
-    key = check_key(scope, key, write=True)
+def _labels(text: str | None) -> list[str]:
+    return [x.strip().replace(" ", "-") for x in (text or "").split(",") if x.strip()]
+
+
+def _pick_transition(key: str, status: str) -> dict:
     res = request("GET", f"/rest/api/3/issue/{key}/transitions") or {}
     options = res.get("transitions") or []
     want = (status or "").strip().lower()
@@ -456,9 +468,140 @@ def transition(scope: str, key: str, status: str) -> str:
         avail = sorted({(t.get("to") or {}).get("name") or t.get("name", "?") for t in options})
         raise ToolError(f"{key} cannot move to \"{status}\" from where it is. Available: {', '.join(avail) or 'none'}. "
                         "Ask the user which one.")
-    t = match[0]
+    return match[0]
+
+
+def _moved(t: dict) -> str:
+    return (t.get("to") or {}).get("name") or t.get("name")
+
+
+def update(scope: str, key: str, status: str | None = None, summary: str | None = None,
+           description: str | None = None, add_labels: str | None = None, remove_labels: str | None = None) -> str:
+    """Change an existing issue: its status, summary, description and labels (added or removed, never replaced)."""
+    key = check_key(scope, key, write=True)
+    fields, done = {}, []
+    if (summary or "").strip():
+        fields["summary"] = summary.strip()
+        done.append("summary")
+    if (description or "").strip():
+        fields["description"] = to_adf(description)
+        done.append("description")
+    ops = [{"add": x} for x in _labels(add_labels)] + [{"remove": x} for x in _labels(remove_labels)]
+    if ops:
+        done.append("labels")
+    move = _pick_transition(key, status) if (status or "").strip() else None  # checked before anything is changed
+    if not done and not move:
+        raise ToolError("Nothing to change. Ask the user what to change: status, summary, description or labels.")
+    if fields or ops:
+        body = {}
+        if fields:
+            body["fields"] = fields
+        if ops:
+            body["update"] = {"labels": ops}
+        request("PUT", f"/rest/api/3/issue/{key}", body)
+    if move:
+        request("POST", f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": move["id"]}})
+        done.append(f"status -> {_moved(move)}")
+    return f"{key} updated ({', '.join(done)}). Do not call jira_update again for the same change."
+
+
+def transition(scope: str, key: str, status: str) -> str:
+    key = check_key(scope, key, write=True)
+    t = _pick_transition(key, status)
     request("POST", f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": t["id"]}})
-    return f"{key} moved to {(t.get('to') or {}).get('name') or t.get('name')}."
+    return f"{key} moved to {_moved(t)}."
+
+
+# ---------------------------------------------------------------- deleting: the assistant asks, the user clicks
+
+DELETIONS = HOME / "deletions"
+MAX_DELETIONS_KEPT = 30
+SCOPE_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+
+
+def deletions_file(scope: str) -> Path:
+    if not SCOPE_RE.fullmatch(scope or ""):
+        raise ToolError(f"'{scope}' is not a workspace scope. Tell the user.")
+    return DELETIONS / f"{scope}.json"
+
+
+@contextlib.contextmanager
+def deletions_locked(scope: str):
+    f = deletions_file(scope)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f.with_suffix(".lock"), "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def read_deletions(scope: str) -> list[dict]:
+    try:
+        data = json.loads(deletions_file(scope).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = data.get("deletions") if isinstance(data, dict) else None
+    return [d for d in items if isinstance(d, dict) and d.get("id")] if isinstance(items, list) else []
+
+
+def write_deletions(scope: str, items: list[dict]) -> None:
+    f = deletions_file(scope)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    pending = [d for d in items if d.get("status") == "pending"]
+    rest = [d for d in items if d.get("status") != "pending"][:MAX_DELETIONS_KEPT]
+    tmp = f.with_name(f".{f.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"deletions": pending + rest}, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(f)
+
+
+def request_delete(scope: str, key: str) -> dict:
+    """Leave a request for the user to confirm on the page. Nothing is deleted here, ever."""
+    key = check_key(scope, key, write=True)
+    f = (request("GET", f"/rest/api/3/issue/{key}", query={"fields": "summary"}) or {}).get("fields") or {}
+    with deletions_locked(scope):
+        items = read_deletions(scope)
+        if any(d["key"] == key and d.get("status") == "pending" for d in items):
+            raise ToolError(f"A request to delete {key} is already waiting for the user. Tell them to confirm it on the page.")
+        d = {"id": "d-" + secrets.token_hex(3), "key": key, "summary": " ".join((f.get("summary") or "").split())[:200],
+             "t": round(time.time(), 3), "status": "pending"}
+        write_deletions(scope, [d] + items)
+    return d
+
+
+def _find(items: list[dict], did: str) -> dict:
+    d = next((x for x in items if x["id"] == did), None)
+    if d is None or d.get("status") != "pending":
+        raise ToolError(f"No pending request {did} in this workspace.")
+    return d
+
+
+def confirm_delete(scope: str, did: str) -> str:
+    """The user's click: delete the issue for good (Jira refuses when it has subtasks)."""
+    with deletions_locked(scope):
+        items = read_deletions(scope)
+        d = _find(items, did)
+        check_key(scope, d["key"], write=True)
+        request("DELETE", f"/rest/api/3/issue/{d['key']}")
+        d["status"], d["closed"] = "deleted", round(time.time(), 3)
+        write_deletions(scope, items)
+    return f"Deleted {d['key']}. It cannot be undone."
+
+
+def dismiss_delete(scope: str, did: str) -> str:
+    with deletions_locked(scope):
+        items = read_deletions(scope)
+        d = _find(items, did)
+        d["status"], d["closed"] = "dismissed", round(time.time(), 3)
+        write_deletions(scope, items)
+    return f"Kept {d['key']}; nothing was deleted."
+
+
+def delete_tool(scope: str, key: str) -> str:
+    d = request_delete(scope, key)
+    return (f"Request {d['id']} saved to delete {d['key']} ({d['summary']}). NOTHING was deleted: the user must press "
+            "Delete in the chat. Tell them, and do not say it is deleted until they confirm.")
 
 
 def comment(scope: str, key: str, body: str) -> str:

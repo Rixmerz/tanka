@@ -218,6 +218,37 @@ class TestOperations(JiraCase):
         self.assertEqual(f["parent"], {"key": "PROJ-1"})
         self.assertEqual(f["description"]["type"], "doc")
 
+    def test_update_adds_and_removes_labels_without_replacing_the_rest(self):
+        self.replies = [{}]
+        out = jira.update("work", "proj-5", summary=" New title ", add_labels="a, b c", remove_labels="old")
+        method, path, body = self.calls[0][0], self.calls[0][1], self.calls[0][2]
+        self.assertEqual((method, path), ("PUT", "https://your-company.atlassian.net/rest/api/3/issue/PROJ-5"))
+        self.assertEqual(body["update"]["labels"], [{"add": "a"}, {"add": "b-c"}, {"remove": "old"}])
+        self.assertEqual(body["fields"], {"summary": "New title"})
+        self.assertIn("summary, labels", out)
+
+    def test_update_checks_the_status_before_changing_anything(self):
+        self.replies = [{"transitions": [{"id": "11", "name": "Start", "to": {"name": "In Progress"}}]}]
+        with self.assertRaisesRegex(jira.ToolError, "cannot move"):
+            jira.update("work", "PROJ-5", status="Done", summary="New")
+        self.assertEqual([c[0] for c in self.calls], ["GET"])  # no PUT happened
+
+    def test_update_changes_fields_then_moves_the_issue(self):
+        self.replies = [{"transitions": [{"id": "31", "name": "Finish", "to": {"name": "Done"}}]}, {}, {}]
+        out = jira.update("work", "PROJ-5", status="done", add_labels="x")
+        self.assertEqual([c[0] for c in self.calls], ["GET", "PUT", "POST"])
+        self.assertEqual(self.calls[2][2], {"transition": {"id": "31"}})
+        self.assertIn("status -> Done", out)
+
+    def test_update_with_nothing_to_change_is_refused_without_calling_jira(self):
+        with self.assertRaisesRegex(jira.ToolError, "Nothing to change"):
+            jira.update("work", "PROJ-5", summary="  ")
+        self.assertEqual(self.calls, [])
+
+    def test_update_needs_the_write_scope(self):
+        with self.assertRaises(jira.ToolError):
+            jira.update("work", "OTHER-1", add_labels="x")
+
     def test_issue_output_is_capped(self):
         comments = [{"author": {"displayName": "Clara Client"}, "created": "2026-01-02T00:00:00",
                      "body": jira.to_adf("y" * 3000)} for _ in range(15)]
@@ -239,7 +270,7 @@ class TestTools(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         env = dict(os.environ, TANKA_WORKSPACES=str(tmp / "workspaces"), TANKA_JIRA_HOME=str(tmp / "home"))
         tanka = lambda *a: subprocess.run([str(REPO / "bin" / "tanka"), *a], capture_output=True, text=True, env=env)
-        tanka("init", "tickets")
+        tanka("init", "tickets", "--strict")  # modules must fit the strict budget
         p = tanka("install", "jira", "tickets")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn('"PROJ"', (tmp / "home" / "scopes.json").read_text())
@@ -278,6 +309,13 @@ class TestUnattended(JiraCase):
 
     def test_the_opt_in_does_not_grant_writing_by_itself(self):
         with self.assertRaisesRegex(jira.ToolError, "only read Jira"):
+            jira.check_project("reader", "PROJ", write=True)
+
+    def test_a_message_typed_in_the_page_chat_may_write_but_still_needs_the_write_scope(self):
+        os.environ["TANKA_CHAT"] = "1"
+        self.addCleanup(os.environ.pop, "TANKA_CHAT", None)
+        self.assertEqual(jira.check_project("closed", "PROJ", write=True), "PROJ")
+        with self.assertRaisesRegex(jira.ToolError, "may only read"):
             jira.check_project("reader", "PROJ", write=True)
 
     def test_an_attended_session_is_not_affected(self):
@@ -393,6 +431,52 @@ class TestTokenWrapper(JiraCase):
         self.assertNotIn(FAKE_TOKEN, r.stdout + r.stderr)
         self.configure(None)
         self.assertEqual(probe().stdout.strip(), 'token=no args={"x": 1}')
+
+
+class TestDeletion(JiraCase):
+    def setUp(self):
+        super().setUp()
+        self.patch("DELETIONS", self.tmp / "deletions")
+
+    def ask(self, key="proj-9"):
+        self.replies = [{"fields": {"summary": "Wrong parent"}}]
+        return jira.request_delete("work", key)
+
+    def test_asking_deletes_nothing_and_leaves_a_request(self):
+        d = self.ask()
+        self.assertEqual([c[0] for c in self.calls], ["GET"])
+        self.assertEqual((d["key"], d["summary"], d["status"]), ("PROJ-9", "Wrong parent", "pending"))
+        self.assertEqual(jira.read_deletions("work")[0]["id"], d["id"])
+
+    def test_the_users_click_deletes_for_good(self):
+        d = self.ask()
+        self.replies = [None]
+        jira.confirm_delete("work", d["id"])
+        self.assertEqual(self.calls[-1][:2], ("DELETE", "https://your-company.atlassian.net/rest/api/3/issue/PROJ-9"))
+        self.assertEqual(jira.read_deletions("work")[0]["status"], "deleted")
+        with self.assertRaisesRegex(jira.ToolError, "No pending request"):
+            jira.confirm_delete("work", d["id"])  # a decided request cannot be used twice
+
+    def test_keeping_it_calls_jira_no_more(self):
+        d = self.ask()
+        n = len(self.calls)
+        jira.dismiss_delete("work", d["id"])
+        self.assertEqual(len(self.calls), n)
+        self.assertEqual(jira.read_deletions("work")[0]["status"], "dismissed")
+
+    def test_asking_twice_for_the_same_issue_and_asking_without_write_are_refused(self):
+        self.ask()
+        self.replies = [{"fields": {}}]
+        with self.assertRaisesRegex(jira.ToolError, "already waiting"):
+            jira.request_delete("work", "PROJ-9")
+        with self.assertRaisesRegex(jira.ToolError, "only read"):
+            jira.request_delete("reader", "PROJ-9")
+
+    def test_search_with_a_key_reads_the_issue_and_without_either_asks_for_one(self):
+        self.replies = [{"key": "PROJ-1", "fields": {"summary": "S"}}]
+        self.assertIn("PROJ-1: S", jira.search("work", key="proj-1"))
+        with self.assertRaisesRegex(jira.ToolError, "JQL query"):
+            jira.search("work")
 
 
 if __name__ == "__main__":

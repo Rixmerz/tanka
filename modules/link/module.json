@@ -1,0 +1,5 @@
+{
+  "name": "link",
+  "description": "Your open Claude Code sessions, seen from Tanka: list them and send a prompt into one, from the page or through the assistant with your confirmation. Needs the tanka-link plugin in Claude Code.",
+  "requires": []
+}

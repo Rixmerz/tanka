@@ -255,6 +255,18 @@ class TestFilesAndLimits(RoutinesCase):
         with self.assertRaisesRegex(r.ToolError, "cannot be read"):
             r.state("duck", self.ws)
 
+    def test_with_the_users_switch_on_a_proposal_starts_on_its_own(self):
+        self.assertFalse(r.auto_start())  # the default waits for the user
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.home / "limits.json").write_text(json.dumps({"max_pending": 3}))
+        r.set_auto_start(True)
+        self.assertEqual(json.loads((self.home / "limits.json").read_text()), {"max_pending": 3, "approval": "auto"})
+        out = out_of(r.propose_tool, "duck", self.ws, "morning-issues", "1d", TASK)
+        self.assertIn("is active", out)
+        self.assertIn("morning-issues", ta.load(self.ws)["routines"])
+        r.set_auto_start(False)
+        self.assertIn("NOT active", out_of(r.propose_tool, "duck", self.ws, "evening-issues", "1d", TASK))
+
     def test_history_and_output_cap(self):
         log = self.ws / ".tanka" / "automation.log"
         lines = [f"2026-10-0{1 + i % 9} 08:00:00 routine daily | the routine \"daily\" (every 1d) | exit {i % 2} | "
@@ -330,7 +342,7 @@ class TestToolsAndInstall(unittest.TestCase):
         env = dict(os.environ, TANKA_WORKSPACES=str(tmp / "workspaces"), TANKA_ROUTINES_HOME=str(tmp / "home"),
                    TANKA_AUTOMATION_HOME=str(tmp / "automation"))
         tanka = lambda *a: subprocess.run([str(REPO / "bin" / "tanka"), *a], capture_output=True, text=True, env=env)
-        tanka("init", "duck")
+        tanka("init", "duck", "--strict")  # modules must fit the strict budget
         p = tanka("install", "routines", "duck")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("tanka routines approve duck", p.stdout)

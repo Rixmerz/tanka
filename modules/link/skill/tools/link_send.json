@@ -1,0 +1,29 @@
+{
+  "name": "link_send",
+  "effect": "send",
+  "description": "Sends a prompt into one of the user's open Claude Code sessions, by its number from link_sessions: a waiting session starts working on it at once, a busy one when its turn ends. That session acts with its own permissions, so it may change code. Use it only after showing the user the exact text and the target session and getting an explicit yes. It does not answer for the session or show its reply. Returns one line confirming the message was queued; never send the same message twice.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "Session number from the last link_sessions (e.g. 2)."
+    },
+    "text": {
+      "type": "string",
+      "required": true,
+      "description": "The exact prompt the user approved (e.g. \"Run the tests and tell me what fails\")."
+    }
+  },
+  "examples": [
+    {
+      "number": 1,
+      "text": "Run the test suite and summarize what fails."
+    }
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "link_send.py"
+  ]
+}

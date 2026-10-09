@@ -105,6 +105,18 @@ class TestObjective(AutomationCase):
         self.assertEqual(self.classes(), ["read", "draft", "send"])
 
 
+class TestStaleObjective(AutomationCase):
+    def test_an_objective_left_by_an_interrupted_run_is_cleared_but_the_users_is_not(self):
+        active = self.ws / ".tanka" / "state" / "objective.json"
+        active.parent.mkdir(parents=True, exist_ok=True)
+        active.write_text(json.dumps({"id": "auto-watch", "status": "active"}))
+        self.assertEqual(ta.clear_stale_objectives(), [self.ws.resolve()])
+        self.assertFalse(active.exists())
+        active.write_text(json.dumps({"id": "mine", "status": "active"}))
+        self.assertEqual(ta.clear_stale_objectives(), [])
+        self.assertTrue(active.exists())
+
+
 class TestDaemon(AutomationCase):
     def test_trigger_fires_once_per_burst_for_its_role_only(self):
         ta.save(self.ws, {"triggers": {"clients": {"on": "whatsapp:client", "task": "Answer them"}}, "routines": {}})

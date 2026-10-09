@@ -22,6 +22,18 @@
         "guardrails",
         "mcp"
       ]
+    },
+    {
+      "name": "tanka-link",
+      "source": "./link",
+      "description": "Registers every Claude Code session with your local Tanka, so Tanka can send a prompt into it",
+      "version": "0.1.0",
+      "category": "productivity",
+      "keywords": [
+        "tanka",
+        "sessions",
+        "messaging"
+      ]
     }
   ]
 }

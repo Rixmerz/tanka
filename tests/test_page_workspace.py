@@ -8,6 +8,7 @@ import http.client
 import json
 import time
 import os
+import subprocess
 import sys
 import threading
 import unittest
@@ -264,8 +265,24 @@ class TestSettings(WorkspacePageCase):
 
     def test_the_advisor_model(self):
         self.assertEqual(self.save(advisor_model="opus")[0], 200)
-        self.assertEqual(json.loads((self.ws / ".claude" / "settings.json").read_text())["advisorModel"], "opus")
+        self.assertEqual(json.loads((self.ws / ".claude" / "settings.json").read_text())["advisorModel"], "claude-opus-5-5")
         self.assertEqual(self.save(advisor_model="gpt")[0], 400)
+
+    def test_the_model_effort_and_guardrails(self):
+        status, data = self.save(model={"model": "haiku", "effort": "max", "profile": "sonnet"})
+        self.assertEqual(status, 200, data)
+        saved = json.loads((self.ws / ".tanka" / "workspace.json").read_text())
+        self.assertEqual((saved["model"], saved["effort"], saved["profile"]), ("haiku", "max", "sonnet"))
+        line = subprocess.run([sys.executable, str(kit.REPO / "plugin" / "scripts" / "tanka_tools.py"), "profile", str(self.ws)],
+                              capture_output=True, text=True).stdout.split()
+        self.assertEqual(line[1], "claude-haiku-5-5")  # always the full id
+        self.assertEqual(line[4], "max")
+        self.assertEqual(self.save(model={"model": "haiku", "effort": "", "profile": "sonnet"})[0], 200)
+        self.assertNotIn("effort", json.loads((self.ws / ".tanka" / "workspace.json").read_text()))
+        for bad in ({"model": "gpt", "profile": "sonnet"}, {"model": "haiku", "effort": "huge", "profile": "sonnet"},
+                    {"model": "haiku", "profile": "loose"}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.save(model=bad)[0], 400)
 
     def test_a_new_workspace_from_the_page(self):
         status, data = self.call("POST", "/api/workspace/create", {"scope": "shop", "name": "Clara"})

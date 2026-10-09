@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""jira_transition: move an issue to a status."""
+"""jira_update: change an issue's status, summary, description or labels."""
 import os
 import sys
 from pathlib import Path
@@ -13,7 +13,8 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.transition(SCOPE, args["key"], args["status"])
+    return jira.update(SCOPE, args["key"], args.get("status"), args.get("summary"), args.get("description"),
+                       args.get("add_labels"), args.get("remove_labels"))
 
 
 jira.run(main)

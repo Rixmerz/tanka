@@ -1,6 +1,8 @@
 """Gmail module: account scoping, MIME parsing and the attachment folder rule, without a browser."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -9,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from email.message import EmailMessage
+from unittest import mock
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -102,6 +105,58 @@ class TestParse(GmailCase):
         self.assertEqual((self.ws / "gmail" / "x" / "brief.zip").read_bytes(), b"PK\x03\x04zipdata")
 
 
+class TestArchiveAndTrash(GmailCase):
+    def setUp(self):
+        super().setUp()
+        old = gmail.REQUESTS
+        gmail.REQUESTS = self.tmp / "requests"
+        self.addCleanup(setattr, gmail, "REQUESTS", old)
+        gmail.listing_file("personal").write_text(json.dumps({"address": "me@example.com", "index": 0, "view": "inbox",
+            "ids": {"1": "aa"}, "threads": {"1": "t1"}, "subjects": {"1": "Over"}}))
+
+    def browser(self, *answers):
+        replies, calls = list(answers), {"js": []}
+        def js(expr, timeout=60):
+            calls["js"].append(expr)
+            return replies.pop(0)
+        for p in (mock.patch.object(gmail, "session", contextlib.nullcontext), mock.patch.object(gmail, "goto"),
+                  mock.patch.object(gmail, "account_index", return_value=0), mock.patch.object(gmail, "js", side_effect=js)):
+            p.start()
+            self.addCleanup(p.stop)
+        return calls
+
+    def run_tool(self, fn, *args):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            fn("personal", *args)
+        return out.getvalue()
+
+    def test_archive_presses_archive_and_checks_the_inbox(self):
+        calls = self.browser({"ok": True}, {"ok": True}, {"found": False})
+        self.assertIn("Archived \"Over\"", self.run_tool(gmail.archive, 1))
+        self.assertIn('const act = 7;', calls["js"][1])
+
+    def test_an_archive_gmail_does_not_confirm_is_not_reported_as_done(self):
+        self.browser({"ok": True}, {"ok": True}, {"found": True})
+        with self.assertRaisesRegex(gmail.ToolError, "did not confirm"):
+            self.run_tool(gmail.archive, 1)
+
+    def test_trash_only_asks_and_the_click_moves_it(self):
+        out = self.run_tool(gmail.trash_tool, 1)
+        self.assertIn("NOTHING was moved", out)
+        r = gmail.read_requests("personal")[0]
+        with self.assertRaisesRegex(gmail.ToolError, "already waiting"):
+            self.run_tool(gmail.trash_tool, 1)
+        calls = self.browser({"ok": True}, {"ok": True}, {"found": False})
+        self.assertIn("trash", gmail.confirm_trash("personal", r["id"]))
+        self.assertIn('const act = 10;', calls["js"][1])
+        self.assertEqual(gmail.read_requests("personal")[0]["status"], "deleted")
+
+    def test_keeping_it_opens_no_browser(self):
+        self.run_tool(gmail.trash_tool, 1)
+        r = gmail.read_requests("personal")[0]
+        self.assertIn("nothing was moved", gmail.dismiss_trash("personal", r["id"]))
+
+
 class TestLogin(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -165,12 +220,12 @@ class TestInstall(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         env = dict(os.environ, TANKA_WORKSPACES=str(tmp / "workspaces"), TANKA_GMAIL_HOME=str(tmp / "home"))
         tanka = lambda *a: subprocess.run([str(REPO / "bin" / "tanka"), *a], capture_output=True, text=True, env=env)
-        tanka("init", "mail")
+        tanka("init", "mail", "--strict")  # modules must fit the strict budget
         p = tanka("install", "gmail", "mail")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertTrue((tmp / "home" / "accounts.json").is_file())
         self.assertIn('SCOPE = "mail"', (tmp / "workspaces" / "mail" / ".claude/skills/gmail/tools/gmail_reply.py").read_text())
-        self.assertIn("4/15 tools loaded, 0 problem(s), 0 warning(s)", tanka("tools", "check", "mail").stdout)
+        self.assertIn("6/15 tools loaded, 0 problem(s), 0 warning(s)", tanka("tools", "check", "mail").stdout)
 
 
 if __name__ == "__main__":

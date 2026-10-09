@@ -1,0 +1,7 @@
+{
+  "name": "calendar",
+  "description": "Read the Google Calendar agenda, an event's details and free time, create simple events without guests and ask to delete them, for the Google accounts assigned to the workspace.",
+  "requires": [
+    "rastro"
+  ]
+}

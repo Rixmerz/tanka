@@ -61,7 +61,8 @@ TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 # above (tests patch those). Descriptions, names, examples and effects follow
 # the same rules in every profile: they are what a person writing a tool needs.
 LIMITS = {
-    "sonnet": {"total": 30, "per_skill": 10, "params": 8, "required": 6},
+    # 40 since Haiku 5.5: a workspace ran 30 tools with no wrong picks in an evaluation, and tool search is on here.
+    "sonnet": {"total": 40, "per_skill": 10, "params": 8, "required": 6},
 }
 
 
@@ -458,11 +459,10 @@ def main(argv: list[str]) -> int:
         print(f"{len(tools)}/{tools_max(ws)} tools loaded, {len(problems)} problem(s), {len(warns)} warning(s)")
         return 1 if problems else 0
     if cmd == "profile":
-        # The launcher's one question: how does this workspace run? One line: profile model autocompact% tool-search.
+        # The launcher's one question: how does this workspace run? One line: profile model autocompact% tool-search effort.
         import tanka_common as tc
-        name = tc.profile_name(ws)
-        launch = tc.PROFILE_LAUNCH[name]
-        print(name, launch["model"], launch["autocompact_pct"], launch["tool_search"])
+        launch = tc.launch(ws)
+        print(launch["profile"], launch["model"], launch["autocompact_pct"], launch["tool_search"], launch["effort"] or "-")
         return 0
     if cmd == "list":
         tools, _ = scan(ws)

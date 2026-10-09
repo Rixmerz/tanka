@@ -1,6 +1,6 @@
 # Jira module
 
-Lets a Tanka assistant search, read, create, transition, comment on and link Jira Cloud issues, only in the projects the user assigned to that assistant. Several workspaces can share one Jira site; each sees only its own projects.
+Lets a Tanka assistant search, read, create, update, comment on and link Jira Cloud issues, only in the projects the user assigned to that assistant. Several workspaces can share one Jira site; each sees only its own projects.
 
 It calls the Jira Cloud REST API v3 with an API token, using the Python standard library only.
 
@@ -33,20 +33,20 @@ Before any network call the library refuses: an issue key or project outside the
 
 ## Writing when nobody is watching
 
-Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka run` from creating or commenting is this module, not a prompt. A write is refused whenever `TANKA_UNATTENDED` is set, unless the workspace's entry in `scopes.json` also says `"unattended_write": true` (and `"write": true`). Reading is never affected. In a session you are in, the confirmation before a change comes from the skill's instructions; the hard limit is `write` in `scopes.json`.
+Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka run` from creating or commenting is this module, not a prompt. A write is refused whenever `TANKA_UNATTENDED` is set, unless the workspace's entry in `scopes.json` also says `"unattended_write": true` (and `"write": true`); the page's Workspace tab → Autonomy switches it for the workspace. Reading is never affected. In a session you are in, the confirmation before a change comes from the skill's instructions; the hard limit is `write` in `scopes.json`.
 
 ## Tools
 
 | Tool | Effect | What it does |
 | --- | --- | --- |
-| `jira_search` | read | JQL search, one line per issue |
-| `jira_issue` | read | one issue with description, links and the last 10 comments |
+| `jira_search` | read | JQL search, one line per issue; with `key`, one issue with description, links and the last 10 comments |
 | `jira_create` | modify | a new issue, optionally with labels and a parent |
-| `jira_transition` | modify | move an issue to a status by name |
+| `jira_update` | modify | move an issue to a status by name and change its summary, description or labels (labels are added or removed, never replaced) |
 | `jira_comment` | send | add a comment; the skill asks for an explicit yes first |
 | `jira_link` | modify | link two issues (`from_key blocks to_key`) |
+| `jira_delete` | modify | asks to delete an issue: it leaves a request and the chat shows **Delete** and **Keep**; only the user's click deletes, for good |
 
-Nothing deletes. Rate limits (429) and gateway errors (502, 503) are retried up to 4 times, honouring `Retry-After`. Every output stays under 6000 characters.
+The assistant never deletes: `jira_delete` writes a request in `deletions/<workspace>.json` (beside `scopes.json`), and the page's Delete button runs `confirm.py`, which uses your token wrapper like the tools. Jira refuses to delete an issue with subtasks. Rate limits (429) and gateway errors (502, 503) are retried up to 4 times, honouring `Retry-After`. Every output stays under 6000 characters.
 
 **Risk:** the token acts with all of your Jira permissions; the scope file is what keeps each assistant to its projects. Use a token you can revoke, and `"write": false` where reading is enough.
 

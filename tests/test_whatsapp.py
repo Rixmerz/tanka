@@ -131,7 +131,7 @@ class TestInstall(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.env = dict(os.environ, TANKA_WORKSPACES=str(self.tmp / "workspaces"),
                         TANKA_WHATSAPP_HOME=str(self.tmp / "wa-home"))
-        self.tanka("init", "sales")
+        self.tanka("init", "sales", "--strict")  # modules must fit the strict budget
 
     def tanka(self, *args):
         return subprocess.run([str(REPO / "bin" / "tanka"), *args], capture_output=True, text=True, env=self.env)

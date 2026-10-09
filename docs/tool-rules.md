@@ -37,7 +37,7 @@ Do not make a tool for:
 
 | Limit | Value | Why |
 | --- | --- | --- |
-| Tools in the whole workspace | **15** [checked] (30 in a sonnet workspace) | Haiku's tool-selection accuracy drops below 90% between 10 and 15 tools (research/02) |
+| Tools in the whole workspace | **15** [checked] (40 with the standard guardrails) | Haiku's tool-selection accuracy drops below 90% between 10 and 15 tools (research/02) |
 | Tools per skill | **6** [checked] | a skill with more is two skills |
 | Params per tool | **6** [checked] | each field is a chance to invent a value |
 | Required params | **4** [checked] | Haiku infers missing values instead of asking (research/01) |

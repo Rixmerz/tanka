@@ -1,0 +1,14 @@
+{
+  "name": "link_sessions",
+  "effect": "read",
+  "description": "Lists the user's Claude Code sessions that are open right now with the tanka-link plugin: the project and branch each works on, whether it is waiting (listening) or busy with a turn, and its folder. Use it when the user asks what sessions they have open, or before link_send to get a session's number. It changes nothing and cannot open sessions. Returns one numbered line per session; the numbers are valid for link_send until the next list.",
+  "params": {},
+  "examples": [
+    {}
+  ],
+  "timeout_sec": 20,
+  "run": [
+    "python3",
+    "link_sessions.py"
+  ]
+}

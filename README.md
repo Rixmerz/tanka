@@ -41,11 +41,11 @@ Separate workspaces also separate what each assistant can reach: one that can me
 
 **Routines and triggers** run the assistant on a clock or when a message arrives, unattended: it reads and drafts, and replies on its own only to the recipients you opt in. See [`docs/automation.md`](docs/automation.md).
 
-**A workspace is for one model, and it is chosen when you create it.** `tanka init` and `tanka start` ask: **haiku**, the strict harness described below, or **sonnet**, a lighter one for work that needs more judgment and flexibility, such as a companion. Pass it up front with `--model haiku|sonnet` (or `TANKA_INIT_MODEL`); without a terminal and without a choice the workspace is strict. Change it later with `tanka profile <name> sonnet`. `TANKA_MODEL` overrides only the model for one launch; the harness stays the workspace's.
+**A workspace is for one model, and it is chosen when you create it.** `tanka init` and `tanka start` ask which model: **haiku** (Haiku 5.5, the default), **sonnet** or **opus**; pass it up front with `--model` (or `TANKA_INIT_MODEL`). Every new workspace gets the **standard** guardrails below; since Haiku 5.5 they no longer need to be strict for it (an evaluation on real assistant tasks matched Sonnet 5.5 at high effort). `--strict` keeps the strict ones, for a small, cheap, low-effort assistant. Change them later with `tanka profile <name> strict|standard`, or on the page. The profile is the **guardrails**; the **model** and its **effort** can be chosen apart from them, on the page (Workspace → Profile: Haiku 5.5, Sonnet 5.5 or Opus 5.5, and an effort from low to max) or as `model` and `effort` in `.tanka/workspace.json`. By default the model is the profile's. Every model is launched by its full id (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`), never an alias, so Claude Code cannot resolve it to another version. `TANKA_MODEL` and `TANKA_EFFORT` override them for one launch; the guardrails stay the workspace's.
 
-| | haiku | sonnet |
+| | strict (`haiku`) | standard (`sonnet`) |
 |---|---|---|
-| Tools per workspace / per skill | 15 / 6 | 30 / 10 |
+| Tools per workspace / per skill | 15 / 6 | 40 / 10 |
 | Params per tool / required | 6 / 4 | 8 / 6 |
 | Loop guard, calls per turn | 25 | 60 |
 | Rules repeated every turn | 6 | 3 (the ones a hook enforces, and honesty) |
@@ -54,7 +54,7 @@ Separate workspaces also separate what each assistant can reach: one that can me
 
 **Safety does not depend on the model.** Destructive tools never exist, `send` and `modify` ask first, outgoing messages are validated, a claim needs a tool result, and foreign MCP servers are denied by default, in both profiles. A profile only relaxes what compensates for Haiku. Your own `.tanka/policy.json` still wins over a profile; a value there that equals the strict default is read as "not set", because workspaces made before profiles carried a copy of the defaults.
 
-**Every workspace has an advisor**: when a request needs more judgment than its tools give, the assistant can consult a stronger model (Sonnet by default, `advisorModel` in the workspace's `.claude/settings.json`).
+**Every workspace has an advisor**: when a request needs more judgment than its tools give, the assistant can consult a stronger model (Sonnet 5.5 by default, `advisorModel` in the workspace's `.claude/settings.json`, stored as a full id).
 
 **Authoring** (`tanka dev`) loads the [Rastro](https://github.com/Rixmerz/rastro) browser plugin and a `map-site` skill: map a website by hand, then turn it into headless calls a tool can make.
 

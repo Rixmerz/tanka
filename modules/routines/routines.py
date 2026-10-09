@@ -65,6 +65,28 @@ def _valid_limit(key: str, value) -> bool:
     return value > 0 and float(value).is_integer()
 
 
+def auto_start() -> bool:
+    """True when the user chose, on the page or in limits.json ("approval": "auto"), that the assistant's routine
+    proposals start without their approval (still inside every limit). The default is to wait for them."""
+    try:
+        user = json.loads((HOME / "limits.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(user, dict) and user.get("approval") == "auto"
+
+
+def set_auto_start(on: bool) -> None:
+    """The user's switch: keeps every other key of limits.json."""
+    f = HOME / "limits.json"
+    try:
+        user = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    except (OSError, json.JSONDecodeError) as e:
+        raise ToolError(f"{f} cannot be read ({e}); fix it by hand first.")
+    user = user if isinstance(user, dict) else {}
+    user["approval"] = "auto" if on else "manual"
+    write_atomic(f, user)
+
+
 def limits() -> dict:
     """The defaults, then the environment, then HOME/limits.json; an invalid value is ignored."""
     out = dict(DEFAULT_LIMITS)
@@ -431,6 +453,12 @@ def history_tool(scope: str, ws: Path, limit: int = 10) -> None:
 
 def propose_tool(scope: str, ws: Path, name, every, task, budget=DEFAULT_BUDGET, why="") -> None:
     p = propose(scope, ws, name, every, task, budget, why)
+    if auto_start():
+        try:
+            emit([approve(scope, ws, p["id"]), "The user lets proposals start on their own. Each run is one model call capped by that budget."])
+        except ToolError as e:
+            emit([f"Routine {p['name']} could not start by itself ({e}); it stays a draft ({p['id']}) for the user."])
+        return
     emit([f"Proposal {p['id']} saved: routine {p['name']}, every {p['every']}, up to {p['budget']:g} USD per run.",
           "It is a DRAFT and is NOT active. Tell the user it only runs after they approve it, in the Routines tab "
           f"of the page or with: tanka routines approve {scope} {p['id']}",

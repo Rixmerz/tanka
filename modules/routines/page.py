@@ -14,8 +14,18 @@ def installed(ws: Path) -> bool:
     return (ws / ".claude" / "skills" / "routines").is_dir()
 
 
+AUTO_LABEL = "Routines the assistant proposes start on their own, within the limits (all workspaces)"
+
+
 def state(scope: str, ws: Path) -> dict:
-    return r.state(scope, ws)
+    return {**r.state(scope, ws), "autonomy": [{"key": "auto_start", "label": AUTO_LABEL, "on": r.auto_start()}]}
+
+
+def _autonomy(scope: str, ws: Path, b: dict) -> dict:
+    if b.get("key") != "auto_start":
+        raise r.ToolError("Unknown switch.")
+    r.set_auto_start(b.get("on") is True)
+    return {"ok": True}
 
 
 def waiting(st: dict) -> int:
@@ -46,4 +56,5 @@ ACTIONS = {
     "approve": lambda scope, ws, b: _act(r.approve, scope, ws, str(b.get("id", ""))),
     "reject": lambda scope, ws, b: _act(r.reject, scope, ws, str(b.get("id", ""))),
     "remove": lambda scope, ws, b: _act(r.remove, scope, ws, str(b.get("name", ""))),
+    "autonomy": _autonomy,
 }

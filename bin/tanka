@@ -28,12 +28,12 @@ tanka - a guardrailed assistant harness on top of Claude Haiku or Sonnet
 Usage:
   tanka <name>                     Reopen the named workspace: pick a previous session (a new one if it has none)
   tanka start <name> [-- args...]  New session in the workspace; creates it first if it does not exist
-  tanka init [name|dir] [--model haiku|sonnet]
+  tanka init [name|dir] [--model haiku|sonnet|opus] [--strict]
                                    Create a clean workspace without starting it (asks which model when it can)
-  tanka profile [name|dir] [haiku|sonnet]
+  tanka profile [name|dir] [strict|standard]
                                    Show or change a workspace's model and harness (haiku: strict, sonnet: lighter)
   tanka resume [name|dir]          Same as tanka <name> (never plain claude -r)
-  tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD]
+  tanka run "task" [dir] [--objective name] [--max-turns N] [--budget USD (0: no cap)]
                                    Delegated task, no human in the loop (fail-closed: sends are denied)
   tanka doctor [dir]               Check configuration, plugin and state
   tanka tools check|list [dir]     Validate or list the workspace's tools
@@ -61,7 +61,7 @@ USAGE
   list_workspaces
   cat <<USAGE
 
-Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (overrides the profile's model for one launch), TANKA_INIT_MODEL (haiku|sonnet, skips the question), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60 haiku, 75 sonnet), TANKA_PAGE_DAY_USD (5), TANKA_COMPACT_TOKENS (90000), CLAUDE_BIN
+Environment: TANKA_HOME (default workspace), TANKA_WORKSPACES (named workspaces), TANKA_MODEL (overrides the workspace's model for one launch), TANKA_EFFORT (its effort), TANKA_INIT_MODEL (haiku|sonnet|opus, skips the question), TANKA_PLUGIN_DIR, TANKA_PERMISSION_MODE (bypassPermissions), TANKA_DEV_EFFORT (high), TANKA_AUTOCOMPACT_PCT (60 haiku, 75 sonnet), TANKA_PAGE_DAY_USD (5), TANKA_COMPACT_TOKENS (90000), CLAUDE_BIN
 USAGE
 }
 
@@ -112,13 +112,22 @@ require_ws() {
   fi
 }
 
-# One line from the harness: "<profile> <model> <autocompact%> <tool-search>". Anything unreadable is the strict profile.
+# Full model ids: an alias would let Claude Code pick whichever version it prefers.
+full_model() {
+  case "$1" in
+    haiku) echo "claude-haiku-5-5";; sonnet) echo "claude-sonnet-5-5";; opus) echo "claude-opus-5-5";;
+    *) echo "$1";;
+  esac
+}
+
+# One line from the harness: "<profile> <model> <autocompact%> <tool-search> <effort|->". Anything unreadable is the strict profile.
 ws_launch() {
-  local line profile model pct search
-  line="$(python3 "$PLUGIN_DIR/scripts/tanka_tools.py" profile "$1" 2>/dev/null)" || line="haiku haiku 60 false"
-  read -r profile model pct search <<<"$line"
+  local line profile model pct search effort
+  line="$(python3 "$PLUGIN_DIR/scripts/tanka_tools.py" profile "$1" 2>/dev/null)" || line="haiku claude-haiku-5-5 60 false -"
+  read -r profile model pct search effort <<<"$line"
   case "${2:-}" in
-    model) echo "${MODEL_OVERRIDE:-$model}";;
+    model) full_model "${MODEL_OVERRIDE:-$model}";;
+    effort) local e="${TANKA_EFFORT:-${effort:--}}"; [[ "$e" == default ]] && e="-"; echo "$e";;
     pct) echo "$pct";;
     search) echo "$search";;
     *) echo "$profile";;
@@ -131,52 +140,85 @@ apply_profile() {
   export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="${TANKA_AUTOCOMPACT_PCT:-$(ws_launch "$1" pct)}"
 }
 
-# haiku or sonnet, from --model, TANKA_INIT_MODEL, or a question when there is a terminal. Strict (haiku) otherwise.
-choose_profile() {
+# The model of a new workspace: haiku, sonnet or opus, from --model, TANKA_INIT_MODEL, or a question when there is a
+# terminal; haiku otherwise. Since Haiku 5.5 every model gets the standard guardrails unless --strict asks for the
+# strict ones (15 tools, the rules repeated every turn), which remain for small, cheap, low-effort assistants.
+choose_model() {
   local pick="${1:-${TANKA_INIT_MODEL:-}}"
   if [[ -z "$pick" && -t 0 && -t 2 ]]; then
     {
-      echo "Which model will this workspace use?"
-      echo "  haiku   cheap and fast; the full harness (strict limits, the rules repeated every turn)"
-      echo "  sonnet  more judgment and flexibility; a lighter harness (wider limits, shorter reminders)"
+      echo "Which model will this workspace use? (launched by its full id, e.g. claude-haiku-5-5)"
+      echo "  haiku   Haiku 5.5: cheap and fast; good with tools at high effort"
+      echo "  sonnet  Sonnet 5.5: more judgment for long, open-ended work"
+      echo "  opus    Opus 5.5: the strongest, the most expensive"
       echo "  Safety does not change: nothing is deleted, sends and changes ask first."
     } >&2
-    read -r -p "Model [haiku/sonnet] (haiku): " pick
+    read -r -p "Model [haiku/sonnet/opus] (haiku): " pick
   fi
   pick="$(printf '%s' "${pick:-haiku}" | tr '[:upper:]' '[:lower:]')"
   case "$pick" in
-    haiku|sonnet) echo "$pick";;
-    *) echo "x Unknown model '$pick': use haiku or sonnet." >&2; return 1;;
+    haiku|sonnet|opus) echo "$pick";;
+    *) echo "x Unknown model '$pick': use haiku, sonnet or opus." >&2; return 1;;
   esac
 }
 
+# The guardrails of an existing workspace: haiku (strict) or sonnet (standard).
+choose_profile() {
+  local pick; pick="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$pick" in
+    haiku|strict) echo "haiku";;
+    sonnet|standard) echo "sonnet";;
+    *) echo "x Unknown guardrails '$1': use strict (haiku) or standard (sonnet)." >&2; return 1;;
+  esac
+}
+
+# workspace.json keeps every other key (the model and effort chosen on the page).
 write_profile() {
-  printf '{\n  "profile": "%s"\n}\n' "$2" > "$1/.tanka/workspace.json"
+  python3 - "$1/.tanka/workspace.json" "$2" "${3:-}" <<'PY'
+import json, sys
+path, profile, model = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except (OSError, ValueError):
+    data = {}
+data = data if isinstance(data, dict) else {}
+data["profile"] = profile
+if model:
+    data["model"] = model
+open(path, "w", encoding="utf-8").write(json.dumps(data, indent=2) + "\n")
+PY
 }
 
 cmd_profile() {
   local arg="${1:-}"; local ws; ws="$(resolve_ws "$arg")"; require_ws "$ws"
-  if [[ -z "${2:-}" ]]; then echo "$(ws_launch "$ws") (model: $(ws_launch "$ws" model))"; return 0; fi
+  if [[ -z "${2:-}" ]]; then echo "$(ws_launch "$ws") (model: $(ws_launch "$ws" model), effort: $(ws_launch "$ws" effort))"; return 0; fi
   local pick; pick="$(choose_profile "$2")" || exit 1
   write_profile "$ws" "$pick"
-  echo "+ ${arg:-$ws} now runs as $pick. It takes effect the next time you open it."
+  echo "+ ${arg:-$ws} now has the $([[ $pick == haiku ]] && echo strict || echo standard) guardrails. It takes effect the next time you open it."
 }
 
 cmd_init() {
-  local name="${1:-}" model_flag=""; shift || true
-  [[ "${1:-}" == --model && -n "${2:-}" ]] && model_flag="$2"
+  local name="${1:-}" model_flag="" strict=""; shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model) model_flag="${2:-}"; shift 2 || shift;;
+      --strict) strict=1; shift;;
+      *) shift;;
+    esac
+  done
   check_name "$name"
   local ws; ws="$(resolve_ws "$name")"
   if [[ -e "$ws/.tanka/policy.json" ]]; then
     echo "x A workspace already exists at $ws (refusing to overwrite)." >&2; exit 1
   fi
-  local profile; profile="$(choose_profile "$model_flag")" || exit 1
+  local model; model="$(choose_model "$model_flag")" || exit 1
+  local profile="sonnet"; [[ -n "$strict" ]] && profile="haiku"
   mkdir -p "$ws"
   cp -R "$TEMPLATE_DIR/." "$ws/"
   mkdir -p "$ws/.tanka/state" "$ws/.tanka/drafts" "$ws/.claude/skills"
-  write_profile "$ws" "$profile"
+  write_profile "$ws" "$profile" "$model"
   local ref="$ws"; is_name "$name" && ref="$name"
-  echo "+ Workspace created at $ws ($profile)"
+  echo "+ Workspace created at $ws ($(full_model "$model"), $([[ $profile == haiku ]] && echo strict || echo standard) guardrails)"
   echo "  1. Build its skills and tools: tanka dev $ref   (rules: docs/skill-rules.md, docs/tool-rules.md)"
   echo "  2. Check them: tanka tools check $ref"
   echo "  3. Open it: tanka $ref   The first session asks which language to work in."
@@ -197,6 +239,9 @@ common_args() {
     --model "$(ws_launch "$ws" model)" \
     --no-chrome \
     --disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch
+  local effort; effort="$(ws_launch "$ws" effort)"
+  [[ "$effort" != "-" ]] && printf '%s\n' --effort "$effort"
+  return 0
 }
 export ENABLE_TOOL_SEARCH=false
 # The workspace's own settings refuse every prompt without this, so a plain
@@ -286,9 +331,11 @@ PY
   # tool refuses there unless the user opted that recipient in (e.g. auto_reply on a role).
   export TANKA_UNATTENDED=1
   # Fail-closed: anything that would ask for confirmation is denied automatically.
+  # --budget 0 means no cap: the flag is left out.
+  BUDGET_ARGS=(); if [ "$budget" != "0" ] && [ "$budget" != "0.00" ]; then BUDGET_ARGS=(--max-budget-usd "$budget"); fi
   "$CLAUDE_BIN" "${ARGS[@]}" -p "$task" \
     --permission-mode default --permission-prompts none \
-    --max-turns "$max_turns" --max-budget-usd "$budget" \
+    --max-turns "$max_turns" ${BUDGET_ARGS[@]+"${BUDGET_ARGS[@]}"} \
     --output-format text "$@"
 }
 
@@ -342,7 +389,7 @@ cmd_dev() {
   ensure_daemon
   export TANKA_WORKSPACE="$ws"
   # builder/settings.json declares the Rastro plugin, which authoring uses to map sites (skill map-site).
-  exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --settings "$TANKA_REPO/builder/settings.json" --add-dir "$ws" --effort "$DEV_EFFORT" \
+  exec "$CLAUDE_BIN" --plugin-dir "$TANKA_REPO/builder" --settings "$TANKA_REPO/builder/settings.json" --add-dir "$ws" --model "$(full_model "${TANKA_DEV_MODEL:-opus}")" --effort "$DEV_EFFORT" \
     --append-system-prompt "Tanka authoring mode. The Tanka workspace is $ws. Skills go in $ws/.claude/skills/<skill>/, tools in $ws/.claude/skills/<skill>/tools/. Follow docs/skill-rules.md, docs/tool-rules.md, for a tool run by a stronger model docs/subagent-rules.md, for a reusable module under modules/ docs/module-rules.md, and to reach a website the map-site skill with Rastro, in this repository, and verify every tool with bin/tanka tools check and bin/tanka tools test before calling it done." "$@"
 }
 

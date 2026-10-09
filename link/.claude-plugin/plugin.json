@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "tanka-link",
+  "displayName": "Tanka link",
+  "version": "0.1.0",
+  "description": "Registers every Claude Code session with your local Tanka, so Tanka's page (or your assistant, with your confirmation) can send a prompt into it, even while it waits for you.",
+  "author": {"name": "Rixmerz", "url": "https://github.com/Rixmerz/tanka"},
+  "repository": "https://github.com/Rixmerz/tanka",
+  "license": "MIT",
+  "keywords": ["tanka", "sessions", "messaging"]
+}

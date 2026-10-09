@@ -38,6 +38,7 @@ Every rule is enforced in `routines.py`, not in the skill: the name (2-32 lowerc
 | `max_budget_usd` | `0.5` | The highest budget per run a proposal may ask for |
 | `max_pending` | `5` | Proposals that may wait for you at once |
 | `max_task_chars` | `800` | The longest task |
+| `approval` | `manual` | `auto`: a proposal starts at once, still inside every limit above. The page's Workspace tab → Autonomy switches it |
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
