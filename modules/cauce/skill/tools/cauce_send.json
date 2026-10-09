@@ -1,0 +1,24 @@
+{
+  "name": "cauce_send",
+  "effect": "send",
+  "description": "Sends a prompt into one of the user's cauce sessions, by its number from cauce_sessions: a waiting session starts on it at once, a busy one when its turn ends. That session acts with its own permissions and may change code or send cauce new work, so use it only after showing the user the exact text and the session and getting an explicit yes. It cannot approve, merge, resume or dismiss anything for the user. It does not show the session's reply; cauce_sessions shows what it did. Returns one line confirming the message was queued; never send the same message twice.",
+  "params": {
+    "number": {
+      "type": "integer",
+      "minimum": 1,
+      "required": true,
+      "description": "Session number from the last cauce_sessions (e.g. 2)."
+    },
+    "text": {
+      "type": "string",
+      "pattern": "^[\\s\\S]{10,8000}$",
+      "required": true,
+      "description": "The exact prompt the user approved, complete on its own: the session sees nothing of this conversation (e.g. Fix the login redirect: it drops the query string; run the login tests)."
+    }
+  },
+  "examples": [
+    {"number": 1, "text": "Fix the login redirect: it drops the query string. Run the login tests before you stop."}
+  ],
+  "timeout_sec": 30,
+  "run": ["python3", "cauce_send.py"]
+}

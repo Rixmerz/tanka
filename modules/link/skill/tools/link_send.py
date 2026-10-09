@@ -14,7 +14,8 @@ SCOPE = "__SCOPE__"
 def sender() -> str:
     """The assistant's own name, from its persona."""
     try:
-        name = json.loads((Path.cwd() / ".tanka" / "persona.json").read_text(encoding="utf-8")).get("name") or "assistant"
+        ws = Path(os.environ.get("TANKA_WORKSPACE") or Path.cwd())  # a tool runs in its own folder, not the workspace
+        name = json.loads((ws / ".tanka" / "persona.json").read_text(encoding="utf-8")).get("name") or "assistant"
     except (OSError, ValueError):
         name = "assistant"
     return name if link.SENDERS_RE.fullmatch(name) else "assistant"
