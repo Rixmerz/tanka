@@ -10,8 +10,9 @@ break it silently.
 in HOME/repos.json, outside every workspace, so no assistant can widen its own reach.
 Every call checks that list before it runs cauce.
 
-**What the assistant may do.** Read the board, read one task, queue a task. Queueing
-spends nothing: the queue runs when the user starts it on the page or with `cauce work`.
+**What the assistant may do.** Read the board, read one task, queue a task, see the cauce sessions and send
+one a prompt (after the user's yes). Queueing spends nothing: the queue runs when the user starts it on the
+page or with `cauce work`. Resuming, dismissing and starting a session are the user's buttons on the page.
 
 Standard library only.
 """
@@ -42,6 +43,7 @@ REPO_NAME_RE = re.compile(r"[A-Za-z0-9._-]{1,60}")
 SENDER_RE = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{0,39}")  # as tanka-link takes it
 TITLE_CHARS, TEXT_CHARS = 120, 4000
 DONE_SHOWN = 5             # finished tasks the board tool lists
+NEEDS_CAUCE = "0.6.21"     # overview --repo, events --repo/--last-id, resume --pressed, dismiss --via tanka
 
 NEEDS_STATES = ("failed", "blocked", "replan", "needs_approval", "interrupted")
 CAUCE_SOURCES = ("cauce", "queue")  # tasks cauce ran; "hook" ones are prompts answered in a session
@@ -74,7 +76,11 @@ def call(*args: str) -> str:
     except OSError as e:
         raise ToolError(f"cauce could not be started ({e}). Tell the user.") from e
     if p.returncode != 0:
-        raise ToolError(clip((p.stderr or p.stdout or "").strip() or f"cauce exited {p.returncode}", 300))
+        said = (p.stderr or p.stdout or "").strip() or f"cauce exited {p.returncode}"
+        if "invalid choice" in said or "unrecognized arguments" in said:
+            raise ToolError(f"this cauce is older than Tanka needs (cauce {NEEDS_CAUCE} or newer). Tell the user to "
+                            "update it: claude plugin update cauce@rixmerz")
+        raise ToolError(clip(said, 300))
     return p.stdout
 
 
@@ -278,12 +284,10 @@ def overview(scope: str, hours: float = 24) -> list[dict]:
     named = keys(scope)
     if not named:
         return []
-    try:
-        data = call_json("overview", "--json", "--hours", f"{float(hours):g}", "--limit", "50")
-    except ToolError as e:
-        if "invalid choice" in str(e):
-            raise ToolError("this cauce has no `overview`; it needs cauce 0.6.15 or newer. Tell the user to update it.") from e
-        raise
+    args = ["overview", "--json", "--hours", f"{float(hours):g}", "--limit", "50"]
+    for d in repos(scope).values():
+        args += ["--repo", d]
+    data = call_json(*args)
     lk = _link()
     live = {s["id"]: s for s in lk.sessions()} if lk else {}
     out = []
@@ -370,6 +374,50 @@ def cancel(scope: str, task_id: int) -> dict:
     call("cancel", str(int(task_id)))
     _cache.clear()
     return {"cancelled": int(task_id)}
+
+
+def resume(scope: str, task_id: int) -> dict:
+    """The user's Resume on the page: cauce runs the resume its own account of the stop names (the rules a
+    refusal suggests, an approval, a doubled budget). Nothing here chooses them, so no tool calls it."""
+    t = task(scope, task_id)["task"]
+    if t.get("status") not in NEEDS_STATES + ("dismissed", "cancelled"):
+        raise ToolError(f"task #{task_id} is {t.get('status')}; only a task that stopped resumes")
+    call("resume", str(int(task_id)), "--pressed")
+    _cache.clear()
+    return {"resumed": int(task_id)}
+
+
+def dismiss(scope: str, task_id: int) -> dict:
+    """The user's Dismiss on the page: the task leaves the board, and a resume brings it back."""
+    t = task(scope, task_id)["task"]
+    if t.get("status") not in NEEDS_STATES:
+        raise ToolError(f"task #{task_id} is {t.get('status')}; it waits on no one")
+    call("dismiss", str(int(task_id)), "--via", "tanka")
+    _cache.clear()
+    return {"dismissed": int(task_id)}
+
+
+def launch(scope: str, name: str, prompt: str) -> dict:
+    """The user's New session on the page: an interactive Claude Code in that repository, in a detached tmux
+    session, started on the user's first prompt (so cauce sees it and tanka-link registers it), and attached to
+    when they want to watch. Its permissions are the ones that repository gives every session."""
+    where = directory(scope, name)
+    prompt = str(prompt or "").strip()
+    if len(prompt) < 2 or len(prompt) > TEXT_CHARS:
+        raise ToolError(f"A new session starts on its first prompt: write one (up to {TEXT_CHARS} characters).")
+    tmux = shutil.which("tmux")
+    claude = shutil.which(os.environ.get("CLAUDE_BIN") or "claude")
+    if not tmux or not claude:
+        raise ToolError("Starting a session from the page needs " + ("tmux" if not tmux else "claude") + " on PATH. "
+                        f"Open one in a terminal instead: cd {where} && claude")
+    session = f"cauce-{re.sub(r'[^A-Za-z0-9_-]', '_', name)}-{time.strftime('%H%M%S')}"
+    try:
+        subprocess.run([tmux, "new-session", "-d", "-s", session, "-c", where, claude, prompt],  # noqa: S603
+                       capture_output=True, text=True, timeout=TIMEOUT, check=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        why = getattr(e, "stderr", "") or str(e)
+        raise ToolError(f"tmux could not start the session: {clip(why.strip(), 200)}") from e
+    return {"started": session, "repo": name, "attach": f"tmux attach -t {session}"}
 
 
 def unpause(scope: str, name: str) -> dict:
@@ -557,3 +605,51 @@ def send_text(scope: str, number: int, text: str, sender: str) -> str:
     when = "now (it was waiting)" if msg["link"] == "listening" else "when its current turn ends"
     return (f"Sent to the session in {msg['repo_name']}: it reads it {when}. Message {msg['id']}. Do not send it again; "
             "what it does shows in cauce_sessions and cauce_board.")
+
+
+# ---------------------------------------------------------------- endings, for the automation daemon
+
+def cursor_file() -> Path:
+    return HOME / "events.json"
+
+
+def endings() -> list[dict]:
+    """Every cauce task that ended since the last poll, once per workspace that may see its repository, as the
+    automation daemon reads events: {source, scope, match (the repository's name there), what}. The first poll
+    only marks where it starts: an old ending is not news."""
+    data = read_json(repos_file(), {})
+    scopes = sorted(k for k, v in data.items() if isinstance(v, dict) and v) if isinstance(data, dict) else []
+    if not scopes:
+        return []
+    cursor = read_json(cursor_file(), {})
+    after = cursor.get("after") if isinstance(cursor, dict) else None
+    if not isinstance(after, int):
+        write_json(cursor_file(), {"after": int(call("events", "--last-id").strip() or 0)})
+        return []
+    args = ["events", "--after", str(after), "--kind", "finished", "--json"]
+    for d in sorted({d for scope in scopes for d in repos(scope).values()}):
+        args += ["--repo", d]
+    seen = []
+    for line in call(*args).splitlines():
+        try:
+            seen.append(json.loads(line))
+        except ValueError:
+            continue
+    if not seen:
+        return []
+    out = []
+    for scope in scopes:
+        named = keys(scope)
+        for e in seen:
+            name = named.get(e.get("repo"))
+            if not name:
+                continue
+            d = e.get("data") or {}
+            status = d.get("status") or "ended"
+            stop = d.get("stop") or {}
+            why = stop.get("reason") or d.get("reason") or ""
+            out.append({"source": "cauce", "scope": scope, "match": name, "task": e.get("task_id"), "status": status,
+                        "what": f"cauce task #{e.get('task_id')} in {name} ended {status}: {clip(e.get('title'), TITLE_CHARS)}"
+                                + (f" ({clip(why, 160)})" if why else "")})
+    write_json(cursor_file(), {"after": max(int(e.get("id") or 0) for e in seen)})
+    return out

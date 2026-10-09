@@ -7,11 +7,13 @@ deny <workspace> <name>
                      take it away
 repos <workspace>    the repositories it may use
 board <workspace>    cauce's board, as the assistant sees it
+events               for the automation daemon: one JSON line per cauce task that ended since the last poll
 post-install <ws> <scope>
                      run by `tanka install cauce <workspace>`
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -55,6 +57,10 @@ def main(argv: list[str]) -> int:
             scope = resolve_scope(rest[0])
             mine = cl.repos(scope)
             print("\n".join(f"{n}  {d}" for n, d in sorted(mine.items())) or f"{scope} may use no repository yet")
+            return 0
+        if cmd == "events" and not rest:
+            for e in cl.endings():
+                print(json.dumps(e, ensure_ascii=False))
             return 0
         if cmd == "board" and len(rest) == 1:
             print(cl.board_text(resolve_scope(rest[0])))

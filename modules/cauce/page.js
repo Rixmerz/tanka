@@ -36,6 +36,14 @@
     noLinkWhy: "Install the tanka-link plugin (claude plugin install tanka-link@tanka) and restart this session to send it prompts from here.",
     sendPh: "A prompt for this session, complete on its own", send: "Send", confirmSend: "Confirm: send it",
     sent: "Sent. Look at the session for its answer.",
+    resume: c => ({ permission: "Allow & resume", approval: "Approve & resume" }[c] || "Resume"), confirmResume: "Confirm: resume and spend",
+    dismiss: "Dismiss", confirmDismiss: "Confirm dismiss", allows: r => `Resuming allows: ${r.join(", ")}`,
+    askSession: "Ask its session",
+    askDraft: t => `cauce task #${t.id} (${t.title}) ${t.status === "done" ? "passed, on branch " + (t.branch || "?") : "stopped: " + ((t.stop && t.stop.todo) || t.asks || t.status)}. ` +
+      `Look at it with \`cauce show ${t.id}\` and tell me what you propose. Do not resume, dismiss, merge or allow anything without asking me.`,
+    newSession: "New session", confirmNew: "Confirm: start it", launched: s => `Started ${s.started}. Watch it with:`,
+    firstPh: "First prompt for a new Claude Code session in this project",
+    launchWhy: "Starts an interactive Claude Code here, inside tmux, on this prompt, with this project's usual permissions; it then shows below and takes prompts like any other.",
     work: t => ({ needs_you: `waits on you: ${t.asks || t.status}`, running: `attempt ${t.attempt || "?"} on ${t.cell || "?"}`,
                   queued: t.paused ? `queued, paused: ${t.reason || ""}` : "queued" }[t.state] || `${t.status} at ${t.cell || "-"}`),
     searchPh: "Search problems and fixes", everywhere: "All of cauce", here: "These projects",
@@ -52,7 +60,7 @@
   const stored = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const st = { open: null, detail: null, confirm: "", project: stored("cauce.project"), view: stored("cauce.view") || "tasks",
     adding: false, known: null, sessions: null, problems: null, q: "", everywhere: true,
-    copied: "", msg: "", drafts: {}, sentTo: "", sendError: null, editing: false, searching: false, lastSig: "", loadedAt: 0, scope: "" };
+    copied: "", msg: "", drafts: {}, sentTo: "", sendError: null, launched: null, editing: false, searching: false, lastSig: "", loadedAt: 0, scope: "" };
   const epoch = iso => (Date.parse(iso) || 0) / 1000;
   const post = (sc, name, body) => act(api(`/api/m/cauce/${name}`, Object.assign({ scope: sc.scope }, body)));
   const get = (sc, name, q) => api(`/api/m/cauce/${name}?scope=${encodeURIComponent(sc.scope)}` + Object.entries(q || {}).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join(""));
@@ -177,7 +185,8 @@
         el("span", { class: "meta" }, "#" + t.id), extra ? el("span", { class: "meta" }, extra) : null, el("span", { class: "spacer" }),
         buttons || null, detailsBtn(sc, t)),
       el("p", { class: "text" }, t.title || ""), description(t),
-      t.asks ? el("div", { class: "meta" }, t.asks) : null,
+      t.stop && t.stop.todo ? el("div", { class: "meta" }, t.stop.todo) : t.asks ? el("div", { class: "meta" }, t.asks) : null,
+      t.stop && (t.stop.allow || []).length ? el("div", { class: "meta" }, T.allows(t.stop.allow)) : null,
       t.status === "queued" && t.parallel != null
         ? el("div", { class: "meta", title: t.parallel_reason || "" }, el("span", { class: "chip" + (t.parallel ? " on" : "") },
             t.parallel ? T.beside : T.waits), " ", t.parallel_reason || "") : null,
@@ -203,6 +212,24 @@
       nodes.length ? nodes : el("p", { class: "empty" }, empty || T.nothing)];
   }
 
+  // A stopped task's buttons are the user's alone: cauce reads what a resume allows from its own account of the stop.
+  function stopButtons(sc, t) {
+    const out = [];
+    const stop = t.stop || {};
+    const resumable = t.status !== "done" && stop.next && (stop.cause !== "permission" || (stop.allow || []).length);
+    if (resumable) out.push(guarded("resume:" + t.id, T.resume(stop.cause), T.confirmResume, () => post(sc, "resume", { id: t.id })));
+    if (t.status !== "done") out.push(guarded("dismiss:" + t.id, T.dismiss, T.confirmDismiss, () => post(sc, "dismiss", { id: t.id })));
+    if (t.session_id) out.push(el("button", { type: "button", class: "ghost", on: { click: () => askSession(sc, t) } }, T.askSession));
+    return out.length ? el("span", { class: "acts" }, out) : null;
+  }
+
+  // The draft only: the user reads it, changes it and sends it from the session's card.
+  function askSession(sc, t) {
+    st.drafts[t.session_id] = T.askDraft(t);
+    st.sentTo = ""; st.sendError = null;
+    setView(sc, "sessions");
+  }
+
   function tasksView(sc, mod) {
     const b = mod.board, working = new Set(mod.working || []);
     const keep = t => !st.project || t.repo_name === st.project;
@@ -222,7 +249,7 @@
     }).filter(Boolean);
     const pending = lanes.length ? (b.queued || []).filter(l => !st.project || l.repo_name === st.project).reduce((n, l) => n + l.tasks.length, 0) : 0;
     return [
-      ...section(T.needs, (b.needs_you || []).filter(keep).map(t => card(sc, t, t.status === "done" ? T.toReview : t.status))),
+      ...section(T.needs, (b.needs_you || []).filter(keep).map(t => card(sc, t, t.status === "done" ? T.toReview : t.status, stopButtons(sc, t)))),
       ...section(T.agents, agents.map(t => agent(sc, t, cancel(t))), null, T.noAgents),
       ...(between.length ? section(T.between, between.map(t => card(sc, t, T.planning, cancel(t)))) : []),
       ...section(T.queued, lanes, pending),
@@ -261,7 +288,21 @@
   function sessionsView(sc) {
     if (!st.sessions) { load(sc, "sessions"); return [el("p", { class: "meta" }, T.loading)]; }
     if (st.sessions.error) return [el("div", { class: "note-banner" }, T.notReachable + " " + st.sessions.error)];
-    return [el("p", { class: "meta" }, T.sessionsIntro),
+    const key = "new:" + st.project;
+    const launch = st.project ? el("div", { class: "row", title: T.launchWhy },
+      field("input", { type: "text", placeholder: T.firstPh, "aria-label": T.firstPh, value: st.drafts[key] || "",
+        on: { input: e => { st.drafts[key] = e.target.value; } } }),
+      guarded("launch:" + st.project, T.newSession, T.confirmNew, async () => {
+        const text = (st.drafts[key] || "").trim();
+        if (!text) return;
+        try { st.launched = await api("/api/m/cauce/launch", { scope: sc.scope, repo: st.project, text }); st.drafts[key] = ""; }
+        catch (e) { st.launched = { error: e.message }; }
+        Tanka.render(); setTimeout(() => { st.sessions = null; load(sc, "sessions"); }, 8000);
+      })) : null;
+    const launched = st.launched ? (st.launched.error ? el("div", { class: "note-banner" }, st.launched.error)
+      : el("div", { class: "cmdline" }, el("span", { class: "meta" }, T.launched(st.launched)), el("code", {}, st.launched.attach),
+          copyBtn("launch", st.launched.attach))) : null;
+    return [el("p", { class: "meta" }, T.sessionsIntro), launch, launched,
       ...(st.sessions.length ? st.sessions.map(x => el("article", { class: "card" },
         el("div", { class: "row" }, el("span", { class: "chip on" }, x.repo_name || "?"), el("span", { class: "meta" }, T.session(x.id)),
           x.running ? el("span", { class: "chip on" }, T.runningNow) : null, el("span", { class: "spacer" }),
@@ -350,7 +391,7 @@
     // The minute is in the signature so a worker's "running for" moves on; a focused field freezes it.
     tabs: [{ id: "cauce", label: T.tab, render, badge: (sc, mod) => needs(mod),
              sig: (sc, mod) => st.editing ? st.lastSig : (st.lastSig = JSON.stringify([mod, st.open, st.detail, st.confirm, st.project,
-               st.view, st.adding, st.known, st.sessions, st.problems, st.everywhere, st.copied, st.msg, st.sentTo, st.sendError, Math.floor(Date.now() / 60000)])) }],
+               st.view, st.adding, st.known, st.sessions, st.problems, st.everywhere, st.copied, st.msg, st.sentTo, st.sendError, st.launched, Math.floor(Date.now() / 60000)])) }],
     // Sessions and problems are loaded by the tab itself; a poll refreshes them every half minute.
     refresh: async (sc) => {
       if (Tanka.ui.tab !== "cauce" || st.editing || Date.now() - st.loadedAt < 30000) return;

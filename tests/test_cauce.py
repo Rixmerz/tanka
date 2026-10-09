@@ -3,7 +3,9 @@ tools as the assistant calls them, and the page's part. cauce itself is a fake t
 JSON and logs every call, so the tests need neither cauce nor a model."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -33,6 +35,8 @@ if args[:1] == ["--version"]:
 key = args[0] if args[0] != "queue" else "queue"
 if args[0] == "show":
     key = "show:" + args[1]
+if args[0] == "events" and "--last-id" in args:
+    key = "events:last"
 answer = answers.get(key)
 if answer is None:
     print("no such thing", file=sys.stderr); sys.exit(1)
@@ -371,7 +375,7 @@ class TestSessionsAndSend(CauceCase):
         self.assertEqual(found[0]["repo_name"], "app")
         self.assertEqual([t["id"] for t in found[0]["tasks"]], [1, 2])  # its task in another repository is not shown
         self.assertEqual((found[0]["link"], found[1]["link"]), ("listening", None))
-        self.assertIn(["overview", "--json", "--hours", "24", "--limit", "50"], self.calls())
+        self.assertIn(["overview", "--json", "--hours", "24", "--limit", "50", "--repo", str(self.app)], self.calls())
         self.assertEqual(cl.overview("goose"), [])
 
     def test_sessions_carry_their_work_and_survive_an_older_cauce(self):
@@ -430,8 +434,76 @@ class TestSessionsAndSend(CauceCase):
 
     def test_an_older_cauce_is_named(self):
         self.answer(overview=OLD_CAUCE)
-        with self.assertRaisesRegex(cl.ToolError, "needs cauce 0.6.15 or newer"):
+        with self.assertRaisesRegex(cl.ToolError, "older than Tanka needs"):
             cl.sessions_text("duck")
+
+
+class TestTheUsersButtonsAndEndings(CauceCase):
+    """Resume, dismiss and a new session are the user's buttons; endings reach the automation daemon."""
+
+    def setUp(self):
+        super().setUp()
+        cl.allow("duck", str(self.app))
+        self.page = load_page()
+        self.ws = kit.WORKSPACES / "duck"
+
+    def test_resume_and_dismiss_let_cauce_choose_what_a_resume_allows(self):
+        self.answer(resume="resuming", dismiss="dismissed", **{"show:1": {"task": task(1, "blocked")},
+                                                               "show:4": {"task": task(4, "done")}})
+        self.assertEqual(self.page.ACTIONS["resume"]("duck", self.ws, {"id": "1", "allow": ["Bash(rm:*)"]}), {"resumed": 1})
+        self.assertIn(["resume", "1", "--pressed"], self.calls())
+        self.assertEqual(self.page.ACTIONS["dismiss"]("duck", self.ws, {"id": 1}), {"dismissed": 1})
+        self.assertIn(["dismiss", "1", "--via", "tanka"], self.calls())
+        with self.assertRaisesRegex(cl.ToolError, "only a task that stopped"):
+            self.page.ACTIONS["resume"]("duck", self.ws, {"id": 4})
+        with self.assertRaisesRegex(cl.ToolError, "waits on no one"):
+            self.page.ACTIONS["dismiss"]("duck", self.ws, {"id": 4})
+        self.answer(resume={"stderr": "cauce: error: unrecognized arguments: --pressed"})
+        with self.assertRaisesRegex(cl.ToolError, "older than Tanka needs"):
+            cl.resume("duck", 1)
+
+    def test_endings_start_at_the_newest_and_go_to_each_workspace_that_may_see_them(self):
+        self.answer(**{"events:last": "41"})
+        self.assertEqual(cl.endings(), [])
+        self.assertEqual(json.loads(cl.cursor_file().read_text()), {"after": 41})
+        self.answer(events="\n".join(json.dumps(e) for e in [
+            {"id": 44, "task_id": 1, "kind": "finished", "repo": "github.com/o/app", "title": "fix the cart",
+             "data": {"status": "blocked", "stop": {"reason": "npm was refused"}}},
+            {"id": 45, "task_id": 9, "kind": "finished", "repo": "github.com/o/other", "title": "not ours",
+             "data": {"status": "done"}}]))
+        [e] = cl.endings()
+        self.assertEqual((e["source"], e["scope"], e["match"], e["task"]), ("cauce", "duck", "app", 1))
+        self.assertEqual(e["what"], "cauce task #1 in app ended blocked: fix the cart (npm was refused)")
+        self.assertIn(["events", "--after", "41", "--kind", "finished", "--json", "--repo", str(self.app)], self.calls())
+        self.assertEqual(json.loads(cl.cursor_file().read_text()), {"after": 45})
+        cli = importlib.util.spec_from_file_location("cauce_cli_test", REPO / "modules" / "cauce" / "cli.py")
+        mod = importlib.util.module_from_spec(cli)
+        cli.loader.exec_module(mod)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(mod.main(["events"]), 0)
+        self.assertEqual(json.loads(out.getvalue().splitlines()[0])["match"], "app")
+
+    def test_a_new_session_starts_in_tmux_on_the_user_s_first_prompt(self):
+        tools = self.tmp / "tools"
+        tools.mkdir()
+        for name in ("tmux", "claude"):
+            (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "{self.tmp}/tools.log"\n')
+            (tools / name).chmod(0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = f"{tools}{os.pathsep}{old}"
+        self.addCleanup(os.environ.__setitem__, "PATH", old)
+        with self.assertRaisesRegex(cl.ToolError, "first prompt"):
+            self.page.ACTIONS["launch"]("duck", self.ws, {"repo": "app", "text": ""})
+        started = self.page.ACTIONS["launch"]("duck", self.ws, {"repo": "app", "text": "fix the cart total"})
+        self.assertTrue(started["attach"].startswith("tmux attach -t cauce-app-"))
+        ran = (self.tmp / "tools.log").read_text()
+        self.assertIn(f"-c {self.app} {tools / 'claude'} fix the cart total", ran)
+        with self.assertRaisesRegex(cl.ToolError, "not a repository"):
+            cl.launch("duck", "other", "fix the cart total")
+        os.environ["PATH"] = str(self.tmp / "nowhere")
+        with self.assertRaisesRegex(cl.ToolError, "needs tmux"):
+            cl.launch("duck", "app", "fix the cart total")
 
 
 def load_page():

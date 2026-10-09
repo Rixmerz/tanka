@@ -7,14 +7,14 @@
   },
   "metadata": {
     "description": "Tanka harness: a safe personal assistant on top of Claude Haiku",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "tanka",
       "source": "./plugin",
       "description": "Guardrails, loop protection, objectives and persona for running Haiku as an assistant with MCP",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "productivity",
       "keywords": [
         "haiku",

@@ -1,6 +1,7 @@
 """cauce on the page (docs/page.md): the Code tab with what needs you, what runs and what waits per
 repository; each cauce session with its work; finished and stuck tasks in the chat; and the user's
-buttons (cancel, reopen a paused repository, run a repository's queue, send a session a prompt)."""
+buttons (cancel, resume or dismiss a stopped task, reopen a paused repository, run a repository's queue,
+start a session, send a session a prompt)."""
 from __future__ import annotations
 
 import time
@@ -66,7 +67,8 @@ def hint(scope: str, ws: Path) -> str:
             "cauce_task explains one, cauce_memory says what was tried on a problem before, cauce_queue queues a new "
             "one in a repository this workspace may use. cauce_sessions shows each of the user's coding sessions with its "
             "work, and cauce_send sends one a prompt after the user approved the exact text. You cannot "
-            "run the queue, cancel or merge: the user does that with the buttons in the Code tab.")
+            "run the queue, cancel, resume, dismiss, open a session or merge: the user does that with the buttons in "
+            "the Code tab.")
 
 
 def health() -> list[dict]:
@@ -121,6 +123,10 @@ def _id(body: dict) -> int:
 
 ACTIONS = {
     "cancel": lambda scope, ws, body: cl.cancel(scope, _id(body)),
+    # The user's buttons only: cauce reads what a resume allows from its own account of the stop.
+    "resume": lambda scope, ws, body: cl.resume(scope, _id(body)),
+    "dismiss": lambda scope, ws, body: cl.dismiss(scope, _id(body)),
+    "launch": lambda scope, ws, body: cl.launch(scope, str(body.get("repo", "")), str(body.get("text", ""))),
     "unpause": lambda scope, ws, body: cl.unpause(scope, str(body.get("repo", ""))),
     "work": lambda scope, ws, body: cl.work(scope, str(body.get("repo", ""))),
     "queue": queue_task,
