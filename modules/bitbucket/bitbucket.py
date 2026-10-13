@@ -4,47 +4,54 @@ waits for the user's Approve click unless they listed that repository (and pipel
 What each assistant may touch is decided here, never by the model:
 
 - `scopes.json` (in TANKA_BITBUCKET_HOME) maps a Tanka workspace to the repositories it may read (`repos`: a list
-  of slugs, or "*" for every repository the token sees) and to those where it may act directly (`bypass`: a
-  repository slug mapped to "*", any pipeline, or to a list of custom pipeline names). Everything else that acts
-  (run or stop a pipeline) only leaves a request with the approvals module, and the user's Approve click runs it.
-  The user edits the file; the assistants cannot, because they only write inside their own workspace.
-- Every repository, ref and pipeline is checked against that file before any network call.
+  of slugs, or "*" for every repository the signed-in account sees) and to those where it may act directly
+  (`bypass`: a repository slug mapped to "*", any pipeline, or to a list of custom pipeline names). Everything else
+  that acts (run or stop a pipeline) only leaves a request with the approvals module, and the user's Approve click
+  runs it. The user edits the file; the assistants cannot, because they only write inside their own workspace.
+- Every repository, ref and pipeline is checked against that file before the browser is touched.
 
-The token is read at call time from the environment variable named by TANKA_BITBUCKET_TOKEN_VAR (default
-BITBUCKET_API_TOKEN). It never appears in output, errors or files. With an `email` configured it is sent as Basic
-email:token (an Atlassian API token); without one, as a Bearer token (a workspace, project or repository access
-token). The other settings (workspace, email, the variable's name, a CA bundle) can live in `config.json` beside
-`scopes.json`; an environment variable always wins over the file. When the token is not in the environment, a
-`token_wrapper` in that file (a command that injects it, such as a secrets manager's "run with these secrets")
-launches this same script once.
+There is no token. The user signs in to bitbucket.org once, in a visible window of the module's own Rastro session
+(`tanka bitbucket login`); the tools then drive that session headless and call Bitbucket's REST API 2.0 the way
+its own web app does: a same-origin fetch to `/!api/2.0/...` from inside the signed-in page. The cookies, and the
+CSRF token a POST needs, are read and used inside the page and never leave it: not in output, errors or files.
+Rastro lets the session write only to bitbucket.org. The workspace id (and the session's name) can live in
+`config.json` beside `scopes.json`; an environment variable always wins over the file.
 """
-import base64
+import contextlib
+import fcntl
 import json
 import os
 import re
-import ssl
+import subprocess
 import sys
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
+MODULE = Path(__file__).resolve().parent
 # Every setting has a default and an environment variable; see README.md.
 HOME = Path(os.environ.get("TANKA_BITBUCKET_HOME", Path.home() / ".tanka" / "shared" / "bitbucket"))
 SCOPES = HOME / "scopes.json"
 CONFIG = HOME / "config.json"
-API = "https://api.bitbucket.org/2.0"
+LOCK = HOME / ".lock"
 WEB = "https://bitbucket.org"
-WRAPPED = "TANKA_BITBUCKET_WRAPPED"  # set on the relaunch, so a wrapper that fails cannot loop
+API = "/!api/2.0"  # Bitbucket's REST API 2.0 as its web app reaches it, same-origin with the signed-in page
+NEXT_PREFIXES = (WEB + "/!api/", "https://api.bitbucket.org/2.0/")  # where a `next` link may point
+SIGN_IN = WEB + "/account/signin/"
+WRITE_HOSTS = ("bitbucket.org",)  # all the headless session may POST to
+LOGIN_HOSTS = ("bitbucket.org", "id.atlassian.com", "auth.atlassian.com", "accounts.google.com")
+WRAPPER = MODULE.parent / "common" / "chromium-headless"  # a real browser with a normal user agent
 MAX_OUTPUT = 5800  # under tanka_tools.MAX_OUTPUT_CHARS (6000), leaving room for the marker
 RETRY_STATUSES = (429, 502, 503)
 MAX_TRIES = 4
 LOG_LINES = 150
 LOG_BYTES = 400_000  # only the end of a step's log is fetched
 MAX_PAGES = 10
+EVAL_TIMEOUT = 90
+LOCK_WAIT = 60
 ALL = "*"
 WORKSPACE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,61}$")
+SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 REPO_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,99}$")
 REF_RE = re.compile(r"^(?!.*\.\.)(?!/)[A-Za-z0-9._/+-]{1,200}$")
 PIPELINE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ /*+-]{0,99}$")
@@ -52,6 +59,7 @@ HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 NAME_FILTER_RE = re.compile(r"^[A-Za-z0-9 ._/-]{1,60}$")
 TRUNCATED = "\n[... output truncated: narrow the request (a smaller limit, a ref, or a grep filter).]"
 NO_RETRY = "Tell the user; do not retry."
+EXPIRED = "The Bitbucket session has expired. Tell the user to run `tanka bitbucket login`; do not retry."
 
 
 class ToolError(Exception):
@@ -67,7 +75,6 @@ class NeedsApproval(ToolError):
 
 
 def run(main) -> None:
-    relaunch_with_token()
     args = json.load(sys.stdin)
     try:
         out = main(args)
@@ -77,9 +84,9 @@ def run(main) -> None:
         try:
             print(ask_approval(e.scope, e.repo, os.environ.get("TANKA_TOOL", ""), args))
         except ToolError as e2:
-            sys.exit(redact(str(e2)))
+            sys.exit(str(e2))
     except ToolError as e:
-        sys.exit(redact(str(e)))
+        sys.exit(str(e))
 
 
 def cap(text: str, limit: int = MAX_OUTPUT) -> str:
@@ -89,7 +96,7 @@ def cap(text: str, limit: int = MAX_OUTPUT) -> str:
 # ---------------------------------------------------------------- configuration
 
 def file_config() -> dict:
-    """The non-secret settings the user keeps in config.json (nothing here is a token)."""
+    """The settings the user keeps in config.json (the workspace id and the session's name; never a secret)."""
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -102,33 +109,11 @@ def setting(env_name: str, key: str, default: str = "") -> str:
     return os.environ.get(env_name, "").strip() or str(file_config().get(key) or "").strip() or default
 
 
-def token_var() -> str:
-    return setting("TANKA_BITBUCKET_TOKEN_VAR", "token_var", "BITBUCKET_API_TOKEN")
-
-
-def relaunch_with_token() -> None:
-    """Run this same script under the user's wrapper when the token is not in the environment.
-
-    The wrapper (an argv prefix in config.json, for example a secrets manager's exec command) injects the token
-    variable; nothing is read or printed here, and stdin is untouched so the tool's arguments still arrive. It
-    happens once: a wrapper that is missing or fails ends in the normal "token is not set" error.
-    """
-    if os.environ.get(token_var()) or os.environ.get(WRAPPED):
-        return
-    wrapper = file_config().get("token_wrapper")
-    if not (isinstance(wrapper, list) and wrapper and all(isinstance(a, str) and a for a in wrapper)):
-        return
-    try:
-        os.execvpe(wrapper[0], [*wrapper, sys.executable, *sys.argv], {**os.environ, WRAPPED: "1"})
-    except OSError:
-        return
-
-
-def token() -> str:
-    t = os.environ.get(token_var(), "")
-    if not t:
-        raise ToolError(f"The Bitbucket token is not set (environment variable {token_var()}). {NO_RETRY}")
-    return t
+def session_name() -> str:
+    name = setting("TANKA_BITBUCKET_SESSION", "session", "bitbucket")
+    if not SESSION_RE.match(name):
+        raise ToolError(f"\"{name}\" is not a Rastro session name (letters, digits, '.', '_', '-'). Tell the user.")
+    return name
 
 
 SECRET_PATTERNS = [
@@ -142,14 +127,8 @@ SECRET_PATTERNS = [
 ]
 
 
-def redact(text: str) -> str:
-    t = os.environ.get(token_var(), "")
-    return text.replace(t, "***") if t else text
-
-
 def redact_log(text: str) -> str:
-    """A log line with the token and anything that looks like a credential replaced by ***."""
-    text = redact(text)
+    """A log line with anything that looks like a credential replaced by ***."""
     for pattern, repl in SECRET_PATTERNS:
         text = pattern.sub(repl, text)
     return text
@@ -161,7 +140,7 @@ def config() -> dict:
         raise ToolError(f"Bitbucket is not configured (workspace not set in config.json or the environment). {NO_RETRY}")
     if not WORKSPACE_RE.match(ws):
         raise ToolError(f"The Bitbucket workspace \"{ws}\" is not a workspace id (e.g. acme). Tell the user.")
-    return {"workspace": ws, "email": setting("TANKA_BITBUCKET_EMAIL", "email")}
+    return {"workspace": ws}
 
 
 # ---------------------------------------------------------------- scope
@@ -272,26 +251,170 @@ def check_action(scope: str, repo: str, pipeline: str | None, what: str) -> str:
     return repo
 
 
-# ---------------------------------------------------------------- HTTP
+# ---------------------------------------------------------------- the browser session
 
-def ssl_context():
-    ca = setting("TANKA_BITBUCKET_CA_FILE", "ca_file")
-    return ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context()
+def _run_rastro(args: list[str], timeout: int) -> tuple[int, str, str]:
+    """One Rastro command for the module's session, without a shell: (exit code, stdout, stderr)."""
+    # The daemon reads RASTRO_CHROMIUM when it starts the browser: a real Chromium with a normal user agent, unless
+    # the user chose another. Later calls ignore it.
+    env = {"RASTRO_CHROMIUM": str(WRAPPER), **os.environ}
+    p = subprocess.run(["rastro", "-s", session_name(), *args], capture_output=True, text=True, timeout=timeout,
+                       env=env)
+    return p.returncode, p.stdout, p.stderr
 
 
-def _default_opener(req, timeout):
-    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
-
-
-OPENER = _default_opener
+RASTRO = _run_rastro  # tests replace it with a fake browser
 SLEEP = time.sleep
 
 
-def auth_header() -> str:
-    email = config()["email"]
-    if email:
-        return "Basic " + base64.b64encode(f"{email}:{token()}".encode()).decode()
-    return f"Bearer {token()}"
+def parse_rastro(stdout: str, stderr: str, what: str):
+    """The `data` of Rastro's --json answer ({"schemaVersion", "ok", "data"|"error"}), or a ToolError."""
+    lines = [line for line in (stdout or "").splitlines() if line.strip()]
+    try:
+        answer = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        answer = None
+    if not isinstance(answer, dict):
+        detail = " ".join((stderr or stdout or "no output").split())[-300:]
+        raise ToolError(f"Rastro gave no readable answer to {what} ({detail}). {NO_RETRY}")
+    if answer.get("ok") is True:
+        return answer.get("data")
+    err = answer.get("error") or {}
+    message = " ".join(str(err.get("message") or err or "unknown error").split())[:300]
+    raise ToolError(f"Rastro failed ({what}): {message}. {NO_RETRY}")
+
+
+def rastro(*args: str, timeout: int = 60):
+    try:
+        code, out, err = RASTRO(["--json", *args], timeout)
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"Rastro did not answer within {timeout} s. {NO_RETRY}")
+    except FileNotFoundError:
+        raise ToolError("Rastro is not installed (the `rastro` command is not on PATH). Tell the user.")
+    return parse_rastro(out, err, args[0])
+
+
+def running() -> bool:
+    for s in rastro("status", timeout=20) or []:
+        if isinstance(s, dict) and s.get("session") == session_name():
+            return s.get("state") in ("running", "busy")
+    return False
+
+
+_HELD = {"depth": 0, "write": False}
+
+
+@contextlib.contextmanager
+def session(write: bool = False):
+    """One assistant at a time drives the module's session; it is opened headless when it is not running.
+
+    Opened by the module, the session may write to bitbucket.org only. Before a POST the permission is stated again
+    (`open` on a running session replaces it), so a session someone opened without it can still run a pipeline."""
+    if _HELD["depth"]:
+        if write and not _HELD["write"]:
+            rastro("open", "--allow-write", ",".join(WRITE_HOSTS), timeout=120)
+            _HELD["write"] = True
+        _HELD["depth"] += 1
+        try:
+            yield
+        finally:
+            _HELD["depth"] -= 1
+        return
+    HOME.mkdir(parents=True, exist_ok=True)
+    lock = HOME / f".{session_name()}.lock"
+    lock.touch()
+    with lock.open() as fh:
+        deadline = time.time() + LOCK_WAIT
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.time() > deadline:
+                    raise ToolError("Another assistant is using Bitbucket. Tell the user to try again in a minute.")
+                SLEEP(1)
+        granted = False
+        if not running():
+            rastro("open", WEB + "/", "--allow-write", ",".join(WRITE_HOSTS), timeout=120)
+            granted = True
+        elif write:
+            rastro("open", "--allow-write", ",".join(WRITE_HOSTS), timeout=120)
+            granted = True
+        _HELD.update(depth=1, write=granted)
+        try:
+            yield
+        finally:
+            _HELD.update(depth=0, write=False)
+
+
+def goto(url: str) -> None:
+    """Rastro waits for the load event, which Bitbucket's app sometimes fires late; the fetch only needs the origin."""
+    try:
+        rastro("goto", url, timeout=EVAL_TIMEOUT)
+    except ToolError as e:
+        if "Timeout" not in str(e) and "timeout" not in str(e):
+            raise
+
+
+def page(body: str, **params) -> str:
+    """An async function expression around `body`, with every parameter declared as a JSON literal (never spliced)."""
+    decl = "".join(f"  const {k} = {json.dumps(v, ensure_ascii=True)};\n" for k, v in params.items())
+    return "(async () => {\n" + decl + body + "\n})()"
+
+
+def js(expr: str):
+    """Run an expression in the session's tab; it returns a JSON string, parsed here."""
+    data = rastro("eval", expr, timeout=EVAL_TIMEOUT)
+    try:
+        return json.loads(data) if isinstance(data, str) else data
+    except ValueError:
+        raise ToolError(f"The Bitbucket page answered something that is not JSON. {NO_RETRY}")
+
+
+# The page does the call: its cookies and its CSRF token stay inside it. Only the status and the body come back.
+FETCH = r"""
+  if (location.origin !== origin) return JSON.stringify({wrongPage: true});
+  // A step's log answers with a redirect to a signed file URL, so raw reads follow redirects (the page's cookies only
+  // go to bitbucket.org); JSON calls do not, and a redirect there means the sign-in page.
+  const headers = {"Accept": req.raw ? "*/*" : "application/json", "X-Requested-With": "XMLHttpRequest"};
+  if (req.range) headers["Range"] = req.range;
+  if (req.method !== "GET") {
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (!m) return JSON.stringify({noCsrf: true});
+    headers["X-CSRFToken"] = decodeURIComponent(m[1]);
+    headers["Content-Type"] = "application/json";
+    headers["X-Bitbucket-Frontend"] = "frontbucket";
+  }
+  let r;
+  try {
+    r = await fetch(req.path, {method: req.method, headers, credentials: "same-origin",
+                               redirect: req.raw ? "follow" : "manual",
+                               body: req.body === null ? undefined : JSON.stringify(req.body)});
+  } catch (e) {
+    return JSON.stringify({failed: String(e).slice(0, 200)});
+  }
+  const text = await r.text();
+  const landed = new URL(r.url || location.href);
+  const signIn = r.redirected && /(^|\.)(bitbucket\.org|atlassian\.com)$/.test(landed.host)
+    && !landed.pathname.startsWith("/!api/");
+  let signedIn = null;
+  // Signed out, Bitbucket hides private repositories behind a 404 page: any failure asks who is signed in.
+  if (r.status >= 400 || r.status === 0 || /text\/html/.test(r.headers.get("content-type") || "")) {
+    try {
+      const me = await fetch(api + "/user", {headers: {"Accept": "application/json"}, redirect: "manual"});
+      signedIn = me.status === 200;
+    } catch (e) {
+      signedIn = false;
+    }
+  }
+  return JSON.stringify({status: r.status, redirect: r.type === "opaqueredirect" || signIn,
+                         type: r.headers.get("content-type") || "", retryAfter: r.headers.get("retry-after"),
+                         signedIn, text: req.raw ? text.slice(-maxText) : text});
+"""
+
+
+def fetch_expr(req: dict) -> str:
+    return page(FETCH, req=req, origin=WEB, api=API, maxText=LOG_BYTES)
 
 
 def _quote(part: str) -> str:
@@ -302,50 +425,87 @@ def repo_path(repo: str, rest: str = "") -> str:
     return f"/repositories/{_quote(config()['workspace'])}/{_quote(repo)}{rest}"
 
 
-def request(method: str, path: str, body=None, query: dict | None = None, raw: bool = False,
-            headers: dict | None = None):
-    """One call to the Bitbucket API, retried on 429/502/503: parsed JSON (or None), or the text when raw.
+def next_path(link) -> str | None:
+    """A `next` link as a same-origin API path, or None when it points anywhere else (it is then not followed)."""
+    if not isinstance(link, str):
+        return None
+    if link.startswith(NEXT_PREFIXES[0]):
+        return link[len(WEB):]
+    if link.startswith(NEXT_PREFIXES[1]):
+        return API + "/" + link[len(NEXT_PREFIXES[1]):]
+    return None
 
-    `path` is under the API base, or a full `next` link the API returned (which must stay under the base)."""
-    # A `next` link is followed only when it is under the API; anything else is taken as a path below it.
-    url = path if path.startswith(API + "/") else API + path
+
+def api_path(path: str) -> str:
+    if path.startswith("/!api/"):
+        return path
+    if path.startswith("/") and not path.startswith("//"):
+        return API + path
+    raise ToolError("A Bitbucket address outside bitbucket.org was refused. Tell the user; do not retry.")
+
+
+def request(method: str, path: str, body=None, query: dict | None = None, raw: bool = False,
+            byte_range: str | None = None):
+    """One call to the Bitbucket API from inside the signed-in page, retried on 429/502/503: parsed JSON (or None),
+    or the text when raw. `path` is below the API (`/repositories/...`) or an `/!api/...` path."""
+    path = api_path(path)
     if query:
-        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(query)
-    data = json.dumps(body).encode() if body is not None else None
-    hdrs = {"Authorization": auth_header(), "Accept": "text/plain" if raw else "application/json",
-            "Content-Type": "application/json", **(headers or {})}
-    for attempt in range(1, MAX_TRIES + 1):
-        req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
-        try:
-            with OPENER(req, 60) as resp:
-                content = resp.read()
-            if raw:
-                return content.decode("utf-8", "replace")
-            return json.loads(content) if content and content.strip() else None
-        except urllib.error.HTTPError as e:
-            if e.code in RETRY_STATUSES and attempt < MAX_TRIES:
-                e.close()
-                SLEEP(_retry_after(e.headers.get("Retry-After") if e.headers else None, attempt))
+        path += ("&" if "?" in path else "?") + urllib.parse.urlencode(query)
+    req = {"method": method, "path": path, "body": body, "raw": raw, "range": byte_range}
+    with session(write=method != "GET"):
+        for attempt in range(1, MAX_TRIES + 1):
+            res = _fetch(req)
+            status = res.get("status")
+            if status in RETRY_STATUSES and attempt < MAX_TRIES:
+                SLEEP(_retry_after(res.get("retryAfter"), attempt))
                 continue
-            try:
-                text = e.read().decode("utf-8", "replace")
-            except OSError:
-                text = ""
-            finally:
-                e.close()
-            raise ToolError(redact(f"Bitbucket answered HTTP {e.code}: {_short(text)}. {_hint(e.code)}"))
-        except urllib.error.URLError as e:
-            raise ToolError(redact(f"Could not reach Bitbucket ({e.reason}). {NO_RETRY}"))
-        except (TimeoutError, OSError) as e:
-            raise ToolError(redact(f"Could not reach Bitbucket ({type(e).__name__}). {NO_RETRY}"))
+            return _result(res, method, raw)
     raise ToolError("Bitbucket is busy. Tell the user to try again in a minute.")
 
 
-def _hint(code: int) -> str:
+def _fetch(req: dict) -> dict:
+    res = js(fetch_expr(req))
+    if isinstance(res, dict) and res.get("wrongPage"):
+        goto(WEB + "/account/settings/")  # a light page of bitbucket.org; a signed-out session lands on the sign-in
+        res = js(fetch_expr(req))
+    if not isinstance(res, dict) or res.get("wrongPage"):
+        raise ToolError(EXPIRED)
+    if res.get("noCsrf"):
+        raise ToolError("The Bitbucket page holds no CSRF cookie, so nothing was run. Tell the user to run "
+                        "`tanka bitbucket login`; do not retry.")
+    if res.get("failed"):
+        if req["method"] != "GET":
+            raise ToolError("The browser session could not send this to Bitbucket: Rastro blocks writes to hosts the "
+                            "session does not allow, and this one must allow bitbucket.org. Nothing was run. "
+                            + NO_RETRY)
+        raise ToolError(f"Could not reach Bitbucket from the browser session ({res['failed']}). {NO_RETRY}")
+    return res
+
+
+def _result(res: dict, method: str, raw: bool):
+    status, text = res.get("status"), res.get("text") or ""
+    html = "text/html" in (res.get("type") or "")
+    if res.get("redirect") or status == 0 or status == 401 or (status == 403 and not res.get("signedIn")):
+        raise ToolError(EXPIRED)
+    if (html or (isinstance(status, int) and status >= 400)) and res.get("signedIn") is False:
+        raise ToolError(EXPIRED)
+    if not isinstance(status, int) or status >= 400:
+        raise ToolError(f"Bitbucket answered HTTP {status}: {_short(text)}. {_hint(status)}")
+    if raw:
+        return text
+    if html:
+        raise ToolError(EXPIRED)  # the sign-in page instead of the API's JSON
+    try:
+        return json.loads(text) if text.strip() else None
+    except ValueError:
+        raise ToolError(f"Bitbucket answered something that is not JSON to a {method}. {NO_RETRY}")
+
+
+def _hint(code) -> str:
     if code == 404:
         return "Check the name with bitbucket_repos or bitbucket_pipelines; do not guess another."
-    if code in (401, 403):
-        return "The token lacks access or a scope; tell the user, do not retry."
+    if code == 403:
+        return "The signed-in account may not do that in Bitbucket; tell the user, do not retry."
     return NO_RETRY
 
 
@@ -369,15 +529,21 @@ def _short(text: str) -> str:
 
 
 def paged(path: str, query: dict, limit: int, keep=lambda v: True) -> tuple[list, bool]:
-    """Up to `limit` values that `keep` accepts, following `next` links; and whether more exist."""
+    """Up to `limit` values that `keep` accepts, following `next` links inside bitbucket.org; and whether more exist."""
     found, url, q = [], path, dict(query)
     for _ in range(MAX_PAGES):
         res = request("GET", url, query=q) or {}
         found += [v for v in res.get("values") or [] if keep(v)]
-        url, q = res.get("next"), None
+        url, q = next_path(res.get("next")), None
         if len(found) > limit or not url:
             break
     return found[:limit], bool(url) or len(found) > limit
+
+
+def signed_in_user() -> str:
+    """The display name of the account signed in to the session, or a ToolError (EXPIRED when signed out)."""
+    me = request("GET", "/user") or {}
+    return me.get("display_name") or me.get("nickname") or "?"
 
 
 # ---------------------------------------------------------------- formatting
@@ -554,7 +720,7 @@ def _pick_step(steps: list, step: str) -> dict:
 def _log_tail(repo: str, uuid: str, step: dict, grep: str | None) -> str:
     path = repo_path(repo, f"/pipelines/{uuid}/steps/{_quote(step.get('uuid') or '')}/log")
     try:
-        text = request("GET", path, raw=True, headers={"Range": f"bytes=-{LOG_BYTES}"})
+        text = request("GET", path, raw=True, byte_range=f"bytes=-{LOG_BYTES}")
     except ToolError as e:
         if "HTTP 416" not in str(e):
             raise

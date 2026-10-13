@@ -2,25 +2,21 @@
 
 Lets a Tanka assistant list Bitbucket Cloud repositories, read their recent commits, follow pipeline runs and read the end of a step's log, see which pipelines can be run, and run or stop a custom pipeline, only in the repositories the user assigned to that assistant. **By default it cannot act:** running or stopping a pipeline leaves a request that waits for your **Approve** click, unless you list that repository (and pipeline) as bypass.
 
-It calls the Bitbucket Cloud REST API 2.0 (`https://api.bitbucket.org/2.0`) with a token, using the Python standard library only.
+It needs no token. You sign in to bitbucket.org once, in a visible window of the module's own headless [Rastro](https://github.com/Rixmerz/rastro) session; the tools then call Bitbucket's REST API 2.0 from inside that signed-in page, the way Bitbucket's own web app does (`https://bitbucket.org/!api/2.0/...`). Your cookies, and the CSRF token a run or a stop needs, are used inside the page and never reach the assistant, its output or a file. Python standard library only.
 
 ## Setup
 
 ```bash
 tanka install approvals <workspace>     # the Approve buttons; without it every action is refused
 tanka install bitbucket <workspace>     # add the bitbucket skill (5 tools) and an example scopes.json
-export TANKA_BITBUCKET_WORKSPACE=acme
-export TANKA_BITBUCKET_EMAIL=someone@example.com   # leave it out for an access token (Bearer)
-export BITBUCKET_API_TOKEN=<API_TOKEN>             # or any name, see TANKA_BITBUCKET_TOKEN_VAR
-tanka bitbucket status                  # what is configured and what each workspace may do
+export TANKA_BITBUCKET_WORKSPACE=acme   # or "workspace" in config.json (below)
+tanka bitbucket login                   # a browser window on Bitbucket's sign-in page: sign in, then press Enter
+tanka bitbucket status                  # the workspace, whether the session is signed in, what each workspace may do
 ```
 
-Two kinds of token work:
+`tanka bitbucket login` opens the session `bitbucket` (`TANKA_BITBUCKET_SESSION`) in a visible window, allowed to write only to bitbucket.org and the Atlassian and Google sign-in hosts, so you can sign in with your Atlassian account or with Google. When you press Enter the window closes; from then on the tools open the same session headless, allowed to write to bitbucket.org only. If a provider refuses to sign in inside an automated window, sign in with your Atlassian email and password instead.
 
-- **An Atlassian API token with scopes** (id.atlassian.com → Security → API tokens → *Create API token with scopes*, app Bitbucket), with `read:repository:bitbucket`, `read:pipeline:bitbucket`, `write:pipeline:bitbucket`, `read:workspace:bitbucket` and `read:user:bitbucket`. Set `email` to the account's email: it is sent as Basic `email:token`.
-- **A workspace (or project, or repository) access token** (Bitbucket → workspace settings → Access tokens) with repository read and pipeline read and write. Leave `email` unset: it is sent as a Bearer token.
-
-Keep it in your shell profile or secret manager, never in a file inside a workspace or the repository. The module reads it from the environment when a tool runs and never prints, logs or writes it. Leave out `write:pipeline` if the assistant should only read.
+When the sign-in expires, a tool says "The Bitbucket session has expired" and the assistant tells you to run `tanka bitbucket login` again; it does not retry. Whatever the signed-in account may do in Bitbucket, the session may do too: `scopes.json` is what keeps each assistant to its repositories.
 
 ## What each assistant may read and do
 
@@ -41,11 +37,11 @@ Keep it in your shell profile or secret manager, never in a file inside a worksp
 
 | Key | Value | Meaning |
 | --- | --- | --- |
-| `repos` | a list of repository slugs, or `"*"` | what it may read; `"*"` is every repository your token sees, new ones included |
+| `repos` | a list of repository slugs, or `"*"` | what it may read; `"*"` is every repository the signed-in account sees, new ones included |
 | `bypass` | `{slug: "*" or [pipeline names]}` | where it may run or stop a pipeline **at once**: `"*"` is any custom pipeline of that repository, a list is only those custom pipelines. Only repositories in `repos` count |
 | `unattended_write` | `true` or `false` (default) | whether a routine or trigger may use the bypass (see below) |
 
-Before any network call the library refuses: a workspace with no entry ("No Bitbucket repository is assigned to this assistant"); a repository outside `repos`; a branch, pipeline name or commit that is not well formed. Everything outside `bypass` sends nothing: the tool leaves the exact action with the [approvals](../approvals/README.md) module, and the chat shows it with **Approve** and **Dismiss**. Your click runs the skill's `approve.py`, which sends that one stored action, once, after checking again that the repository is still in `repos`.
+Before touching the browser the library refuses: a workspace with no entry ("No Bitbucket repository is assigned to this assistant"); a repository outside `repos`; a branch, pipeline name or commit that is not well formed. Everything outside `bypass` sends nothing: the tool leaves the exact action with the [approvals](../approvals/README.md) module, and the chat shows it with **Approve** and **Dismiss**. Your click runs the skill's `approve.py`, which sends that one stored action, once, after checking again that the repository is still in `repos`.
 
 Stopping follows the same rule: with `"*"` the assistant may stop any run of that repository at once; with a list, only runs of those custom pipelines; anything else waits for Approve.
 
@@ -63,44 +59,39 @@ Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka
 | `bitbucket_run_pipeline` | send | run a custom pipeline on a branch (optionally at a commit); outside bypass, a request for your Approve click |
 | `bitbucket_stop_pipeline` | send | stop a running pipeline; outside bypass, a request for your Approve click |
 
-Rate limits (429) and gateway errors (502, 503) are retried up to 4 times, honouring `Retry-After`. Every output stays under 6000 characters.
+Rate limits (429) and gateway errors (502, 503) are retried up to 4 times, honouring `Retry-After`. One assistant at a time drives the session (a lock beside `scopes.json`). Every output stays under 6000 characters.
 
-**Risk:** running a pipeline deploys or builds code with whatever the pipeline does, and others see it at once. Put in `bypass` only repositories and pipelines where a wrong run is cheap (a development deploy), never production. The token acts with all of its permissions; the scope file is what keeps each assistant to its repositories. Use a token you can revoke, with only the scopes above.
+**Risk:** the module automates Bitbucket's web app with your signed-in session, not an API token: it can break when Atlassian changes the app, and automating a work account may be against your organisation's policy or Atlassian's terms, so check before using it. Running a pipeline deploys or builds code with whatever the pipeline does, and others see it at once. Put in `bypass` only repositories and pipelines where a wrong run is cheap (a development deploy), never production.
 
 ## Configuration
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
-| `TANKA_BITBUCKET_HOME` | `~/.tanka/shared/bitbucket` | Where `scopes.json` and `config.json` live |
+| `TANKA_BITBUCKET_HOME` | `~/.tanka/shared/bitbucket` | Where `scopes.json`, `config.json` and the session lock live |
 | `TANKA_BITBUCKET_WORKSPACE` (`workspace`) | (required) | The Bitbucket workspace id, as in `bitbucket.org/<workspace>/` (e.g. `acme`) |
-| `TANKA_BITBUCKET_EMAIL` (`email`) | (none) | The Atlassian account email for an API token (Basic); unset, the token is sent as Bearer |
-| `TANKA_BITBUCKET_TOKEN_VAR` (`token_var`) | `BITBUCKET_API_TOKEN` | The **name** of the environment variable that holds the token |
-| `TANKA_BITBUCKET_CA_FILE` (`ca_file`) | (none) | A CA bundle for a corporate proxy that re-signs TLS |
+| `TANKA_BITBUCKET_SESSION` (`session`) | `bitbucket` | The Rastro session that holds the sign-in |
+| `RASTRO_CHROMIUM` | `modules/common/chromium-headless` | The browser Rastro starts for the session (a real Chromium with a normal user agent) |
 
 ## The settings file
 
-Everything above except the token can also live in `config.json`, beside `scopes.json` and outside every workspace. An environment variable always wins over the file. The file never holds a token:
+The workspace and the session's name can also live in `config.json`, beside `scopes.json` and outside every workspace. An environment variable always wins over the file. It holds no secret:
 
 ```json
 {
   "workspace": "acme",
-  "email": "someone@example.com",
-  "token_var": "MY_BITBUCKET_TOKEN",
-  "token_wrapper": ["secrets-tool", "exec", "MY_BITBUCKET_TOKEN", "--"]
+  "session": "bitbucket"
 }
 ```
-
-`token_wrapper` is for a token kept in a secrets manager instead of the environment. When the variable is missing, a tool runs its own script once more under that command, which injects the variable for that one short process. The wrapper must be a command that runs another command and exits when it does. If it is missing or fails, the tool ends in the usual "token is not set" error instead of looping.
 
 ## Files
 
 | File | What it does |
 | --- | --- |
 | `module.json` | Name and description, read by `tanka modules` |
-| `bitbucket.py` | Scope and bypass, HTTP with retries, log redaction, the `bitbucket-pipelines.yml` reader, the operations, approval requests |
-| `cli.py` | `tanka bitbucket status`, and `post-install` |
+| `bitbucket.py` | Scope and bypass, the browser session and the in-page API calls with retries, log redaction, the `bitbucket-pipelines.yml` reader, the operations, approval requests |
+| `cli.py` | `tanka bitbucket login` and `status`, and `post-install` |
 | `page.py`, `page.js` | Its part of the page: whether it is configured, the bypass list, the Autonomy switch |
-| `config.json` | Yours, not shipped: the workspace, email, token variable's name and an optional `token_wrapper` |
+| `config.json` | Yours, not shipped: the workspace and, optionally, the session's name |
 | `skill/` | The skill `tanka install` copies: `SKILL.md`, five tools and `approve.py` |
 
 Tests: `tests/test_bitbucket.py`.

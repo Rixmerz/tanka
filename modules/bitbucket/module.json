@@ -1,5 +1,7 @@
 {
   "name": "bitbucket",
   "description": "List Bitbucket Cloud repositories, commits and pipeline runs with their step logs, and run or stop a custom pipeline, only in the repositories the user assigned to the workspace; an action waits for their Approve click unless they listed that repository as bypass.",
-  "requires": []
+  "requires": [
+    "rastro"
+  ]
 }
