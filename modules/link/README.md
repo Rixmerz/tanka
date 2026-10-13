@@ -8,9 +8,9 @@ exact text and waiting for your yes.
 ## Setup
 
 ```bash
-claude plugin marketplace add ~/my/tanka        # this repository is a plugin marketplace
-claude plugin install tanka-link@tanka          # every new Claude Code session registers itself
-tanka install link <workspace>                  # link_sessions, link_send and the Sessions tab
+claude plugin marketplace add Rixmerz/claude-plugins   # the rixmerz marketplace indexes tanka-link
+claude plugin install tanka-link@rixmerz               # every new Claude Code session registers itself
+tanka install link <workspace>                         # link_sessions, link_send and the Sessions tab
 ```
 
 Restart the Claude Code sessions already open: plugins and hooks reach new sessions only.
