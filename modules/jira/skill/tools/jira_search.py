@@ -13,7 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.search(SCOPE, args.get("jql"), args.get("limit", 20), args.get("key"))
+    return jira.search(SCOPE, args.get("jql"), args.get("limit"), args.get("key"))
 
 
 jira.run(main)

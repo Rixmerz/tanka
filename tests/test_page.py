@@ -705,5 +705,29 @@ class TestNames(WorkspaceCase):
         self.assertEqual(page.scope_state("duck")["name"], "Nova")
 
 
+class TestCompactAt(unittest.TestCase):
+    """The page's context meter compares the session with where it compacts on its own."""
+
+    def setUp(self):
+        self.ws = Path(__import__("tempfile").mkdtemp())
+        (self.ws / ".tanka").mkdir()
+        (self.ws / ".tanka" / "workspace.json").write_text(json.dumps({"profile": "sonnet"}))
+        for k in ("TANKA_AUTOCOMPACT_PCT",):
+            old = os.environ.pop(k, None)
+            self.addCleanup(lambda k=k, old=old: os.environ.pop(k, None) if old is None else os.environ.__setitem__(k, old))
+        old = chat.COMPACT_TOKENS
+        self.addCleanup(setattr, chat, "COMPACT_TOKENS", old)
+        chat.COMPACT_TOKENS = 0
+
+    def test_the_profiles_autocompact_share_of_the_window(self):
+        self.assertEqual(page.compact_at(self.ws), page.CONTEXT_WINDOW * 75 // 100)
+
+    def test_the_environment_and_tankas_own_threshold_win_when_lower(self):
+        os.environ["TANKA_AUTOCOMPACT_PCT"] = "50"
+        self.assertEqual(page.compact_at(self.ws), page.CONTEXT_WINDOW // 2)
+        chat.COMPACT_TOKENS = 40000
+        self.assertEqual(page.compact_at(self.ws), 40000)
+
+
 if __name__ == "__main__":
     unittest.main()

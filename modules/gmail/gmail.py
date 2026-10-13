@@ -164,7 +164,13 @@ def current_url() -> str:
 
 
 def goto(url: str) -> None:
-    rastro("goto", url, timeout=90)
+    """Rastro waits for the page's load event, which Google's apps sometimes fire late: arriving at the URL is
+    enough, since every page script waits for what it reads."""
+    try:
+        rastro("goto", url, timeout=90)
+    except ToolError as e:
+        if "Timeout" not in str(e) or not current_url().startswith(url.split("#")[0]):
+            raise
 
 
 def upload_dirs() -> list[str]:
@@ -180,8 +186,8 @@ def session_for_cli():
 
 
 @contextlib.contextmanager
-def session():
-    """One assistant at a time drives the shared Gmail tab."""
+def session(write_hosts: tuple[str, ...] = ("mail.google.com",), home: str = ""):
+    """One assistant at a time drives the shared Gmail tab (the gchat module shares it, writing to chat.google.com)."""
     HOME.mkdir(parents=True, exist_ok=True)
     LOCK.touch()
     with LOCK.open() as fh:
@@ -196,13 +202,15 @@ def session():
                 time.sleep(1)
         # Gmail searches and sends through POSTs to its own host and nowhere else. `open` on a
         # running session only replaces these permissions, so every call states them in full.
-        perms = ["--allow-write", "mail.google.com"] + (["--allow-upload", ",".join(upload_dirs())] if upload_dirs() else [])
+        perms = ["--allow-write", ",".join(write_hosts)] + (["--allow-upload", ",".join(upload_dirs())] if upload_dirs() else [])
+        home = home or f"{BASE}/mail/u/0/"
         if running():
             rastro("open", *perms, timeout=120)
         else:
-            rastro("open", f"{BASE}/mail/u/0/", *perms, timeout=120)
-        if not current_url().startswith(BASE + "/mail/"):
-            goto(f"{BASE}/mail/u/0/")
+            rastro("open", home, *perms, timeout=120)
+        prefix = re.match(r"https://[^/]+/[^/]+/", home).group(0)  # mail.google.com/mail/ or chat.google.com/u/
+        if not current_url().startswith(prefix):
+            goto(home)
         yield
 
 

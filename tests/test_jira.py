@@ -264,6 +264,7 @@ class TestTools(unittest.TestCase):
         for py in TOOLS.glob("*.py"):
             self.assertIn('SCOPE = "__SCOPE__"', py.read_text())
         self.assertEqual(len(list(TOOLS.glob("*.json"))), 6)
+        self.assertIn('SCOPE = "__SCOPE__"', (TOOLS.parent / "approve.py").read_text())
 
     def test_install_and_checks(self):
         tmp = Path(tempfile.mkdtemp())
@@ -308,7 +309,7 @@ class TestUnattended(JiraCase):
         self.assertEqual(jira.check_project("closed", "PROJ"), "PROJ")
 
     def test_the_opt_in_does_not_grant_writing_by_itself(self):
-        with self.assertRaisesRegex(jira.ToolError, "only read Jira"):
+        with self.assertRaisesRegex(jira.ToolError, "may only read"):
             jira.check_project("reader", "PROJ", write=True)
 
     def test_a_message_typed_in_the_page_chat_may_write_but_still_needs_the_write_scope(self):
@@ -472,11 +473,126 @@ class TestDeletion(JiraCase):
         with self.assertRaisesRegex(jira.ToolError, "only read"):
             jira.request_delete("reader", "PROJ-9")
 
-    def test_search_with_a_key_reads_the_issue_and_without_either_asks_for_one(self):
+    def test_search_with_a_key_reads_the_issue_and_without_either_lists_the_projects(self):
         self.replies = [{"key": "PROJ-1", "fields": {"summary": "S"}}]
         self.assertIn("PROJ-1: S", jira.search("work", key="proj-1"))
-        with self.assertRaisesRegex(jira.ToolError, "JQL query"):
-            jira.search("work")
+        self.replies = [{"values": [{"key": "PROJ", "name": "Project"}], "isLast": True}]
+        self.assertIn("PROJ | Project | ? | change", jira.search("work"))
+        self.assertIn("/rest/api/3/project/search", self.calls[-1][1])
+
+
+class TestReadAllWriteSome(JiraCase):
+    """Read every project, change one directly, and the rest only after the user's Approve click."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "scopes.json").write_text(json.dumps({"scopes": {
+            "wide": {"projects": "*", "write": ["PROJ"], "write_on_approval": "*"},
+            "looker": {"projects": "*"},
+            "narrow": {"projects": ["PROJ", "OPS"], "write": True, "write_on_approval": ["OTHER"]}}}))
+        self.ws = self.tmp / "ws"
+        (self.ws / ".claude" / "skills" / "approvals").mkdir(parents=True)
+        self.patch_env("TANKA_WORKSPACE", str(self.ws))
+        sys.path.insert(0, str(REPO / "modules" / "approvals"))
+        import approvals
+        self.ap = approvals
+        old = approvals.HOME
+        approvals.HOME = self.tmp / "approvals"
+        self.addCleanup(setattr, approvals, "HOME", old)
+
+    def patch_env(self, k, v):
+        old = os.environ.get(k)
+        os.environ[k] = v
+        self.addCleanup(lambda: os.environ.pop(k, None) if old is None else os.environ.__setitem__(k, old))
+
+    def test_any_project_can_be_read_and_the_query_is_not_wrapped(self):
+        self.assertEqual(jira.check_project("looker", "anyone"), "ANYONE")
+        self.assertEqual(jira.wrap_jql("looker", "status = Open ORDER BY updated"), "(status = Open) ORDER BY updated")
+        with self.assertRaisesRegex(jira.ToolError, "Give a filter"):
+            jira.wrap_jql("looker", "")
+        with self.assertRaisesRegex(jira.ToolError, "unbalanced"):
+            jira.wrap_jql("looker", "a = 1) OR (b = 2")
+
+    def test_reading_everything_grants_no_writing(self):
+        with self.assertRaisesRegex(jira.ToolError, "may only read OPS"):
+            jira.create("looker", "OPS", "Task", "x")
+        with self.assertRaisesRegex(jira.ToolError, "may only read"):
+            jira.request_delete("looker", "OPS-1")
+        self.assertEqual(self.calls, [])
+
+    def test_the_direct_project_writes_and_another_asks_without_calling_jira(self):
+        self.replies = [{"key": "PROJ-7"}]
+        self.assertIn("PROJ-7", jira.create("wide", "PROJ", "Task", "x"))
+        with self.assertRaises(jira.NeedsApproval):
+            jira.create("wide", "OPS", "Task", "x")
+        with self.assertRaises(jira.NeedsApproval):
+            jira.link("wide", "PROJ-1", "OPS-2")  # one end outside the direct project is enough
+        self.assertEqual(len(self.calls), 1)
+
+    def test_write_true_is_the_listed_projects_and_approval_cannot_widen_reading(self):
+        self.assertEqual(jira.check_project("narrow", "OPS", write=True), "OPS")
+        with self.assertRaisesRegex(jira.ToolError, "not a Jira project"):
+            jira.check_project("narrow", "OTHER", write=True)
+
+    def test_the_request_waits_and_only_the_replay_sends_it_once(self):
+        args = {"project": "ops", "type": "Task", "summary": "Rotate the key"}
+        out = jira.ask_approval("wide", "OPS", "jira_create", args)
+        self.assertIn("NOTHING was changed", out)
+        a = self.ap.read("wide")[0]
+        self.assertEqual((a["skill"], a["title"], a["payload"]), ("jira", "Jira: create in OPS: Rotate the key",
+                                                                 {"tool": "jira_create", "args": args}))
+        self.assertEqual(self.calls, [])
+        self.replies = [{"key": "OPS-3"}]
+        self.assertIn("Created OPS-3", jira.replay("wide", a["payload"]))
+        self.assertEqual(self.calls[0][2]["fields"]["project"], {"key": "OPS"})
+        self.assertFalse(jira.APPROVED)  # the approval covers that one call, not the next
+        with self.assertRaises(jira.NeedsApproval):
+            jira.create("wide", "OPS", "Task", "again")
+
+    def test_the_replay_keeps_every_scope_check(self):
+        with self.assertRaisesRegex(jira.ToolError, "may only read"):
+            jira.replay("looker", {"tool": "jira_create", "args": {"project": "OPS", "type": "Task", "summary": "x"}})
+        with self.assertRaisesRegex(jira.ToolError, "not a Jira change"):
+            jira.replay("wide", {"tool": "jira_delete", "args": {"key": "OPS-1"}})
+        self.assertEqual(self.calls, [])
+
+    def test_without_the_approvals_module_it_says_so(self):
+        shutil.rmtree(self.ws / ".claude" / "skills" / "approvals")
+        with self.assertRaisesRegex(jira.ToolError, "tanka install approvals"):
+            jira.ask_approval("wide", "OPS", "jira_comment", {"key": "OPS-1", "body": "hi"})
+
+    def test_projects_lists_what_it_may_do_in_each(self):
+        self.replies = [{"values": [{"key": "OPS", "name": "Operations", "projectTypeKey": "software"},
+                                    {"key": "PROJ", "name": "Project", "projectTypeKey": "software"}], "isLast": True}]
+        out = jira.search("wide")  # neither a query nor a key: the projects
+        self.assertIn("OPS | Operations | software | change after Approve", out)
+        self.assertIn("PROJ | Project | software | change", out)
+        self.replies = [{"values": [{"key": "OPS", "name": "Operations"}, {"key": "ZZZ", "name": "Hidden"}], "isLast": True}]
+        self.assertNotIn("ZZZ", jira.projects("narrow"))  # a project outside the scope is not even named
+
+    def test_end_to_end_the_tool_leaves_a_request_and_approve_py_sends_it(self):
+        ws = self.tmp / "workspaces" / "wide"
+        env = dict(os.environ, TANKA_WORKSPACES=str(self.tmp / "workspaces"), TANKA_JIRA_HOME=str(self.tmp),
+                   TANKA_APPROVALS_HOME=str(self.tmp / "approvals"))
+        tanka = lambda *a: subprocess.run([str(REPO / "bin" / "tanka"), *a], capture_output=True, text=True, env=env)
+        tanka("init", "wide", "--strict")
+        self.assertEqual(tanka("install", "approvals", "wide").returncode, 0)
+        self.assertEqual(tanka("install", "jira", "wide").returncode, 0)
+        tool = ws / ".claude" / "skills" / "jira" / "tools"
+        run_env = dict(env, TANKA_WORKSPACE=str(ws), TANKA_TOOL="jira_comment", TANKA_PLUGIN_DIR=str(REPO / "plugin"))
+        p = subprocess.run([sys.executable, str(tool / "jira_comment.py")], input=json.dumps({"key": "OPS-1", "body": "hi"}),
+                           capture_output=True, text=True, cwd=tool, env=run_env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("NOTHING was changed", p.stdout)
+        a = json.loads((self.tmp / "approvals" / "wide.json").read_text())["approvals"][0]
+        self.assertEqual(a["payload"], {"tool": "jira_comment", "args": {"key": "OPS-1", "body": "hi"}})
+        self.assertIn('SCOPE = "wide"', (ws / ".claude" / "skills" / "jira" / "approve.py").read_text())
+        # The click runs approve.py, which checks the scope again: with OPS no longer allowed, nothing is sent.
+        (self.tmp / "scopes.json").write_text(json.dumps({"scopes": {"wide": {"projects": "*", "write": ["PROJ"]}}}))
+        self.patch_env("TANKA_JIRA_HOME", str(self.tmp))
+        with self.assertRaisesRegex(self.ap.ToolError, "may only read OPS"):
+            self.ap.approve("wide", ws, a["id"])
+        self.assertEqual(self.ap.read("wide")[0]["status"], "failed")
 
 
 if __name__ == "__main__":

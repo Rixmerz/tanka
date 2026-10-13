@@ -13,8 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.update(SCOPE, args["key"], args.get("status"), args.get("summary"), args.get("description"),
-                       args.get("add_labels"), args.get("remove_labels"))
+    return jira.OPS["jira_update"](SCOPE, args)
 
 
 jira.run(main)

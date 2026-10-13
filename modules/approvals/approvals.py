@@ -23,6 +23,7 @@ HOME = Path(os.environ.get("TANKA_APPROVALS_HOME", Path.home() / ".tanka" / "sha
 TIMEOUT = int(os.environ.get("TANKA_APPROVALS_TIMEOUT", "180"))
 SCOPE_RE = re.compile(r"[A-Za-z0-9_-]+")
 SKILL_RE = re.compile(r"[a-z][a-z0-9_-]*")
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugin"
 MAX_KEPT = 30  # closed requests kept for the page; pending ones are always kept
 MAX_TEXT = 6000
 MAX_RESULT = 600
@@ -116,8 +117,10 @@ def approve(scope: str, ws: Path, aid: str) -> str:
         a["status"] = "running"  # a second click, or a second page, cannot run it again
         write(scope, items)
     try:
+        # The same environment a tool gets, so approve.py can import its module like the tool that asked.
+        env = dict(os.environ, TANKA_WORKSPACE=str(ws), TANKA_PLUGIN_DIR=str(PLUGIN_DIR))
         p = subprocess.run([sys.executable, str(script)], input=json.dumps({"id": aid, "payload": a["payload"]}),
-                           capture_output=True, text=True, timeout=TIMEOUT, cwd=str(ws))
+                           capture_output=True, text=True, timeout=TIMEOUT, cwd=str(ws), env=env)
     except subprocess.TimeoutExpired:
         _close(scope, aid, "failed", "It took too long; check by hand whether it happened before asking again.")
         raise ToolError("It took too long. Check by hand whether it happened before asking again.")
@@ -158,6 +161,11 @@ def run(main) -> None:
         main(json.load(sys.stdin))
     except ToolError as e:
         sys.exit(str(e))
+
+
+def workspace_scope() -> str:
+    """The scope of the workspace a tool runs for (a tool's working directory is its own tools folder)."""
+    return Path(os.environ.get("TANKA_WORKSPACE") or Path.cwd()).name
 
 
 def ask_tool(scope: str, skill: str, title: str, text: str, payload: dict) -> str:

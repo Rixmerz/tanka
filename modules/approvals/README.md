@@ -25,11 +25,11 @@ import approvals
 
 def main(args):
     payload = {"title": args["title"], "description": args["description"]}
-    print(approvals.ask_tool(Path.cwd().name, "<skill>", args["title"], args["description"], payload))
+    print(approvals.ask_tool(approvals.workspace_scope(), "<skill>", args["title"], args["description"], payload))
 ```
 
-`<workspace>/.claude/skills/<skill>/approve.py`, run by the Approve click with `{"id", "payload"}` on stdin. It
-prints the result (shown on the page) and exits non-zero on failure:
+`<workspace>/.claude/skills/<skill>/approve.py`, run by the Approve click with `{"id", "payload"}` on stdin and the
+same `TANKA_PLUGIN_DIR` and `TANKA_WORKSPACE` a tool gets. It prints the result (shown on the page) and exits non-zero on failure:
 
 ```python
 import json, sys

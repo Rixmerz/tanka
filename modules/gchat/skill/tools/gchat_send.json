@@ -1,0 +1,37 @@
+{
+  "name": "gchat_send",
+  "effect": "send",
+  "description": "Sends one message, optionally with one file, into a Google Chat conversation. Unless the user listed that person or conversation as bypass, it sends NOTHING: it leaves the exact message in the chat with Approve and Dismiss, and only the user's click sends it. Use it after showing the user the exact text and the conversation. Never call it twice for the same message, and never say it was sent until the result or approvals_list says so. Returns one line: sent, or the request waiting for the user.",
+  "params": {
+    "conversation": {
+      "type": "string",
+      "required": true,
+      "description": "Number from the last gchat_read list, id (e.g. dm/AAAA) or part of the name."
+    },
+    "text": {
+      "type": "string",
+      "pattern": "^[\\s\\S]{0,4000}$",
+      "description": "The exact message the user approved (e.g. I uploaded the report, can you check it?)."
+    },
+    "attachment": {
+      "type": "string",
+      "description": "Path of one file inside the workspace to attach (e.g. reports/informe.pdf). Leave it out for none."
+    }
+  },
+  "examples": [
+    {
+      "conversation": "2",
+      "text": "I uploaded the report, can you check it?"
+    },
+    {
+      "conversation": "space/AAAAexample1",
+      "text": "The diagram",
+      "attachment": "reports/diagram.png"
+    }
+  ],
+  "timeout_sec": 240,
+  "run": [
+    "python3",
+    "gchat_send.py"
+  ]
+}

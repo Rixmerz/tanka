@@ -13,7 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.comment(SCOPE, args["key"], args["body"])
+    return jira.OPS["jira_comment"](SCOPE, args)
 
 
 jira.run(main)

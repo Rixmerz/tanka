@@ -13,7 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.link(SCOPE, args["from_key"], args["to_key"], args.get("link_type", "Blocks"))
+    return jira.OPS["jira_link"](SCOPE, args)
 
 
 jira.run(main)

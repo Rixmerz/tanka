@@ -45,7 +45,8 @@ def status() -> int:
     for ws in sorted(entries):
         try:
             s = jira.scope_of(ws)
-            print(f"  {ws}: {', '.join(s['projects'])} ({'read and write' if s['write'] else 'read only'})")
+            print(f"  {ws}: reads {jira.describe(s['projects'])}; changes {jira.describe(s['write'])}; "
+                  f"changes after Approve {jira.describe(s['on_approval'])}")
         except jira.ToolError:
             print(f"  {ws}: no valid project")
     return 0

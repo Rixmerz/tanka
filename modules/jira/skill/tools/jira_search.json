@@ -1,19 +1,18 @@
 {
   "name": "jira_search",
   "effect": "read",
-  "description": "Searches the Jira issues of the projects assigned to this assistant with a JQL query, or shows one issue in full when given its key. Use it when the user asks which issues exist, what is assigned to someone, what is open or blocked, needs an issue key they do not know, or asks what an issue says: its status, assignee, labels, parent, description, links and last 10 comments; also before commenting, updating or deleting. It changes nothing. A query is always limited to the assigned projects. Returns a count line and one line per issue (KEY | status | type | assignee | summary), or the issue's header lines, description and comments.",
+  "description": "Searches the Jira issues this assistant may read with a JQL query, shows one issue in full given its key, or, with neither, lists the projects (boards) it may use and what it may do in each: read, change, or change after the user's Approve click. Use it when the user asks which issues exist, what is assigned, open or blocked, needs a key they do not know, or asks what an issue says (status, assignee, labels, parent, description, links, last 10 comments); before commenting, updating or deleting; and when they ask which projects exist. It changes nothing. Returns one line per issue (KEY | status | type | assignee | summary), the issue in full, or one line per project (KEY | name | type | what you may do).",
   "params": {
     "jql": {
       "type": "string",
       "required": false,
-      "description": "JQL filter as the user described it, without the project (e.g. status = \"In Progress\" ORDER BY updated DESC)."
+      "description": "JQL filter as the user described it (e.g. status = \"In Progress\" ORDER BY updated DESC). When the assistant may read every project, include the project (e.g. project = PROJ AND status = Open). Leave it and key out to list the projects."
     },
     "limit": {
       "type": "integer",
-      "default": 20,
       "minimum": 1,
-      "maximum": 50,
-      "description": "How many issues to show at most (e.g. 20)."
+      "maximum": 200,
+      "description": "How many issues (up to 50, default 20) or projects (up to 200, default 100) to show (e.g. 20)."
     },
     "key": {
       "type": "string",
@@ -26,12 +25,9 @@
       "jql": "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     },
     {
-      "jql": "text ~ \"login error\"",
-      "limit": 5
-    },
-    {
       "key": "PROJ-123"
-    }
+    },
+    {}
   ],
   "timeout_sec": 60,
   "run": [

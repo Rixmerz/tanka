@@ -1,0 +1,36 @@
+{
+  "name": "gchat_read",
+  "effect": "read",
+  "description": "Reads the user's Google Chat (the chat inside Gmail: direct messages and spaces). Without a conversation it lists the recent conversations, numbered, with unread counts and ids; with one (its number from that list, its id like space/AAAA or dm/AAAA, or part of its name) it shows the last messages, oldest first, with who wrote each and any attachment. Use it when the user asks what someone wrote in Chat, what is unread there, or before answering in a conversation. It changes nothing in what was said, but Chat marks a conversation it opens as seen. Returns one line per conversation or per message.",
+  "params": {
+    "conversation": {
+      "type": "string",
+      "description": "Number from the last list, id (e.g. space/AAAAexample1) or part of the name. Leave it out to list the conversations."
+    },
+    "query": {
+      "type": "string",
+      "description": "Part of a conversation's name to filter the list by (e.g. devops). Only without conversation."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60,
+      "description": "How many conversations (default 30) or messages (default 20, up to 50) to show."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "query": "devops"
+    },
+    {
+      "conversation": "2",
+      "limit": 10
+    }
+  ],
+  "timeout_sec": 180,
+  "run": [
+    "python3",
+    "gchat_read.py"
+  ]
+}

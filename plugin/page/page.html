@@ -212,6 +212,11 @@ details.ev pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; whi
 .hint { margin-top: 7px; font-size: 12px; color: var(--faint); text-align: center; }
 .hint kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
 .hint .err { color: var(--bad); }
+.hint .ctx { margin-left: 10px; white-space: nowrap; }
+.hint .ctx .bar { display: inline-block; vertical-align: middle; width: 46px; height: 4px; margin-right: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.hint .ctx .bar i { display: block; height: 100%; background: var(--accent); }
+.hint .ctx.warn { color: var(--warn, var(--bad)); }
+.hint .ctx.warn .bar i { background: var(--warn, var(--bad)); }
 .modes { display: flex; gap: 4px; margin-bottom: 8px; }
 .modes button { border: 1px solid var(--line); background: var(--raised); border-radius: 99px; padding: 3px 13px; font-size: 13px; cursor: pointer; color: var(--muted); }
 .modes button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
@@ -644,6 +649,8 @@ const T = {
   tooMany: n => `At most ${n} files in one message.`,
   commands: "Commands", cmdLoading: "Loading commands…", cmdNone: "No command matches.", cmdWorkspace: "this workspace", hintCost: "",
   left: n => ` · US$${Math.max(n, 0).toFixed(2)} left today`,
+  context: (n, at) => `Context ${kTokens(n)} of ${kTokens(at)}`,
+  contextTip: at => `How much of the conversation the assistant carries. At ${kTokens(at)} it compacts on its own, keeping the task and the decisions; /compact does it now.`,
   thinking: s => `thinking · ${s} s`, newMessages: "New messages", usingTool: "using a tool…",
   report: (kind, name) => `${kind === "routine" ? "Routine" : "Trigger"} · ${name}`, reportFailed: "failed",
   hello: n => `Hi, I'm ${n}`,
@@ -1259,6 +1266,20 @@ function updateComposer() {
   $("suggest").hidden = !!say.value.trim() || busy || !$("cmds").hidden;
   $("left").textContent = dev && sc && sc.dev ? T.devHint(sc.dev.left_usd)
     : T.hintCost + (sc && sc.chat_left_usd != null ? T.left(sc.chat_left_usd) : "");
+  contextMeter(sc, dev);
+}
+function kTokens(n) { return n >= 1000 ? `${Math.round(n / 1000)}K` : String(n); }
+// How full the assistant's session is, against the size at which it compacts on its own.
+function contextMeter(sc, dev) {
+  const m = $("ctx"), n = sc && sc.context_tokens, at = sc && sc.compact_at;
+  m.hidden = dev || !n || !at;
+  if (m.hidden) return;
+  const ratio = Math.min(n / at, 1);
+  const fill = el("i");
+  fill.style.width = `${Math.round(ratio * 100)}%`;  // set through the DOM: the page's CSP refuses style attributes
+  m.replaceChildren(el("span", { class: "bar" }, fill), T.context(n, at));
+  m.classList.toggle("warn", ratio >= 0.8);
+  m.title = T.contextTip(at);
 }
 async function send(textArg) {
   const typed = typeof textArg !== "string", sc = current(), text = (typed ? say.value : textArg).trim();
@@ -1297,7 +1318,7 @@ function setupComposer() {
   sendBtn.title = T.send;
   const [k1, t1, k2, t2] = T.hint;
   $("hint").append(el("kbd", {}, k1), t1, el("kbd", {}, k2), t2, " · ", el("kbd", {}, "/"), T.hintCommands, T.hintDrop,
-    el("span", { id: "left" }), el("span", { class: "err", id: "cmsg" }));
+    el("span", { id: "left" }), el("span", { class: "ctx", id: "ctx" }), el("span", { class: "err", id: "cmsg" }));
   say.addEventListener("input", () => { cmdv.active = 0; grow(); updateComposer(); });
   say.addEventListener("keydown", e => {
     if (commandKeys(e)) return;

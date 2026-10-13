@@ -1,0 +1,5 @@
+{
+  "name": "gchat",
+  "description": "Google Chat (the chat inside Gmail): list the conversations, read one, and send a message or a file; a message waits for the user's Approve click unless they listed that person or conversation as bypass.",
+  "requires": ["rastro"]
+}

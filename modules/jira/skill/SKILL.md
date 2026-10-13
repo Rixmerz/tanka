@@ -1,19 +1,26 @@
 ---
 name: jira
-description: The user's Jira Cloud issues in the projects assigned to this assistant: find issues, read one with its comments, create one, ask to delete one, move it to another status, comment on it and link two issues. Use it whenever Jira, a ticket, an issue key like PROJ-123, a bug, a story, an epic, a sprint task, "move it to done" or "comment on the ticket" comes up.
+description: The user's Jira Cloud issues in the projects assigned to this assistant: list the projects, find issues, read one with its comments, create one, ask to delete one, move it to another status, comment on it and link two issues. Use it whenever Jira, a ticket, an issue key like PROJ-123, a bug, a story, an epic, a sprint task, "move it to done" or "comment on the ticket" comes up.
 ---
 
 # Jira
 
-The user decides which Jira projects this assistant may use and whether it may
-change them; the tools see only those. Reading changes nothing. Creating,
-moving and linking change what the team sees; comments cannot be taken back. Deleting is never yours: you ask,
+The user decides which Jira projects this assistant may read, where it may
+change things directly, and where a change waits for their click; the tools see
+only those. Reading changes nothing. Creating, moving and linking change what
+the team sees; comments cannot be taken back. Deleting is never yours: you ask,
 and the user presses Delete in the chat.
+
+In a project marked "change after Approve" (`jira_search` with no query lists them), `jira_create`,
+`jira_update`, `jira_comment` and `jira_link` change nothing: they leave the
+exact change in the chat with Approve and Dismiss, and only the user's click
+sends it. Say it waits for their click; never call the tool again for it.
 
 ## Which tool
 
 | The user asks for | Tool |
 | --- | --- |
+| which projects or boards exist, a project's key | `jira_search` with no `jql` and no `key` |
 | which issues exist, what is assigned or open, finding a key | `jira_search` |
 | what an issue says, its status, its comments | `jira_search` with `key` |
 | a new ticket, bug, story or task | `jira_create` (after confirming) |
@@ -27,14 +34,16 @@ and the user presses Delete in the chat.
 
 **Finding and reading:**
 
-1. `jira_search` with JQL built from what the user said (no project clause needed).
+1. `jira_search` with JQL built from what the user said. If the assistant may read every project, name the
+   project (`project = PROJ`) or another filter; a project key you do not know comes from `jira_search` with no query.
 2. `jira_search` with `key`, from that list.
 
 **Changing an issue (create, update, move, link):**
 
 1. Get every key from `jira_search`; never invent one.
 2. If the user did not state every value themselves, confirm in one line the values that came from a tool or from your own judgment.
-3. Call `jira_create`, `jira_update` or `jira_link` once.
+3. Call `jira_create`, `jira_update` or `jira_link` once. If it says a request was saved, the change waits for
+   the user's Approve click: tell them, and do not say it is done until `approvals_list` shows it approved.
 
 **Commenting:**
 

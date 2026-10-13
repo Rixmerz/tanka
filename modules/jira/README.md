@@ -24,22 +24,31 @@ Create the token at id.atlassian.com, under Security, API tokens. Keep it in you
 {
   "scopes": {
     "work": {"projects": ["PROJ", "OPS"], "write": true},
-    "personal": {"projects": ["HOME"], "write": false}
+    "personal": {"projects": ["HOME"], "write": false},
+    "assistant": {"projects": "*", "write": ["PROJ"], "write_on_approval": "*"}
   }
 }
 ```
 
-Before any network call the library refuses: an issue key or project outside the workspace's `projects`; a JQL query that could escape them (every query is sent as `project in (...) AND (<query>)`, with `ORDER BY` kept at the end, and unbalanced parentheses or a misplaced `ORDER BY` are rejected); any create, transition, comment or link when `write` is not `true`; a link where either issue is outside the scope.
+| Key | Value | Meaning |
+| --- | --- | --- |
+| `projects` | a list of keys, or `"*"` | what it may read; `"*"` is every project your token sees, new ones included |
+| `write` | `true`, `false`, a list, or `"*"` | where it may change issues directly; `true` is every project in `projects` |
+| `write_on_approval` | the same | where a change waits for your **Approve** click in the chat (needs `tanka install approvals <workspace>`) |
+
+Before any network call the library refuses: an issue key or project outside the workspace's `projects`; a JQL query that could escape them (with a list, every query is sent as `project in (...) AND (<query>)`, with `ORDER BY` kept at the end, and unbalanced parentheses or a misplaced `ORDER BY` are rejected); any create, update, comment, link or delete request in a project that is neither in `write` nor in `write_on_approval`; a link where either issue is outside the scope.
+
+A change in a project that is only in `write_on_approval` sends nothing: the tool leaves the exact change with the [approvals](../approvals/README.md) module, and the chat shows it with **Approve** and **Dismiss**. Your click runs the skill's `approve.py`, which sends that one stored change, once, with the same scope checks.
 
 ## Writing when nobody is watching
 
-Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka run` from creating or commenting is this module, not a prompt. A write is refused whenever `TANKA_UNATTENDED` is set, unless the workspace's entry in `scopes.json` also says `"unattended_write": true` (and `"write": true`); the page's Workspace tab → Autonomy switches it for the workspace. Reading is never affected. In a session you are in, the confirmation before a change comes from the skill's instructions; the hard limit is `write` in `scopes.json`.
+Tanka's own tools are pre-approved, so what stops a routine, a trigger or `tanka run` from creating or commenting is this module, not a prompt. A write is refused whenever `TANKA_UNATTENDED` is set, unless the workspace's entry in `scopes.json` also says `"unattended_write": true` (and the project is in `write`); the page's Workspace tab → Autonomy switches it for the workspace. Reading is never affected. In a session you are in, the confirmation before a change comes from the skill's instructions; the hard limits are `write` and `write_on_approval` in `scopes.json`. A routine may still leave a change for your Approve click: nothing reaches Jira until you press it.
 
 ## Tools
 
 | Tool | Effect | What it does |
 | --- | --- | --- |
-| `jira_search` | read | JQL search, one line per issue; with `key`, one issue with description, links and the last 10 comments |
+| `jira_search` | read | JQL search, one line per issue; with `key`, one issue with description, links and the last 10 comments; with neither, the projects the workspace may use and what it may do in each |
 | `jira_create` | modify | a new issue, optionally with labels and a parent |
 | `jira_update` | modify | move an issue to a status by name and change its summary, description or labels (labels are added or removed, never replaced) |
 | `jira_comment` | send | add a comment; the skill asks for an explicit yes first |
@@ -80,9 +89,9 @@ Everything above except the token can also live in `config.json`, beside `scopes
 | File | What it does |
 | --- | --- |
 | `module.json` | Name and description, read by `tanka modules` |
-| `jira.py` | Scope, JQL wrapping, ADF conversion, HTTP with retries, the six operations |
+| `jira.py` | Scope, JQL wrapping, ADF conversion, HTTP with retries, the operations, approval requests |
 | `cli.py` | `tanka jira status`, and `post-install` |
 | `config.json` | Yours, not shipped: the site, email, token variable's name and an optional `token_wrapper` (see above) |
-| `skill/` | The skill `tanka install` copies: `SKILL.md` and six tools |
+| `skill/` | The skill `tanka install` copies: `SKILL.md`, six tools and `approve.py` |
 
 Tests: `tests/test_jira.py`.

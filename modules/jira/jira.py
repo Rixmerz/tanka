@@ -3,10 +3,13 @@
 What each assistant may touch is decided here, never by the model:
 
 - `scopes.json` (in TANKA_JIRA_HOME) maps a workspace to the Jira projects it may
-  use and whether it may write. The user edits it; the assistants cannot, because
-  they only write inside their own workspace.
+  read (a list, or "*" for every project the token sees), those it may change
+  directly (`write`) and those where a change waits for the user's Approve click
+  (`write_on_approval`, through the approvals module). The user edits it; the
+  assistants cannot, because they only write inside their own workspace.
 - Every key, project and JQL query is checked against that file before any
-  network call. JQL is always wrapped as `project in (...) AND (<query>)`.
+  network call. JQL is wrapped as `project in (...) AND (<query>)` unless the
+  workspace may read every project.
 
 The API token is read at call time from the environment variable named by
 TANKA_JIRA_TOKEN_VAR (default JIRA_API_TOKEN). It never appears in output,
@@ -50,10 +53,16 @@ class ToolError(Exception):
 
 def run(main) -> None:
     relaunch_with_token()
+    args = json.load(sys.stdin)
     try:
-        out = main(json.load(sys.stdin))
+        out = main(args)
         if out:
             print(cap(out))
+    except NeedsApproval as e:
+        try:
+            print(ask_approval(e.scope, e.project, os.environ.get("TANKA_TOOL", ""), args))
+        except ToolError as e2:
+            sys.exit(redact(str(e2)))
     except ToolError as e:
         sys.exit(redact(str(e)))
 
@@ -136,33 +145,77 @@ def scopes() -> dict:
     return s if isinstance(s, dict) else {}
 
 
+ALL = "*"
+
+
+def _projects(value, readable) -> set | str:
+    """A scope field as a set of keys or ALL: true means every readable project, false or nothing means none."""
+    if value is True:
+        return readable
+    if value == ALL or value == [ALL]:
+        return ALL
+    if not isinstance(value, list):
+        return set()
+    return {str(p).strip().upper() for p in value if PROJECT_RE.match(str(p).strip().upper())}
+
+
+def _has(projects, p: str) -> bool:
+    return projects == ALL or p in projects
+
+
 def scope_of(scope: str) -> dict:
     entry = scopes().get(scope)
-    projects = []
-    if isinstance(entry, dict) and isinstance(entry.get("projects"), list):
-        projects = sorted({str(p).strip().upper() for p in entry["projects"] if PROJECT_RE.match(str(p).strip().upper())})
-    if not projects:
+    entry = entry if isinstance(entry, dict) else {}
+    read = _projects(entry.get("projects"), set())
+    if not read:
         raise ToolError("No Jira project is assigned to this assistant. Tell the user: only they can assign one, in their scopes file.")
-    return {"projects": projects, "write": entry.get("write") is True, "unattended_write": entry.get("unattended_write") is True}
+    narrow = lambda ps: ps if read == ALL or ps == ALL else ps & read  # never write where it may not read
+    write = narrow(_projects(entry.get("write"), read))
+    on_approval = narrow(_projects(entry.get("write_on_approval"), read))
+    return {"projects": ALL if read == ALL else sorted(read), "write": write, "on_approval": on_approval,
+            "unattended_write": entry.get("unattended_write") is True}
 
 
-def check_project(scope: str, project: str, write: bool = False) -> str:
+def describe(projects) -> str:
+    return "every project" if projects == ALL else (", ".join(sorted(projects)) or "none")
+
+
+class NeedsApproval(ToolError):
+    """A change in a project the assistant may change only after the user's Approve click."""
+
+    def __init__(self, scope: str, project: str):
+        super().__init__(f"Changes in {project} need the user's approval.")
+        self.scope, self.project = scope, project
+
+
+APPROVED = False  # set only by the skill's approve.py, which the user's Approve click runs
+
+
+def check_project(scope: str, project: str, write: bool | str = False) -> str:
+    """The project key, or a ToolError. write=True: a change; write="request": only a request the user decides."""
     s = scope_of(scope)
     p = (project or "").strip().upper()
-    if p not in s["projects"]:
-        raise ToolError(f"\"{project}\" is not a Jira project this assistant may use. It may use: {', '.join(s['projects'])}.")
-    if write and not s["write"]:
-        raise ToolError("This assistant may only read Jira, not change it. Tell the user; only they can allow writing.")
+    if not PROJECT_RE.match(p) or not _has(s["projects"], p):
+        raise ToolError(f"\"{project}\" is not a Jira project this assistant may use. It may use: {describe(s['projects'])}.")
+    if not write:
+        return p
+    direct, asked = _has(s["write"], p), _has(s["on_approval"], p)
+    if not (direct or asked):
+        raise ToolError(f"This assistant may only read {p}, not change it. Tell the user; only they can allow writing.")
+    if write == "request" or APPROVED:
+        return p
+    if not direct:
+        raise NeedsApproval(scope, p)
     # A message typed in the page's chat runs unattended by the launcher's definition, but the user is there
     # reading the answer: the page marks it with TANKA_CHAT. Routines and triggers never carry that mark.
-    if write and os.environ.get("TANKA_UNATTENDED") and not os.environ.get("TANKA_CHAT") and not s["unattended_write"]:
+    if os.environ.get("TANKA_UNATTENDED") and not os.environ.get("TANKA_CHAT") and not s["unattended_write"]:
         # Tanka's own tools are pre-approved, so nothing else stops a routine or a delegated run from writing.
         raise ToolError("Nobody is watching this run, so it may not change Jira. Tell the user what you would have done; "
                         "only they can allow unattended writes (unattended_write in their scopes file).")
     return p
 
 
-def check_key(scope: str, key: str, write: bool = False) -> str:
+def check_key(scope: str, key: str, write: bool | str = False) -> str:
     k = (key or "").strip().upper()
     m = KEY_RE.match(k)
     if not m:
@@ -223,8 +276,13 @@ def wrap_jql(scope: str, jql: str) -> str:
         raise ToolError("The JQL has unbalanced parentheses. Fix the query and call again.")
     if ";" in bare:
         raise ToolError("The JQL may not contain ';'. Fix the query and call again.")
-    base = f"project in ({', '.join(projects)})"
-    wrapped = f"{base} AND ({filt})" if filt else base
+    if projects == ALL:
+        if not filt:
+            raise ToolError("Give a filter to search every project (e.g. project = PROJ, or assignee = currentUser()).")
+        wrapped = f"({filt})"
+    else:
+        base = f"project in ({', '.join(projects)})"
+        wrapped = f"{base} AND ({filt})" if filt else base
     return f"{wrapped} {order}" if order else wrapped
 
 
@@ -379,11 +437,11 @@ def _name(user) -> str:
     return (user or {}).get("displayName") or "unassigned"
 
 
-def search(scope: str, jql: str | None = None, limit: int = 20, key: str | None = None) -> str:
+def search(scope: str, jql: str | None = None, limit: int | None = None, key: str | None = None) -> str:
     if key:
         return issue(scope, key)
     if not (jql or "").strip():
-        raise ToolError("Give a JQL query to search, or the key of one issue to read it in full.")
+        return projects(scope, limit=limit or 100)
     limit = max(1, min(int(limit or 20), 50))
     q = wrap_jql(scope, jql)
     issues, page = [], None
@@ -512,6 +570,98 @@ def transition(scope: str, key: str, status: str) -> str:
     return f"{key} moved to {_moved(t)}."
 
 
+# ---------------------------------------------------------------- changes the user approves on the page
+
+# The changes a tool can turn into a request, with how each one runs again after Approve.
+OPS = {
+    "jira_create": lambda scope, a: create(scope, a["project"], a["type"], a["summary"], a.get("description"),
+                                           a.get("labels"), a.get("parent")),
+    "jira_update": lambda scope, a: update(scope, a["key"], a.get("status"), a.get("summary"), a.get("description"),
+                                           a.get("add_labels"), a.get("remove_labels")),
+    "jira_comment": lambda scope, a: comment(scope, a["key"], a["body"]),
+    "jira_link": lambda scope, a: link(scope, a["from_key"], a["to_key"], a.get("link_type") or "Blocks"),
+}
+
+
+def _approvals():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "approvals"))
+    import approvals  # noqa: E402  (a sibling module of this one, in the same Tanka checkout)
+    return approvals
+
+
+def _request_text(tool: str, args: dict) -> tuple[str, str]:
+    what = {"jira_create": f"create in {str(args.get('project', '')).upper()}: {args.get('summary', '')}",
+            "jira_update": f"update {str(args.get('key', '')).upper()}",
+            "jira_comment": f"comment on {str(args.get('key', '')).upper()}",
+            "jira_link": f"link {str(args.get('from_key', '')).upper()} {(args.get('link_type') or 'Blocks').lower()} "
+                         f"{str(args.get('to_key', '')).upper()}"}[tool]
+    text = "\n".join(f"{k}: {v}" for k, v in args.items() if v not in (None, ""))
+    return f"Jira: {what}", text
+
+
+def ask_approval(scope: str, project: str, tool: str, args: dict) -> str:
+    """Leave the change for the user's Approve click; nothing is sent to Jira here."""
+    if tool not in OPS:
+        raise ToolError(f"Changes in {project} need the user's approval, and {tool or 'this tool'} cannot ask for it. Tell the user.")
+    ws = Path(os.environ.get("TANKA_WORKSPACE") or ".")
+    if not (ws / ".claude" / "skills" / "approvals").is_dir():
+        raise ToolError(f"Changes in {project} need the user's approval on the page, and this workspace has no approvals "
+                        "module. Tell the user: tanka install approvals <workspace>.")
+    title, text = _request_text(tool, args)
+    approvals = _approvals()
+    try:
+        a = approvals.ask(scope, "jira", title, text, {"tool": tool, "args": args})
+    except approvals.ToolError as e:
+        raise ToolError(str(e))
+    return (f"Request {a['id']} saved: \"{a['title']}\". NOTHING was changed in Jira: {project} needs the user's "
+            "Approve click in the chat. Tell them, and do not say it is done until they approve.")
+
+
+def replay(scope: str, payload: dict) -> str:
+    """The user's Approve click: run the stored change once (approve.py, a process of its own)."""
+    global APPROVED
+    tool, args = (payload or {}).get("tool"), (payload or {}).get("args")
+    if tool not in OPS or not isinstance(args, dict):
+        raise ToolError("This request is not a Jira change this module made.")
+    APPROVED = True
+    try:
+        return OPS[tool](scope, args)
+    except KeyError as e:
+        raise ToolError(f"The request is missing {e}.")
+    finally:
+        APPROVED = False
+
+
+# ---------------------------------------------------------------- the projects the token sees
+
+def projects(scope: str, limit: int = 100) -> str:
+    """The projects the token sees that this scope may use, with what it may do in each (jira_search with no query)."""
+    s = scope_of(scope)
+    limit = max(1, min(int(limit or 100), 200))
+    found, start = [], 0
+    while len(found) < limit:
+        res = request("GET", "/rest/api/3/project/search", query={"startAt": start, "maxResults": 50, "orderBy": "key"}) or {}
+        page = res.get("values") or []
+        found += [p for p in page if _has(s["projects"], str(p.get("key", "")).upper())]
+        start += len(page)
+        if res.get("isLast", True) or not page:
+            break
+    more = len(found) > limit
+    found = found[:limit]
+    if not found:
+        return "This assistant may use no project that Jira shows to the user's token. Tell the user."
+
+    def access(key: str) -> str:
+        if _has(s["write"], key):
+            return "change"
+        return "change after Approve" if _has(s["on_approval"], key) else "read"
+
+    lines = [f"{len(found)} project(s){' (more exist; raise limit)' if more else ''}: KEY | name | type | what you may do"]
+    lines += [" | ".join([p.get("key", "?"), " ".join((p.get("name") or "").split()), p.get("projectTypeKey") or "?",
+                          access(str(p.get("key", "")).upper())]) for p in found]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- deleting: the assistant asks, the user clicks
 
 DELETIONS = HOME / "deletions"
@@ -558,7 +708,7 @@ def write_deletions(scope: str, items: list[dict]) -> None:
 
 def request_delete(scope: str, key: str) -> dict:
     """Leave a request for the user to confirm on the page. Nothing is deleted here, ever."""
-    key = check_key(scope, key, write=True)
+    key = check_key(scope, key, write="request")
     f = (request("GET", f"/rest/api/3/issue/{key}", query={"fields": "summary"}) or {}).get("fields") or {}
     with deletions_locked(scope):
         items = read_deletions(scope)
@@ -582,7 +732,7 @@ def confirm_delete(scope: str, did: str) -> str:
     with deletions_locked(scope):
         items = read_deletions(scope)
         d = _find(items, did)
-        check_key(scope, d["key"], write=True)
+        check_key(scope, d["key"], write="request")
         request("DELETE", f"/rest/api/3/issue/{d['key']}")
         d["status"], d["closed"] = "deleted", round(time.time(), 3)
         write_deletions(scope, items)

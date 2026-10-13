@@ -671,6 +671,20 @@ def workspace_action(action: str, body: dict) -> dict:
     raise LookupError(action)
 
 
+CONTEXT_WINDOW = int(os.environ.get("TANKA_CONTEXT_WINDOW", "200000"))
+
+
+def compact_at(ws: Path) -> int:
+    """The context size, in tokens, at which the chat's session compacts: Tanka's own threshold when it is set and
+    lower, else Claude Code's autocompact (the profile's percentage of the window, or TANKA_AUTOCOMPACT_PCT)."""
+    try:
+        pct = int(os.environ.get("TANKA_AUTOCOMPACT_PCT") or tc.launch(ws)["autocompact_pct"])
+    except (KeyError, ValueError):
+        pct = 100
+    auto = CONTEXT_WINDOW * min(max(pct, 1), 100) // 100
+    return min(chat.COMPACT_TOKENS, auto) if chat.COMPACT_TOKENS else auto
+
+
 def scope_state(scope: str) -> dict:
     ws = kit.ws_dir(scope)
     return {"scope": scope, "name": kit.persona_name(ws), "workspace": str(ws), "avatar_v": avatar_version(scope),
@@ -678,6 +692,7 @@ def scope_state(scope: str) -> dict:
             "busy_mode": chat.busy_mode(scope), "draft": chat.draft(scope, chat.busy_mode(scope) or "tanka"),
             "runs": chat.runs(scope),
             "chat_left_usd": chat.chat_left(scope), "context_tokens": chat.context_tokens(scope),
+            "compact_at": compact_at(ws),
             "dev": {"left_usd": chat.dev_left(scope), "model": chat.DEV_MODEL},
             "spent_today": tc.spent_today(ws)}
 

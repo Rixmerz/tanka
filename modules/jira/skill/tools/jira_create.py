@@ -13,7 +13,7 @@ SCOPE = "__SCOPE__"
 
 
 def main(args):
-    return jira.create(SCOPE, args["project"], args["type"], args["summary"], args.get("description"), args.get("labels"), args.get("parent"))
+    return jira.OPS["jira_create"](SCOPE, args)
 
 
 jira.run(main)
