@@ -1,0 +1,30 @@
+{
+  "name": "bitbucket_stop_pipeline",
+  "effect": "send",
+  "description": "Stops one running Bitbucket pipeline, given its run number. Unless the user listed that repository (and that pipeline) as bypass, it stops NOTHING: it leaves the request in the chat with Approve and Dismiss, and only the user's click stops it. Use it only when the user asked to stop or cancel that run; take the number from bitbucket_pipelines. A stopped run cannot be resumed, only run again. Returns one line: stop requested, already finished, or the request waiting for the user.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+      "description": "Repository slug, as bitbucket_repos shows it (e.g. api-orders)."
+    },
+    "build_number": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "description": "Run number, as #build in bitbucket_pipelines (e.g. 482)."
+    }
+  },
+  "examples": [
+    {
+      "repo": "api-orders",
+      "build_number": 482
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "bitbucket_stop_pipeline.py"
+  ]
+}

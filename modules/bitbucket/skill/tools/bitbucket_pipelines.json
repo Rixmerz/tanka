@@ -1,0 +1,59 @@
+{
+  "name": "bitbucket_pipelines",
+  "effect": "read",
+  "description": "Shows the Bitbucket pipelines of one repository: the recent runs; with build_number, that run's steps, and with step also the last 150 lines of that step's log (credentials hidden); with options=true, the pipelines that can be run on a branch. Use it when the user asks how a build or deploy went, why it failed, or what can be deployed, and to follow a run after bitbucket_run_pipeline. It changes nothing. Returns one line per run (#build | state | ref | selector | commit | duration | creator), per step, or per log line.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+      "description": "Repository slug, as bitbucket_repos shows it (e.g. api-orders)."
+    },
+    "ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$",
+      "description": "Branch to filter the runs by, or to read the options from (e.g. main). Leave it out for all runs, or for the main branch."
+    },
+    "build_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Run number to show in detail, as #build in the list (e.g. 482)."
+    },
+    "step": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,100}$",
+      "description": "With build_number: the step's index or name whose log to read (e.g. 2 or Deploy)."
+    },
+    "grep": {
+      "type": "string",
+      "pattern": "^[^\\n]{1,100}$",
+      "description": "With step: keep only log lines containing this text, any case (e.g. error)."
+    },
+    "options": {
+      "type": "boolean",
+      "default": false,
+      "description": "true to list the pipelines that can be run on ref, instead of the recent runs."
+    }
+  },
+  "examples": [
+    {
+      "repo": "api-orders"
+    },
+    {
+      "repo": "api-orders",
+      "build_number": 482,
+      "step": "2",
+      "grep": "error"
+    },
+    {
+      "repo": "api-orders",
+      "ref": "develop",
+      "options": true
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "bitbucket_pipelines.py"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "bitbucket_commits",
+  "effect": "read",
+  "description": "Lists the latest commits of one Bitbucket repository, newest first, on one branch or on all of them. Use it when the user asks what changed, who pushed last, or which commit to deploy, and before bitbucket_run_pipeline when a specific commit is wanted. It does not show pipeline runs (that is bitbucket_pipelines). Returns one line per commit: hash | date | author | first line of the message; copy the hash as it is.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+      "description": "Repository slug, as bitbucket_repos shows it (e.g. api-orders)."
+    },
+    "branch": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$",
+      "description": "Branch name (e.g. main or release/1.2). Leave it out for every branch."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 15,
+      "description": "How many commits to show, up to 50 (e.g. 15)."
+    }
+  },
+  "examples": [
+    {
+      "repo": "api-orders"
+    },
+    {
+      "repo": "api-orders",
+      "branch": "develop",
+      "limit": 5
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "bitbucket_commits.py"
+  ]
+}

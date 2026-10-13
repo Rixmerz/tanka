@@ -1,0 +1,48 @@
+{
+  "name": "bitbucket_run_pipeline",
+  "effect": "send",
+  "description": "Runs one custom Bitbucket pipeline (a deploy, a build) on a branch, at its newest commit or at a given one. Unless the user listed that repository and pipeline as bypass, it runs NOTHING: it leaves the exact request in the chat with Approve and Dismiss, and only the user's click starts it. Use it only after the user confirmed the repository, branch and pipeline; take the pipeline name from bitbucket_pipelines with options=true. Calling it twice starts two runs, so never repeat a call that succeeded. Returns the run's number and link, or the request waiting for the user.",
+  "params": {
+    "repo": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+      "description": "Repository slug, as bitbucket_repos shows it (e.g. api-orders)."
+    },
+    "ref": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$",
+      "description": "Branch to run it on (e.g. develop)."
+    },
+    "pipeline": {
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._ /*+-]{0,99}$",
+      "description": "Custom pipeline name, as bitbucket_pipelines options=true shows it (e.g. deploy-dev)."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,40}$",
+      "description": "Commit hash from bitbucket_commits (e.g. 3f9c2a1b7d4e). Leave it out for the newest commit on ref."
+    }
+  },
+  "examples": [
+    {
+      "repo": "api-orders",
+      "ref": "develop",
+      "pipeline": "deploy-dev"
+    },
+    {
+      "repo": "api-orders",
+      "ref": "main",
+      "pipeline": "deploy-prod",
+      "commit": "3f9c2a1b7d4e"
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "bitbucket_run_pipeline.py"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "bitbucket_repos",
+  "effect": "read",
+  "description": "Lists the Bitbucket repositories this assistant may read, newest activity first, optionally filtered by part of the name. Use it when the user asks which repositories exist, needs a repository slug they do not know, or asks where the assistant may run pipelines. It does not show commits or pipelines (that is bitbucket_commits or bitbucket_pipelines). Returns one line per repository: slug | project | language | updated | what you may do, where 'bypass' means pipelines run at once and 'after Approve' means they wait for the user's click.",
+  "params": {
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 ._/-]{1,60}$",
+      "description": "Part of the repository name to filter by (e.g. orders). Leave it out to list them all."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 30,
+      "description": "How many repositories to show, up to 100 (e.g. 30)."
+    }
+  },
+  "examples": [
+    {},
+    {
+      "name": "orders",
+      "limit": 10
+    }
+  ],
+  "timeout_sec": 90,
+  "run": [
+    "python3",
+    "bitbucket_repos.py"
+  ]
+}
