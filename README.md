@@ -168,8 +168,8 @@ End-to-end runs against a simulated mailbox (`tests/fake_mcp_server.py`) are des
 ## Installing as a plugin (instead of the launcher)
 
 ```bash
-claude plugin marketplace add Rixmerz/tanka
-claude plugin install tanka@tanka --scope project
+claude plugin marketplace add Rixmerz/claude-plugins
+claude plugin install tanka@rixmerz --scope project
 ```
 
 Without the launcher only the second isolation layer applies (project settings); your user-level MCP servers and plugins still load.

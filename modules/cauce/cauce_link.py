@@ -308,7 +308,7 @@ def send(scope: str, session_id: str, text: str, sender: str) -> dict:
         raise ToolError("That is not a cauce session in a repository this workspace may use. List the sessions again.")
     if not s["link"]:
         raise ToolError(f"The session in {s['repo_name']} cannot receive a prompt: it is closed, or it runs without the "
-                        "tanka-link plugin (claude plugin install tanka-link@tanka, then restart it). Tell the user.")
+                        "tanka-link plugin (claude plugin install tanka-link@rixmerz, then restart it). Tell the user.")
     lk = _link()
     try:
         msg = lk.send(session_id, text, sender)

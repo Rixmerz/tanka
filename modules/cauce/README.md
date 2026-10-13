@@ -15,7 +15,7 @@ claude plugin install cauce@rixmerz                   # 0.6.21 or newer
 tanka install cauce <workspace>                       # cauce_board, cauce_task, cauce_memory, cauce_queue, cauce_sessions, cauce_send
 tanka cauce allow <workspace> ~/code/webapp           # a repository this workspace may use
 tanka ui <workspace>                                  # the page, Code tab
-claude plugin install tanka-link@tanka                # optional: send your sessions prompts (see modules/link)
+claude plugin install tanka-link@rixmerz              # optional: send your sessions prompts (see modules/link)
 tanka trigger add <workspace> code-endings --on cauce:* "Tell me what ended in my code and what it needs from me"
 ```
 

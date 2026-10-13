@@ -33,7 +33,7 @@
     sessionMeta: x => `${plural(x.prompts || 0, "prompt", "prompts")} · started ${when(epoch(x.started_at))} · $${(x.cost_usd || 0).toFixed(2)}`,
     noPrompt: "(no prompt recorded)", runningNow: "a task is running", copy: "Copy", copied: "Copied",
     link: { listening: "listening", busy: "busy: gets it when its turn ends" }, noLink: "not reachable from here",
-    noLinkWhy: "Install the tanka-link plugin (claude plugin install tanka-link@tanka) and restart this session to send it prompts from here.",
+    noLinkWhy: "Install the tanka-link plugin (claude plugin install tanka-link@rixmerz) and restart this session to send it prompts from here.",
     sendPh: "A prompt for this session, complete on its own", send: "Send", confirmSend: "Confirm: send it",
     sent: "Sent. Look at the session for its answer.",
     resume: c => ({ permission: "Allow & resume", approval: "Approve & resume" }[c] || "Resume"), confirmResume: "Confirm: resume and spend",
