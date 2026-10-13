@@ -126,7 +126,7 @@ class TestLimits(ProfileCase):
 
     def test_sonnet_gets_the_wide_budget(self):
         self.set_profile("sonnet")
-        self.assertEqual(tt.limits(self.ws), {"total": 40, "per_skill": 10, "params": 8, "required": 6})
+        self.assertEqual(tt.limits(self.ws), {"total": 50, "per_skill": 10, "params": 8, "required": 6})
 
     def test_a_skill_of_eight_tools_loads_for_sonnet_only(self):
         self.add_skill("big", 8)
@@ -161,7 +161,7 @@ class TestLimits(ProfileCase):
                                   capture_output=True, text=True).stdout.strip()
         self.assertEqual(line(), "haiku claude-haiku-5-5 60 false -")
         self.set_profile("sonnet")
-        self.assertEqual(line(), "sonnet claude-sonnet-5-5 75 auto -")
+        self.assertEqual(line(), "sonnet claude-sonnet-5-5 75 true -")
 
 
 class TestLauncher(unittest.TestCase):

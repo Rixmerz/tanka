@@ -224,6 +224,10 @@ cmd_init() {
   echo "  3. Open it: tanka $ref   The first session asks which language to work in."
 }
 
+# Claude Code's own tools an assistant is offered. Every other built-in tool costs context on every message (about
+# 20K tokens together) and is one the assistant never uses: Agent stays for the tanka:* subagents.
+BUILTIN_TOOLS="Read,Write,Edit,Glob,Grep,Skill,ToolSearch,Agent"
+
 common_args() {
   local ws="$1"
   # Isolation: no user settings, no foreign MCP servers, no other plugins, no
@@ -238,6 +242,7 @@ common_args() {
     --plugin-dir "$PLUGIN_DIR" \
     --model "$(ws_launch "$ws" model)" \
     --no-chrome \
+    --tools "${TANKA_BUILTIN_TOOLS:-$BUILTIN_TOOLS}" \
     --disallowedTools Bash PowerShell NotebookEdit WebSearch WebFetch
   local effort; effort="$(ws_launch "$ws" effort)"
   [[ "$effort" != "-" ]] && printf '%s\n' --effort "$effort"

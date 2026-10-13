@@ -212,7 +212,9 @@ PROFILE_POLICY: dict = {
 # which it compacts, and whether its tools are searched instead of all listed.
 PROFILE_LAUNCH: dict = {
     "haiku": {"model": "haiku", "autocompact_pct": 60, "tool_search": "false"},
-    "sonnet": {"model": "sonnet", "autocompact_pct": 75, "tool_search": "auto"},
+    # "true", not "auto": auto defers tools only past a share of the context, so a workspace's 40-odd tools were
+    # sent in full on every message (about 20K tokens); deferred, the model sees their names and loads one when needed.
+    "sonnet": {"model": "sonnet", "autocompact_pct": 75, "tool_search": "true"},
 }
 
 
