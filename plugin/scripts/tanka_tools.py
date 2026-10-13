@@ -62,7 +62,8 @@ TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 # the same rules in every profile: they are what a person writing a tool needs.
 LIMITS = {
     # 40 since Haiku 5.5: a workspace ran 30 tools with no wrong picks in an evaluation, and tool search is on here.
-    "sonnet": {"total": 40, "per_skill": 10, "params": 8, "required": 6},
+    # 50 once a workspace with every module installed outgrew 40; tool search keeps the choice narrow.
+    "sonnet": {"total": 50, "per_skill": 10, "params": 8, "required": 6},
 }
 
 
