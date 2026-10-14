@@ -279,7 +279,8 @@ def run_cli(cli: Path, command: str, ws: Path, scope: str) -> int:
     if sys.stdout is sys.__stdout__ and sys.stderr is sys.__stderr__:
         return subprocess.run(argv, check=False).returncode
     try:
-        p = subprocess.run(argv, check=False, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=CLI_TIMEOUT)
+        p = subprocess.run(argv, check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=CLI_TIMEOUT)
     except subprocess.TimeoutExpired:
         print(f"! {cli.parent.name} {command} took more than {CLI_TIMEOUT} s and was stopped; "
               f"run it in a terminal: python3 {cli} {command} {ws} {scope}", file=sys.stderr)

@@ -26,12 +26,10 @@ Standard library only.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -40,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tanka_common as tc  # noqa: E402
+import tanka_os as tos  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 TANKA = REPO / "bin" / "tanka"
@@ -210,10 +209,11 @@ def run_once(ws: Path, kind: str, name: str, spec: dict, woke: str, runner=None)
     scope = spec.get("scope") or name_of(ws)
     oid = objective(ws, name, scope)
     # JSON output carries what the run cost; the answer is its "result".
-    cmd = [str(TANKA), "run", prompt(spec["task"], woke), str(ws), "--objective", oid,
+    cmd = [*tos.tanka_argv(TANKA), "run", prompt(spec["task"], woke), str(ws), "--objective", oid,
            "--max-turns", str(spec.get("max_turns", 15)), "--budget", str(spec.get("budget", DEFAULT_BUDGET)),
            "--", "--output-format", "json"]
-    runner = runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL))
+    runner = runner or (lambda c: subprocess.run(c, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                                timeout=900, stdin=subprocess.DEVNULL))
     # `tanka run` activates its objective in the workspace's state, where the user's own sessions read it.
     # Put back whatever was there, so an automation never leaves the user's next session restricted.
     active = ws / ".tanka" / "state" / "objective.json"
@@ -405,7 +405,7 @@ def hold_lock():
     STATE_HOME.mkdir(parents=True, exist_ok=True)
     f = open(LOCK_FILE, "a+")
     try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        tos.lock(f, blocking=False)
     except OSError:
         f.close()
         return None
@@ -422,12 +422,12 @@ def daemon_pid() -> int | None:
         return None
     with open(LOCK_FILE, "a+") as f:
         try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            tos.lock(f, blocking=False)
         except OSError:
             f.seek(0)
             pid = f.read().strip()
             return int(pid) if pid.isdigit() else -1
-        fcntl.flock(f, fcntl.LOCK_UN)
+        tos.unlock(f)
     return None
 
 
@@ -438,8 +438,8 @@ def start_detached() -> int:
         return pid
     STATE_HOME.mkdir(parents=True, exist_ok=True)
     log = open(STATE_HOME / "daemon.log", "a", encoding="utf-8")
-    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "daemon"], stdout=log, stderr=log,
-                     stdin=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen([tos.console_python(), str(Path(__file__).resolve()), "daemon"], stdout=log, stderr=log,
+                     stdin=subprocess.DEVNULL, **tos.group_kwargs())
     for _ in range(50):
         time.sleep(0.1)
         pid = daemon_pid()
@@ -448,11 +448,14 @@ def start_detached() -> int:
     raise ValueError(f"the automation daemon did not start; see {STATE_HOME / 'daemon.log'}")
 
 
-# ---------------------------------------------------------------- service (launchd on macOS, systemd --user on Linux)
+# ------------------------------------- service (launchd on macOS, systemd --user on Linux, Task Scheduler on Windows)
 
 UNIT_PATH = Path.home() / ".config" / "systemd" / "user" / "tanka-automation.service"
 LAUNCHD_LABEL = "com.tanka.automation"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+TASK_NAME = "TankaAutomation"
+# Windows: a scheduled task at logon cannot carry environment variables, so the daemon reads them from here.
+SERVICE_ENV_PATH = STATE_HOME / "service-env.json"
 
 
 def service_env() -> dict[str, str]:
@@ -465,10 +468,9 @@ def stop_detached() -> None:
     """A daemon started by hand holds the lock, and the service's own would exit at once: stop it first."""
     pid = daemon_pid()
     if pid and pid > 0:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
+        if not tos.pid_alive(pid):
             return
+        tos.terminate(pid)
         for _ in range(50):
             if not daemon_pid():
                 return
@@ -480,11 +482,15 @@ def quiet_run(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def service_installed() -> bool:
+    if tos.IS_WINDOWS:
+        return SERVICE_ENV_PATH.is_file()
     return (PLIST_PATH if sys.platform == "darwin" else UNIT_PATH).is_file()
 
 
 def service_start(run=quiet_run) -> bool:
     """Start the installed service now (it may have been stopped); True when it took."""
+    if tos.IS_WINDOWS:
+        return run(["schtasks", "/Run", "/TN", TASK_NAME]).returncode == 0
     if sys.platform == "darwin":
         target = f"gui/{os.getuid()}"
         if run(["launchctl", "bootstrap", target, str(PLIST_PATH)]).returncode == 0:
@@ -495,7 +501,10 @@ def service_start(run=quiet_run) -> bool:
 
 def service_stop(run=quiet_run) -> None:
     """Stop the service until the next login (launchd would restart a daemon killed by hand)."""
-    if sys.platform == "darwin":
+    if tos.IS_WINDOWS:
+        run(["schtasks", "/End", "/TN", TASK_NAME])
+        stop_detached()
+    elif sys.platform == "darwin":
         run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])
     else:
         run(["systemctl", "--user", "stop", "tanka-automation.service"])
@@ -523,6 +532,8 @@ def service(action: str, run=None) -> int:
     if action not in ("install", "remove", "status"):
         print("Usage: tanka automation service install|remove|status", file=sys.stderr)
         return 1
+    if tos.IS_WINDOWS:
+        return windows_service(action, run)
     if sys.platform == "darwin":
         return launchd_service(action, run)
     if not shutil.which("systemctl"):
@@ -558,6 +569,54 @@ def launchd_service(action: str, run) -> int:
         print("= No service installed: tanka automation service install")
         return 0
     return run(["launchctl", "print", f"{domain}/{LAUNCHD_LABEL}"]).returncode
+
+
+def windows_service(action: str, run) -> int:
+    """A Task Scheduler task that starts the daemon at logon, windowless (pythonw), with this shell's settings."""
+    if action == "install":
+        STATE_HOME.mkdir(parents=True, exist_ok=True)
+        SERVICE_ENV_PATH.write_text(json.dumps(service_env(), indent=2), encoding="utf-8")
+        exe = Path(sys.executable)
+        exe = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").is_file() else exe
+        task = f'"{exe}" "{Path(__file__).resolve()}" daemon --service-env "{SERVICE_ENV_PATH}"'
+        stop_detached()
+        code = run(["schtasks", "/Create", "/F", "/TN", TASK_NAME, "/SC", "ONLOGON", "/RL", "LIMITED", "/TR", task]).returncode
+        if code == 0:
+            run(["schtasks", "/Run", "/TN", TASK_NAME])
+            print(f"+ Installed the scheduled task {TASK_NAME}: the daemon starts at logon. "
+                  "Settings it uses: " + str(SERVICE_ENV_PATH))
+        else:
+            SERVICE_ENV_PATH.unlink(missing_ok=True)
+        return code
+    if action == "remove":
+        run(["schtasks", "/End", "/TN", TASK_NAME])
+        run(["schtasks", "/Delete", "/F", "/TN", TASK_NAME])
+        stop_detached()
+        SERVICE_ENV_PATH.unlink(missing_ok=True)
+        print("- Service removed.")
+        return 0
+    if not SERVICE_ENV_PATH.is_file():
+        print("= No service installed: tanka automation service install")
+        return 0
+    return run(["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"]).returncode
+
+
+def use_service_env(rest: list[str]) -> bool:
+    """`daemon --service-env FILE` (the Windows scheduled task): take the settings saved at install, then start
+    the daemon detached with a hidden console of its own, as `daemon --detach` does. A windowless pythonw would
+    open a console window for every program the daemon runs. True when that daemon was started from here."""
+    if "--service-env" not in rest:
+        return False
+    i = rest.index("--service-env")
+    try:
+        saved = json.loads(Path(rest[i + 1]).read_text(encoding="utf-8"))
+    except (IndexError, OSError, ValueError):
+        saved = {}
+    for k, v in (saved if isinstance(saved, dict) else {}).items():
+        os.environ.setdefault(str(k), str(v))
+    tos.export_runtime_env()
+    start_detached()
+    return True
 
 
 def systemd_service(action: str, run) -> int:
@@ -649,6 +708,8 @@ def main(argv: list[str]) -> int:
                 print(f"+ The automation daemon runs in the background (pid {start_detached()}); "
                       f"log in {STATE_HOME / 'daemon.log'}. Stop it with: tanka automation stop")
                 return 0
+            if use_service_env(rest):
+                return 0
             return Daemon().loop()
         if what in ("status", "stop"):
             pid = daemon_pid()
@@ -666,7 +727,7 @@ def main(argv: list[str]) -> int:
                 print(f"- Stopped the automation service (pid {pid}) until your next login, or until `tanka start` "
                       "starts it again. To remove it: tanka automation service remove")
                 return 0
-            os.kill(pid, signal.SIGTERM)
+            tos.terminate(pid)
             print(f"- Stopped the automation daemon (pid {pid}). A run it had started finishes on its own.")
             return 0
         if what == "service":

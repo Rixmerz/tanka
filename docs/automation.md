@@ -6,7 +6,7 @@ Tanka can run the assistant without the user: on a clock (**routines**) or when 
 tanka routine add personal morning --every 1d "Summarise yesterday's client chats and what is still open."
 tanka trigger add personal clients --on whatsapp:client "Read the new message and prepare the reply you would give."
 tanka trigger add personal mail --on gmail:* "Read the new email and say whether it needs me today."
-tanka automation service install    # keep the daemon running across logins: a launchd agent on macOS, systemd --user on Linux; or: tanka automation daemon [--detach]
+tanka automation service install    # keep the daemon running across logins: a launchd agent on macOS, systemd --user on Linux, a Task Scheduler task at logon on Windows; or: tanka automation daemon [--detach]
 tanka automation ensure             # start it if none runs and there is work; `tanka start`, `tanka <ws>` and `tanka dev` do this (TANKA_NO_DAEMON=1 skips it)
 tanka automation status | stop      # one daemon at a time: a lock in ~/.tanka/shared/automation/daemon.lock
 tanka automation alert personal --whatsapp +15551234567   # also alert on WhatsApp, to the user's own number

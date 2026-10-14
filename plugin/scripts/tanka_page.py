@@ -23,7 +23,6 @@ import json
 import os
 import re
 import secrets
-import signal
 import subprocess
 import sys
 import threading
@@ -39,6 +38,7 @@ import tanka_chat as chat  # noqa: E402
 import tanka_common as tc  # noqa: E402
 import tanka_kit as kit  # noqa: E402
 import tanka_modules as tm  # noqa: E402
+import tanka_os as tos  # noqa: E402
 from tanka_kit import ToolError  # noqa: E402
 
 PAGE = kit.REPO / "plugin" / "page" / "page.html"
@@ -143,7 +143,7 @@ def probe_mcp(name: str, spec: dict, cwd: Path, timeout: float = MCP_PROBE_SECON
     env = dict(os.environ, **{str(k): str(v) for k, v in (spec.get("env") or {}).items()})
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,  # noqa: S603
-                                cwd=str(cwd), env=env, text=True, start_new_session=True)
+                                cwd=str(cwd), env=env, text=True, **tos.group_kwargs())
     except OSError as e:
         return {"name": name, "ok": False, "error": f"could not start {command}: {e}"}
     lines: "queue_mod.Queue[str | None]" = queue_mod.Queue()
@@ -189,14 +189,11 @@ def probe_mcp(name: str, spec: dict, cwd: Path, timeout: float = MCP_PROBE_SECON
     except (TimeoutError, ConnectionError, OSError, ValueError) as e:
         return {"name": name, "ok": False, "error": str(e)}
     finally:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
+        tos.kill_group(proc.pid)
         try:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            tos.kill_group(proc.pid, force=True)
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
             try:
                 pipe.close()
@@ -539,7 +536,7 @@ def create_workspace(body: dict) -> dict:
                         "letter or digit, at most 40 characters.")
     if scope in kit.scopes():
         raise ToolError(f"There is already a workspace named {scope}.")
-    p = subprocess.run([str(kit.REPO / "bin" / "tanka"), "init", scope], capture_output=True, text=True,
+    p = subprocess.run([*tos.tanka_argv(kit.REPO / "bin" / "tanka"), "init", scope], capture_output=True, text=True,
                        timeout=60, check=False)
     if p.returncode != 0:
         raise ToolError((p.stderr or p.stdout).strip().removeprefix("x ") or "tanka init did not work.")
@@ -869,9 +866,8 @@ def url_of(info: dict, scope: str | None = None) -> str:
 def running() -> dict | None:
     try:
         info = json.loads(ui_file().read_text(encoding="utf-8"))
-        os.kill(int(info["pid"]), 0)
-        return info
-    except (FileNotFoundError, ValueError, KeyError, ProcessLookupError, PermissionError):
+        return info if tos.pid_alive(int(info["pid"])) else None
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -883,7 +879,7 @@ def serve(port: int, open_browser: bool, scope: str | None, token: str | None = 
             "files": files, "code": ta.code_stamp(files)}
     kit.PAGE_HOME.mkdir(parents=True, exist_ok=True)
     fd = os.open(ui_file(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # the token is a key: only the user reads it
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(info, f)
     print(f"Tanka UI: {url_of(info, scope)}\n(Ctrl+C to stop)", flush=True)
     if open_browser:
@@ -925,7 +921,7 @@ def restart_everything(scope: str, server) -> dict:
     log = (kit.PAGE_HOME / "ui.log").open("a", encoding="utf-8")
     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--no-open", "--no-daemon", "--port", str(port),
                       "--after-pid", str(os.getpid())], stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-                     start_new_session=True, env=dict(os.environ, TANKA_PAGE_TOKEN=token))
+                     env=dict(os.environ, TANKA_PAGE_TOKEN=token), **tos.group_kwargs())
     threading.Timer(0.4, server.shutdown).start()  # after this answer has gone out
     return {"ok": True, "daemon": daemon, "message": "Restarting: the page comes back in a few seconds."}
 
@@ -934,11 +930,7 @@ def wait_for_exit(pid: int, seconds: float = RESTART_WAIT_SECONDS) -> None:
     """A restarted page binds the port only once the process it replaces is gone."""
     end = time.monotonic() + seconds
     while time.monotonic() < end:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        except PermissionError:
+        if not tos.pid_alive(pid):
             return
         time.sleep(0.1)
 
@@ -969,7 +961,7 @@ def stop() -> int:
     if not info:
         print("= The UI is not running.")
         return 0
-    os.kill(int(info["pid"]), signal.SIGINT)
+    tos.interrupt(int(info["pid"]))
     for _ in range(30):
         if not running():
             break
@@ -1005,7 +997,7 @@ def main(argv: list[str]) -> int:
         kit.PAGE_HOME.mkdir(parents=True, exist_ok=True)
         log = (kit.PAGE_HOME / "ui.log").open("a", encoding="utf-8")
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--no-open", "--no-daemon", "--port", str(port)],
-                         stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+                         stdout=log, stderr=log, stdin=subprocess.DEVNULL, **tos.group_kwargs())
         for _ in range(50):
             time.sleep(0.1)
             info = running()

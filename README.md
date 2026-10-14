@@ -15,14 +15,33 @@ It does not change the model. It changes the environment the model runs in. The 
 | `builder/` | The `tanka-dev` plugin loaded by `tanka dev`: `new-skill`, `new-tool` and `new-subagent`, for building skills, tools and subagents on a stronger model. |
 | `docs/tool-rules.md`, `docs/skill-rules.md`, `docs/subagent-rules.md` | The rules every tool, skill and subagent must follow, most of them enforced by `tanka tools check`. |
 | `workspace-template/` | A clean directory with `.tanka/` (persona, policy, MCP allowlist, objectives) and a restrictive `.claude/settings.json`. |
-| `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`, `tools`, `dev`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins, no browser. |
+| `bin/tanka` | `init`, `start`, `run`, `doctor`, `test`, `tools`, `dev`. Launches Claude Code in isolation: no user settings, no foreign MCP servers, no other plugins, no browser. The launcher is `bin/tanka.py`; `bin/tanka` (bash) and `bin/tanka.cmd` (Windows) only find a Python to run it. |
 | `tests/` | 81 tests for the hooks, the tool rules, the executor and the MCP server, plus a fake MCP server for end-to-end runs. |
 
 ## Requirements
 
 - Claude Code 2.1 or newer (`claude --version`), signed in.
-- `python3` — the hooks use only the standard library.
-- Linux, macOS or WSL. Bash for the launcher.
+- Python 3.9 or newer — the launcher and the hooks use only the standard library.
+- Linux, macOS or Windows (natively, or in WSL).
+
+### Windows
+
+Install [Git for Windows](https://git-scm.com/download/win) (Claude Code runs its hooks with its Git Bash) and Python from [python.org](https://www.python.org/downloads/windows/) (the `py` launcher is enough; no `python3` is needed). Then, in PowerShell:
+
+```powershell
+git clone https://github.com/Rixmerz/tanka
+$env:Path = "$PWD\tanka\bin;$env:Path"    # or add tanka\bin to Path for good in System Properties
+tanka start work
+```
+
+`tanka` there is `bin\tanka.cmd`; from Git Bash `bin/tanka` works as on Linux. Every command behaves the same, with these differences:
+
+- The hooks run with the Python the launcher runs on (`TANKA_PYTHON`, set by `tanka`). For the `tanka-link` hooks in a plain `claude`, set `TANKA_PYTHON` yourself (for example `setx TANKA_PYTHON C:/Python313/python.exe`) unless `python3` runs a real Python.
+- `tanka automation service install` creates a Task Scheduler task that starts the daemon at logon (it is not restarted after a crash; `tanka start` starts it again when there is work for it).
+- Desktop notifications are Windows toasts, through PowerShell.
+- A cauce session started from the page opens in its own console window instead of tmux.
+- The browser modules (gmail, calendar, gchat, whatsapp, bitbucket) drive Chrome, Chromium, Brave or Edge through [Rastro](https://github.com/Rixmerz/rastro), with `modules/common/chromium-headless.cmd` as the wrapper; they work wherever Rastro does.
+- In PowerShell and cmd, a JSON argument (`tanka tools test`) is written with double quotes and its inner quotes escaped as `\"`.
 
 ## Quick start
 

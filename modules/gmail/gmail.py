@@ -20,7 +20,6 @@ an arbitrary file from the disk.
 import contextlib
 import email
 import email.policy
-import fcntl
 import html
 import json
 import os
@@ -33,6 +32,9 @@ import urllib.parse
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 import office  # noqa: E402  (modules/common)
@@ -49,7 +51,7 @@ BODY_CAP = int(os.environ.get("TANKA_GMAIL_BODY_CHARS", "4000"))
 MAX_ACCOUNTS = 10
 # Extra folders attachments may be taken from, besides the workspace (":"-separated).
 UPLOAD_DIRS = [d for d in os.environ.get("TANKA_GMAIL_UPLOAD_DIRS", "").split(":") if d]
-WRAPPER = MODULE.parent / "common" / "chromium-headless"
+WRAPPER = MODULE.parent / "common" / ("chromium-headless.cmd" if tanka_os.IS_WINDOWS else "chromium-headless")
 BASE = "https://mail.google.com"
 TINY_INLINE = 15 * 1024  # inline pictures below this are signatures and logos, not content
 
@@ -109,7 +111,10 @@ def pick_account(scope: str, account: str | None) -> str:
 # The browsers the headless wrapper (modules/common/chromium-headless) looks for, in its order.
 BROWSERS = ("/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome",
             "/usr/bin/brave", "/usr/bin/microsoft-edge", "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            *(str(Path(os.environ[base]) / app) for base in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA") if os.environ.get(base)
+              for app in ("Google/Chrome/Application/chrome.exe", "Chromium/Application/chrome.exe",
+                          "BraveSoftware/Brave-Browser/Application/brave.exe", "Microsoft/Edge/Application/msedge.exe")))
 
 
 def real_browser() -> str:
@@ -132,7 +137,7 @@ def rastro(*args: str, timeout: int = 60) -> str:
     # The daemon reads RASTRO_CHROMIUM when it starts the browser; later calls ignore it.
     env = {**os.environ, "RASTRO_CHROMIUM": str(WRAPPER)}
     try:
-        p = subprocess.run(["rastro", "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
+        p = subprocess.run([tanka_os.which("rastro"), "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise ToolError(f"Rastro did not answer within {timeout} s. Tell the user; do not repeat the call.")
     if p.returncode != 0:
@@ -196,7 +201,7 @@ def session(write_hosts: tuple[str, ...] = ("mail.google.com",), home: str = "")
         deadline = time.time() + 60
         while True:
             try:
-                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                tanka_os.lock(fh, blocking=False)
                 break
             except BlockingIOError:
                 if time.time() > deadline:
@@ -692,11 +697,11 @@ def requests_locked(scope: str):
     f = requests_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            tanka_os.unlock(lock)
 
 
 def read_requests(scope: str) -> list[dict]:

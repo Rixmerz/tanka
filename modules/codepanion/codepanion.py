@@ -34,6 +34,7 @@ REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
 import tanka_common as tc  # noqa: E402
 import tanka_kit as kit  # noqa: E402
+import tanka_os as tos  # noqa: E402
 from tanka_kit import (SECRET_PATTERNS, ToolError, clip, day_time, hhmm, now, persona_name, read_json,  # noqa: E402,F401
                        run, safe_id, scrub, tail_clip, today_start, write_json)
 
@@ -754,8 +755,8 @@ def git_env() -> dict:
 
 def safe_git(project: str, args: list[str], timeout: int = 20) -> str:
     """git that reads and never runs the repository's own programs (fsmonitor, filters, external diff, textconv)."""
-    base = ["git", "--no-pager", "-C", project, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-            "-c", "core.attributesFile=/dev/null", "-c", "diff.external=", "-c", "core.pager=cat"]
+    base = ["git", "--no-pager", "-C", project, "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+            "-c", f"core.attributesFile={os.devnull}", "-c", "diff.external=", "-c", "core.pager=cat"]
     listed = subprocess.run(base + ["config", "--get-regexp", r"^filter\."], capture_output=True, text=True,
                             timeout=timeout, env=git_env(), stdin=subprocess.DEVNULL).stdout
     for name in sorted({ln.split()[0].split(".")[1] for ln in listed.splitlines() if ln.count(".") >= 2}):
@@ -1081,7 +1082,7 @@ def say_one(ws: Path, fire: dict, lenses: list[str], evs: list[dict], project: s
         env = {**os.environ, "TANKA_CODEPANION_HOME": str(tmp), "TANKA_CODEPANION_BACKTEST": "1",
                "TANKA_CODEPANION_RECENT_HOURS": str(10 ** 6)}
         task = "React to the signal with your lenses (skill codepanion). This is a backtest: speak with codepanion_note exactly as you would live."
-        cmd = [str(REPO / "bin" / "tanka"), "run", ta.prompt(task, event_for(ws.name, evs[0]["session"], project, fire, lenses)["what"]),
+        cmd = [*tos.tanka_argv(REPO / "bin" / "tanka"), "run", ta.prompt(task, event_for(ws.name, evs[0]["session"], project, fire, lenses)["what"]),
                str(ws), "--max-turns", "10", "--budget", "0.15"]
         runner = runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=600, env=env, stdin=subprocess.DEVNULL))
         p = runner(cmd)

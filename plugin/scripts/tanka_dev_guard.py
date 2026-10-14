@@ -31,8 +31,13 @@ COMMANDS = (("boards",), ("tools", "check"), ("tools", "test"), ("tools", "list"
 UNSAFE = re.compile(r"[`\n]|\$\(|\$\{")
 
 
+def real(path: str) -> str:
+    """The real path, case-folded on Windows, whose paths are case-insensitive."""
+    return os.path.normcase(os.path.realpath(os.path.expanduser(path)))
+
+
 def inside(path: str, root: str) -> bool:
-    p = os.path.realpath(os.path.expanduser(path))
+    p, root = real(path), os.path.normcase(root)
     return p == root or p.startswith(root + os.sep)
 
 
@@ -46,8 +51,9 @@ def check(tool: str, ti: dict, ws: str, repo: str) -> str | None:
             return None
         return f"dev reads only the repository and the workspace, not {path}"
     if tool in WRITE_TOOLS:
-        path = os.path.realpath(os.path.expanduser(str(ti.get("file_path") or ti.get("notebook_path") or "")))
-        rel = path[len(ws) + 1:] if path.startswith(ws + os.sep) else None
+        path = real(str(ti.get("file_path") or ti.get("notebook_path") or ""))
+        home = os.path.normcase(ws)
+        rel = path[len(home) + 1:].replace(os.sep, "/") if path.startswith(home + os.sep) else None
         if rel is not None and (rel.startswith(WRITABLE) or rel in WRITABLE_FILES):
             return None
         return ("dev writes only the workspace's .claude/views, .claude/skills, .claude/codepanion and its "

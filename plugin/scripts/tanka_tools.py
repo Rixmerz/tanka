@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tanka_agent as ta  # noqa: E402
+import tanka_os as tos  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Limits. docs/tool-rules.md quotes these; change them here, not there.
@@ -394,7 +395,7 @@ def build_argv(m: dict, args: dict) -> tuple[list[str], list[str]]:
                 # A value that looks like a flag would be read as one by the program.
                 errs.append(f"'{whole.group(1)}' cannot start with '-'")
             argv.append(val)
-    return argv, errs
+    return tos.python_argv(argv), errs
 
 
 def _fmt(v) -> str:
@@ -415,10 +416,11 @@ def run_tool(ws: Path, m: dict, raw_args: dict) -> tuple[str, bool]:
     # TANKA_PLUGIN_DIR lets a scripted tool import tanka_agent for a subagent of its own.
     env = dict(os.environ, TANKA_WORKSPACE=str(ws), TANKA_TOOL=m["name"], TANKA_SKILL=m["_skill"],
                TANKA_PLUGIN_DIR=str(Path(__file__).resolve().parent.parent))
+    tos.export_runtime_env(env)  # the tool writes UTF-8, as it is read here
     timeout = int(m.get("timeout_sec", DEFAULT_TIMEOUT))
     try:
         p = subprocess.run(argv, input=json.dumps(args, ensure_ascii=False), capture_output=True, text=True,
-                           cwd=m["_dir"], env=env, timeout=timeout)
+                           encoding="utf-8", errors="replace", cwd=m["_dir"], env=env, timeout=timeout)
     except FileNotFoundError:
         return (f"The program '{argv[0]}' is not installed on this machine. Tell the user; do not retry.", True)
     except subprocess.TimeoutExpired:

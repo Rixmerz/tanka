@@ -13,6 +13,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
+
 HOME = Path(os.environ.get("TANKA_LINK_HOME", Path.home() / ".tanka" / "shared" / "link"))
 BUSY_FOR = 1800          # a session without a listener is still listed this long after it was last seen
 TEXT_MAX = 20000
@@ -26,11 +29,7 @@ class ToolError(Exception):
 
 
 def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ValueError):
-        return False
+    return tanka_os.pid_alive(pid)
 
 
 def sessions(now: float | None = None) -> list[dict]:
