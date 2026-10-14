@@ -159,6 +159,8 @@ def running() -> bool:
 
 def current_url() -> str:
     tabs = json.loads(rastro("--json", "tabs", timeout=30) or "[]")
+    if isinstance(tabs, dict):  # newer rastro wraps the list: {"schemaVersion", "ok", "data"}
+        tabs = tabs.get("data") or []
     active = [t for t in tabs if t.get("active")] or tabs
     return active[0]["url"] if active else ""
 

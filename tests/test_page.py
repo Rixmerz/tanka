@@ -455,7 +455,7 @@ class TestChat(PageCase):
         self.assertIn("91k to 12k tokens", note["text"])
 
     def test_without_a_threshold_a_long_conversation_is_never_compacted_on_its_own(self):
-        self.assertEqual(chat.COMPACT_TOKENS, 0)
+        self.patch(chat, "COMPACT_TOKENS", 0)  # TANKA_COMPACT_TOKENS in the shell must not change the default
         self.fake_stream(900000)
         self.say("check the emails")
         self.say("sigue")

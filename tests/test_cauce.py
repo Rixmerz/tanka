@@ -233,6 +233,7 @@ class TestCalls(CauceCase):
         shutil.copy(self.tmp / "bin" / "cauce", plugin)
         self.assertEqual(cl.binary(), str(plugin))
         os.environ["PATH"] = old  # the fake runs on python3
+        os.environ["TANKA_CAUCE_BIN"] = str(plugin)  # a real cauce on PATH must not answer for the fake
         self.answer(board="not json")
         cl.allow("duck", str(self.app))
         with self.assertRaisesRegex(cl.ToolError, "not JSON"):
