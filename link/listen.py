@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 HOME = Path(os.environ.get("TANKA_LINK_HOME", Path.home() / ".tanka" / "shared" / "link"))
 BEAT = 20          # seconds between heartbeats: Tanka shows a session as live while they are fresh
@@ -37,15 +39,14 @@ def branch(cwd: str) -> str:
 
 
 def alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ValueError):
-        return False
+    return tanka_os.pid_alive(pid)
 
 
 def claude_process() -> tuple[int, bool]:
-    """(pid of the Claude Code process this hook runs under, whether it is a `claude -p` run). (0, False) if not found."""
+    """(pid of the Claude Code process this hook runs under, whether it is a `claude -p` run). (0, False) if not found,
+    and on Windows, which has no `ps`."""
+    if tanka_os.IS_WINDOWS:
+        return 0, False
     pid = os.getppid()
     for _ in range(8):
         try:
@@ -85,7 +86,7 @@ def main(argv: list[str]) -> int:
     reg, pidf, inbox = HOME / "sessions" / f"{sid}.json", HOME / "sessions" / f"{sid}.pid", HOME / "inbox" / sid
     if argv[:1] == ["end"]:
         try:
-            os.kill(int(pidf.read_text()), signal.SIGTERM)
+            tanka_os.terminate(int(pidf.read_text()))
         except (OSError, ValueError):
             pass
         for f in (reg, pidf):

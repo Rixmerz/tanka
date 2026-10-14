@@ -305,10 +305,25 @@ def effective_persona(persona: dict) -> dict:
 # I/O
 # --------------------------------------------------------------------------- #
 def desktop_notify(title: str, text: str) -> bool:
-    """A desktop notification on Linux (notify-send) or macOS (osascript); False when neither exists."""
+    """A desktop notification on Linux (notify-send), macOS (osascript) or Windows (a PowerShell toast); False
+    when none of them exists."""
     import shutil
     import subprocess
-    if shutil.which("notify-send"):
+    env = None
+    if os.name == "nt" and shutil.which("powershell"):
+        # The text travels in the environment, never inside the script, so nothing in it can run.
+        script = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null;"
+                  "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+                  "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+                  "$n = $t.GetElementsByTagName('text');"
+                  "$n.Item(0).AppendChild($t.CreateTextNode($env:TANKA_NOTIFY_TITLE)) > $null;"
+                  "$n.Item(1).AppendChild($t.CreateTextNode($env:TANKA_NOTIFY_TEXT)) > $null;"
+                  "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+                  "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe')"
+                  ".Show([Windows.UI.Notifications.ToastNotification]::new($t))")
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", script]
+        env = dict(os.environ, TANKA_NOTIFY_TITLE=title, TANKA_NOTIFY_TEXT=text)
+    elif shutil.which("notify-send"):
         cmd = ["notify-send", "-a", "Tanka", title, text]
     elif shutil.which("osascript"):
         cmd = ["osascript", "-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
@@ -316,7 +331,7 @@ def desktop_notify(title: str, text: str) -> bool:
     else:
         return False
     try:
-        p = subprocess.run(cmd, check=False, timeout=15, capture_output=True)
+        p = subprocess.run(cmd, check=False, timeout=15, capture_output=True, env=env)
     except (OSError, subprocess.SubprocessError):
         return False
     # Exit 0 only means the request was accepted: macOS drops it silently when Focus is on or

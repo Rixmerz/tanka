@@ -18,7 +18,6 @@ The module file is `gcal.py`, not `calendar.py`: the folder is put on sys.path
 and would hide the standard library's `calendar`.
 """
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -29,6 +28,9 @@ import time
 import urllib.parse
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 MODULE = Path(__file__).resolve().parent
 # Every setting has a default and an environment variable; see README.md.
@@ -42,7 +44,7 @@ LOCK = GMAIL_HOME / ".lock"
 WORK_HOURS = os.environ.get("TANKA_CALENDAR_WORK_HOURS", "09:00-18:00")
 WORK_DAYS = os.environ.get("TANKA_CALENDAR_WORK_DAYS", "1,2,3,4,5")  # ISO weekdays, Monday = 1
 DESC_CAP = int(os.environ.get("TANKA_CALENDAR_DESC_CHARS", "1500"))
-WRAPPER = MODULE.parent / "common" / "chromium-headless"
+WRAPPER = MODULE.parent / "common" / ("chromium-headless.cmd" if tanka_os.IS_WINDOWS else "chromium-headless")
 HOST = "calendar.google.com"
 BASE = "https://" + HOST
 OUTPUT_CAP = 5800
@@ -112,7 +114,7 @@ def rastro(*args: str, timeout: int = 60) -> str:
     # The daemon reads RASTRO_CHROMIUM when it starts the browser; later calls ignore it.
     env = {**os.environ, "RASTRO_CHROMIUM": str(WRAPPER)}
     try:
-        p = subprocess.run(["rastro", "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
+        p = subprocess.run([tanka_os.which("rastro"), "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise ToolError(f"Rastro did not answer within {timeout} s. Tell the user; do not repeat the call.")
     if p.returncode != 0:
@@ -158,7 +160,7 @@ def session():
         deadline = time.time() + 60
         while True:
             try:
-                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                tanka_os.lock(fh, blocking=False)
                 break
             except BlockingIOError:
                 if time.time() > deadline:
@@ -541,11 +543,11 @@ def requests_locked(scope: str):
     f = requests_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            tanka_os.unlock(lock)
 
 
 def read_requests(scope: str) -> list[dict]:

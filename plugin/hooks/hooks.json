@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_session_start.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_session_start.py\"",
             "timeout": 15,
             "statusMessage": "Tanka: loading profile and policy"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_user_prompt.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_user_prompt.py\"",
             "timeout": 10
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_pre_tool.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_pre_tool.py\"",
             "timeout": 15,
             "statusMessage": "Tanka: checking this action"
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_post_tool.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_post_tool.py\"",
             "timeout": 10
           }
         ]
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_post_tool_failure.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_post_tool_failure.py\"",
             "timeout": 10
           }
         ]
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_stop.py\"",
+            "command": "\"${TANKA_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_stop.py\"",
             "timeout": 15,
             "statusMessage": "Tanka: verifying closure"
           }

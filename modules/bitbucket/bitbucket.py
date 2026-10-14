@@ -18,7 +18,6 @@ Rastro lets the session write only to bitbucket.org. The workspace id (and the s
 `config.json` beside `scopes.json`; an environment variable always wins over the file.
 """
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -27,6 +26,9 @@ import sys
 import time
 import urllib.parse
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 MODULE = Path(__file__).resolve().parent
 # Every setting has a default and an environment variable; see README.md.
@@ -40,7 +42,7 @@ NEXT_PREFIXES = (WEB + "/!api/", "https://api.bitbucket.org/2.0/")  # where a `n
 SIGN_IN = WEB + "/account/signin/"
 WRITE_HOSTS = ("bitbucket.org",)  # all the headless session may POST to
 LOGIN_HOSTS = ("bitbucket.org", "id.atlassian.com", "auth.atlassian.com", "accounts.google.com")
-WRAPPER = MODULE.parent / "common" / "chromium-headless"  # a real browser with a normal user agent
+WRAPPER = MODULE.parent / "common" / ("chromium-headless.cmd" if tanka_os.IS_WINDOWS else "chromium-headless")  # a real browser with a normal user agent
 MAX_OUTPUT = 5800  # under tanka_tools.MAX_OUTPUT_CHARS (6000), leaving room for the marker
 RETRY_STATUSES = (429, 502, 503)
 MAX_TRIES = 4
@@ -258,7 +260,7 @@ def _run_rastro(args: list[str], timeout: int) -> tuple[int, str, str]:
     # The daemon reads RASTRO_CHROMIUM when it starts the browser: a real Chromium with a normal user agent, unless
     # the user chose another. Later calls ignore it.
     env = {"RASTRO_CHROMIUM": str(WRAPPER), **os.environ}
-    p = subprocess.run(["rastro", "-s", session_name(), *args], capture_output=True, text=True, timeout=timeout,
+    p = subprocess.run([tanka_os.which("rastro"), "-s", session_name(), *args], capture_output=True, text=True, timeout=timeout,
                        env=env)
     return p.returncode, p.stdout, p.stderr
 
@@ -327,7 +329,7 @@ def session(write: bool = False):
         deadline = time.time() + LOCK_WAIT
         while True:
             try:
-                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                tanka_os.lock(fh, blocking=False)
                 break
             except BlockingIOError:
                 if time.time() > deadline:

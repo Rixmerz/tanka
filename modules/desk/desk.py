@@ -15,7 +15,6 @@ Standard library only.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import os
 import re
 import secrets
@@ -27,6 +26,7 @@ MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
 import tanka_common as tc  # noqa: E402
+import tanka_os  # noqa: E402
 import tanka_kit as kit  # noqa: E402
 from tanka_kit import (ToolError, clip, day_time, hhmm, now, read_json, run, safe_id, scrub,  # noqa: E402,F401
                        today_start, write_json)
@@ -95,7 +95,7 @@ def card_store(scope: str, write: bool = False):
     f = cards_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         data = read_json(f, {"cards": []})
         yield data["cards"]
         if write:

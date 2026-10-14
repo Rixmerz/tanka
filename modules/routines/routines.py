@@ -13,7 +13,6 @@ Standard library only.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -26,6 +25,7 @@ MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
 import tanka_automation as ta  # noqa: E402
+import tanka_os  # noqa: E402
 
 
 class ToolError(Exception):
@@ -132,11 +132,11 @@ def locked(scope: str):
     f = proposals_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            tanka_os.unlock(lock)
 
 
 def read_proposals(scope: str) -> tuple[list[dict], str | None]:

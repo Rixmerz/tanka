@@ -21,18 +21,21 @@ manager's "run with these secrets") launches this same script once.
 """
 import base64
 import contextlib
-import fcntl
 import json
 import os
 import re
 import secrets
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 # Every setting has a default and an environment variable; see README.md.
 HOME = Path(os.environ.get("TANKA_JIRA_HOME", Path.home() / ".tanka" / "shared" / "jira"))
@@ -103,8 +106,11 @@ def relaunch_with_token() -> None:
     wrapper = file_config().get("token_wrapper")
     if not (isinstance(wrapper, list) and wrapper and all(isinstance(a, str) and a for a in wrapper)):
         return
+    argv, env = [*wrapper, sys.executable, *sys.argv], {**os.environ, WRAPPED: "1"}
     try:
-        os.execvpe(wrapper[0], [*wrapper, sys.executable, *sys.argv], {**os.environ, WRAPPED: "1"})
+        if tanka_os.IS_WINDOWS:  # exec is a spawn there that returns at once: run it and pass its result on
+            sys.exit(subprocess.run([tanka_os.which(argv[0]), *argv[1:]], env=env).returncode)
+        os.execvpe(wrapper[0], argv, env)
     except OSError:
         return
 
@@ -680,11 +686,11 @@ def deletions_locked(scope: str):
     f = deletions_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            tanka_os.unlock(lock)
 
 
 def read_deletions(scope: str) -> list[dict]:

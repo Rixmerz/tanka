@@ -16,7 +16,6 @@ Standard library only.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -30,6 +29,7 @@ MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
 import tanka_kit as kit  # noqa: E402
+import tanka_os  # noqa: E402
 from tanka_kit import ToolError, clip, now, read_json, run, safe_id, scrub, write_json  # noqa: E402,F401
 
 HOME = Path(os.environ.get("TANKA_BOARDS_HOME", kit.SHARED / "boards"))
@@ -274,7 +274,7 @@ def row_store(scope: str, view: str, write: bool = False):
     f = rows_file(scope, view)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         data = read_json(f, {"rows": []})
         yield data["rows"]
         if write:

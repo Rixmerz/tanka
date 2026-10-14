@@ -9,7 +9,6 @@ Standard library only."""
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -18,6 +17,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 HOME = Path(os.environ.get("TANKA_APPROVALS_HOME", Path.home() / ".tanka" / "shared" / "approvals"))
 TIMEOUT = int(os.environ.get("TANKA_APPROVALS_TIMEOUT", "180"))
@@ -44,11 +46,11 @@ def locked(scope: str):
     f = requests_file(scope)
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f.with_suffix(".lock"), "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        tanka_os.lock(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            tanka_os.unlock(lock)
 
 
 def read(scope: str) -> list[dict]:

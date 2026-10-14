@@ -46,7 +46,7 @@ TAP = Path(__file__).resolve().parent / "tap.py"
 MARKER = "modules/codepanion/tap.py"
 HOOKS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd")
 SETTINGS = c.CLAUDE_HOME / "settings.json"
-SEGMENT = f"{sys.executable} {shlex.quote(str(Path(__file__).resolve()))} statusline"
+SEGMENT = f"{shlex.quote(c.tos.python_path())} {shlex.quote(Path(__file__).resolve().as_posix())} statusline"
 
 STARTER = {
     "lenses": [],
@@ -115,7 +115,7 @@ def tap(action: str) -> int:
         if len(present) == len(HOOKS):
             print(f"= The tap is already installed in {SETTINGS}.")
             return 0
-        cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(TAP))}"
+        cmd = f"{shlex.quote(c.tos.python_path())} {shlex.quote(TAP.as_posix())}"
         for ev in HOOKS:
             if ev in present:
                 continue
@@ -304,7 +304,7 @@ def setup(argv: list[str]) -> int:
                  "TANKA_DESK_HOME": str(c.desk_module().HOME), "TANKA_PAGE_HOME": str(c.kit.PAGE_HOME)}
     sys.stdout.flush()
     if not (ws / ".tanka" / "policy.json").is_file():
-        p = subprocess.run([str(c.REPO / "bin" / "tanka"), "init", name], text=True, capture_output=True,
+        p = subprocess.run([*c.tos.tanka_argv(c.REPO / "bin" / "tanka"), "init", name], text=True, capture_output=True,
                            env=dict(os.environ, **child_env))
         if p.returncode != 0:
             raise c.ToolError(f"could not create the workspace: {p.stderr.strip() or p.stdout.strip()}")

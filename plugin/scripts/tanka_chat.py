@@ -34,7 +34,6 @@ import importlib.util
 import json
 import os
 import shlex
-import signal
 import subprocess
 import sys
 import tempfile
@@ -47,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tanka_common as tc  # noqa: E402
 import tanka_kit as kit  # noqa: E402
+import tanka_os as tos  # noqa: E402
 from tanka_kit import ToolError  # noqa: E402
 
 TEXT_CHARS = 100000  # a pasted log or a spec must fit; this only stops a runaway paste
@@ -370,7 +370,7 @@ def hint(scope: str) -> str:
 
 def run_tanka(scope: str, text: str, extra: list[str]) -> tuple[int, str, str]:
     """One run of the workspace's assistant. Tests replace this."""
-    cmd = [str(TANKA_BIN), "run", text, str(kit.ws_dir(scope)), "--max-turns", str(MAX_TURNS),
+    cmd = [*tos.tanka_argv(TANKA_BIN), "run", text, str(kit.ws_dir(scope)), "--max-turns", str(MAX_TURNS),
            "--budget", budget_arg(chat_left(scope)), "--", *extra, "--append-system-prompt", hint(scope), *STREAM_ARGS]
     return run_stream(scope, cmd, extra, "chat", TIMEOUT_S)
 
@@ -403,10 +403,10 @@ def dev_cmd(scope: str, text: str, extra: list[str]) -> list[str]:
     cannot answer; the guard denies everything else, even then. No user settings, so none of their hooks
     or MCP servers."""
     ws, repo = str(kit.ws_dir(scope)), str(kit.REPO)
-    guard = f"{sys.executable} {shlex.quote(str(Path(__file__).resolve().parent / 'tanka_dev_guard.py'))} " \
+    guard = f"{shlex.quote(tos.python_path())} {shlex.quote(str(Path(__file__).resolve().parent / 'tanka_dev_guard.py'))} " \
             f"{shlex.quote(ws)} {shlex.quote(repo)}"
     settings = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": guard, "timeout": 10}]}]}}
-    return ["claude", "-p", text, "--model", DEV_MODEL, "--effort", DEV_EFFORT, "--permission-mode", "bypassPermissions",
+    return [tos.which("claude"), "-p", text, "--model", DEV_MODEL, "--effort", DEV_EFFORT, "--permission-mode", "bypassPermissions",
             "--settings", json.dumps(settings), "--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task",
             "--setting-sources", "project,local", "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}',
             "--plugin-dir", str(kit.REPO / "builder"), "--add-dir", ws,
@@ -426,10 +426,11 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
     k = key(scope, "dev" if kind == "dev" else "tanka")
     with tempfile.TemporaryFile("w+", encoding="utf-8") as err:
         # Its own process group: `tanka run` starts claude as a child, and a stop must reach both.
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, stdin=subprocess.DEVNULL, cwd=cwd,
-                             start_new_session=True, env={**os.environ, "TANKA_CHAT": "1"})
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8", errors="replace",
+                             stdin=subprocess.DEVNULL, cwd=cwd,
+                             env={**os.environ, "TANKA_CHAT": "1"}, **tos.group_kwargs())
         killed = threading.Event()
-        timer = threading.Timer(timeout, lambda: (killed.set(), kill_group(p, signal.SIGKILL)))
+        timer = threading.Timer(timeout, lambda: (killed.set(), kill_group(p, force=True)))
         timer.start()
         _stops[k] = lambda: stop_group(p)
         try:
@@ -461,20 +462,17 @@ def run_stream(scope: str, cmd: list[str], extra: list[str], kind: str, timeout:
     return code, answer_text or "", stderr
 
 
-def kill_group(p: subprocess.Popen, sig: int) -> None:
-    try:
-        os.killpg(p.pid, sig)
-    except (ProcessLookupError, PermissionError):
-        pass
+def kill_group(p: subprocess.Popen, force: bool = False) -> None:
+    tos.kill_group(p.pid, force)
 
 
 def stop_group(p: subprocess.Popen) -> None:
     """Ask the run to stop, so it leaves its session whole enough to resume; force it after a grace period."""
-    kill_group(p, signal.SIGTERM)
+    kill_group(p)
     try:
         p.wait(STOP_GRACE_S)
     except subprocess.TimeoutExpired:
-        kill_group(p, signal.SIGKILL)
+        kill_group(p, force=True)
 
 
 def costs_file(scope: str) -> Path:

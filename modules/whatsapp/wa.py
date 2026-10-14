@@ -18,7 +18,6 @@ What the assistant knows about a person lives in the workspace, in
 sale_status) and free notes below. The assistant writes those; the role never.
 """
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -27,6 +26,9 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugin" / "scripts"))
+import tanka_os  # noqa: E402
 
 import media  # noqa: E402  (same folder)
 
@@ -45,7 +47,7 @@ PEOPLE_DIR = os.environ.get("TANKA_WHATSAPP_PEOPLE_DIR", "notes/people")
 MEDIA_DIR = os.environ.get("TANKA_WHATSAPP_MEDIA_DIR", "whatsapp")
 LIST_LIMIT = int(os.environ.get("TANKA_WHATSAPP_LIST_LIMIT", "25"))
 URL = "https://web.whatsapp.com/"
-WRAPPER = MODULE.parent / "common" / "chromium-headless"
+WRAPPER = MODULE.parent / "common" / ("chromium-headless.cmd" if tanka_os.IS_WINDOWS else "chromium-headless")
 
 
 class ToolError(Exception):
@@ -96,7 +98,7 @@ def registry_update(change):
     """
     REGISTRY.parent.mkdir(parents=True, exist_ok=True)
     with registry_lock_path().open("a") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        tanka_os.lock(fh)
         data = registry_raw()
         result = change(data)
         mode = REGISTRY.stat().st_mode & 0o777
@@ -133,7 +135,7 @@ def rastro(*args: str, timeout: int = 60) -> str:
     # The daemon reads RASTRO_CHROMIUM when it starts the browser; later calls ignore it.
     env = {**os.environ, "RASTRO_CHROMIUM": str(WRAPPER)}
     try:
-        p = subprocess.run(["rastro", "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
+        p = subprocess.run([tanka_os.which("rastro"), "-s", SESSION, *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise ToolError(f"Rastro did not answer within {timeout} s. Tell the user; do not repeat the call.")
     if p.returncode != 0:
@@ -189,13 +191,13 @@ def session():
     LOCK.touch()
     with LOCK.open() as fh:
         try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            tanka_os.lock(fh, blocking=False)
         except BlockingIOError:
             deadline = time.time() + 60
             while True:
                 time.sleep(1)
                 try:
-                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    tanka_os.lock(fh, blocking=False)
                     break
                 except BlockingIOError:
                     if time.time() > deadline:

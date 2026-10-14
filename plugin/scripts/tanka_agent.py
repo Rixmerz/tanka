@@ -33,6 +33,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tanka_os as tos  # noqa: E402
+
 MODELS = ("haiku", "sonnet", "opus")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGENT_TOOLS = ("Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch")
@@ -124,7 +127,7 @@ def command(model: str, effort: str, tools: list[str], prompt: str, budget_usd: 
             schema: dict | None = None, add_dirs: list[str] | None = None) -> list[str]:
     # The full id pins the version: an alias lets Claude Code resolve it to another one.
     full = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}.get(model, model)
-    cmd = ["claude", "-p", prompt, "--model", full, "--effort", effort, "--restricted",
+    cmd = [tos.which("claude"), "-p", prompt, "--model", full, "--effort", effort, "--restricted",
            "--tools", ",".join(tools), "--strict-mcp-config", "--permission-prompts", "none",
            "--no-session-persistence", "--append-system-prompt", PREAMBLE,
            "--max-budget-usd", f"{budget_usd:g}", "--output-format", "json"]
@@ -223,29 +226,23 @@ def call(ws: Path, m: dict, args: dict) -> tuple[str, bool]:
             for f in job.iterdir():
                 f.unlink()
         return text, err
-    if meta.is_file() and _alive(json.loads(meta.read_text()).get("pid")):
-        started = json.loads(meta.read_text())["started"]
+    if meta.is_file() and _alive(json.loads(meta.read_text(encoding="utf-8")).get("pid")):
+        started = json.loads(meta.read_text(encoding="utf-8"))["started"]
         return f"{m['name']} is still working (started {started}). Tell the user to ask again later; do not call it again this turn.", False
     job.mkdir(parents=True, exist_ok=True)
     meta.write_text(json.dumps({"started": dt.datetime.now().isoformat(timespec="minutes"), "args": args,
                                 "cmd": cmd, "cwd": str(cwd)}), encoding="utf-8")
     proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", str(job)],
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True)
-    info = json.loads(meta.read_text())
+                            **tos.group_kwargs())
+    info = json.loads(meta.read_text(encoding="utf-8"))
     meta.write_text(json.dumps({**info, "pid": proc.pid}), encoding="utf-8")
     return (f"{m['name']} ({a['model']}, {a['effort']}) started in the background. Nothing is published. "
             "Tell the user it is working and to ask again later; do not call it again this turn."), False
 
 
 def _alive(pid) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except OSError:
-        return False
+    return bool(pid) and tos.pid_alive(pid)
 
 
 def worker(job: Path) -> None:

@@ -33,6 +33,7 @@ MODULE = Path(__file__).resolve().parent
 REPO = MODULE.parents[1]
 sys.path.insert(0, str(REPO / "plugin" / "scripts"))
 import tanka_kit as kit  # noqa: E402
+import tanka_os as tos  # noqa: E402
 from tanka_kit import ToolError, clip, read_json, run, write_json  # noqa: E402,F401
 
 # Every setting has a default and an environment variable; see README.md.
@@ -405,12 +406,19 @@ def launch(scope: str, name: str, prompt: str) -> dict:
     prompt = str(prompt or "").strip()
     if len(prompt) < 2 or len(prompt) > TEXT_CHARS:
         raise ToolError(f"A new session starts on its first prompt: write one (up to {TEXT_CHARS} characters).")
-    tmux = shutil.which("tmux")
     claude = shutil.which(os.environ.get("CLAUDE_BIN") or "claude")
+    session = f"cauce-{re.sub(r'[^A-Za-z0-9_-]', '_', name)}-{time.strftime('%H%M%S')}"
+    if tos.IS_WINDOWS and claude:
+        # No tmux on Windows: the session opens in a console window of its own, to watch and type in.
+        try:
+            subprocess.Popen([claude, prompt], cwd=where, creationflags=tos.CREATE_NEW_CONSOLE)  # noqa: S603
+        except OSError as e:
+            raise ToolError(f"could not start the session: {clip(str(e), 200)}") from e
+        return {"started": session, "repo": name, "attach": "its own console window"}
+    tmux = shutil.which("tmux")
     if not tmux or not claude:
         raise ToolError("Starting a session from the page needs " + ("tmux" if not tmux else "claude") + " on PATH. "
                         f"Open one in a terminal instead: cd {where} && claude")
-    session = f"cauce-{re.sub(r'[^A-Za-z0-9_-]', '_', name)}-{time.strftime('%H%M%S')}"
     try:
         subprocess.run([tmux, "new-session", "-d", "-s", session, "-c", where, claude, prompt],  # noqa: S603
                        capture_output=True, text=True, timeout=TIMEOUT, check=True)
@@ -437,10 +445,9 @@ def work_pid(scope: str, name: str) -> Path:
 def working(scope: str, name: str) -> bool:
     try:
         pid = int(work_pid(scope, name).read_text())
-        os.kill(pid, 0)
     except (OSError, ValueError):
         return False
-    return True
+    return tos.pid_alive(pid)
 
 
 def work(scope: str, name: str) -> dict:
@@ -455,7 +462,7 @@ def work(scope: str, name: str) -> dict:
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("ab") as fh:
         proc = subprocess.Popen([exe, "work", "--repo", where], cwd=where, stdin=subprocess.DEVNULL,  # noqa: S603
-                                stdout=fh, stderr=subprocess.STDOUT, start_new_session=True)
+                                stdout=fh, stderr=subprocess.STDOUT, **tos.group_kwargs())
     work_pid(scope, name).write_text(str(proc.pid))
     _cache.clear()
     return {"started": name, "pid": proc.pid}
