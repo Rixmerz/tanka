@@ -14,7 +14,7 @@ const jobs = atom({ plugin: 'delegator', key: 'jobs' } as const, [], {
 async function specialists($: any): Promise<string[]> {
   try {
     const entries = await $.fs.list(ROOT)
-    return entries.filter((x: any) => x.type === 'dir').map((x: any) => x.name)
+    return entries.filter((x: any) => x.kind === 'dir').map((x: any) => x.name)
   } catch {
     return []
   }
