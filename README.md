@@ -41,11 +41,18 @@ docs/plan.md              the roadmap
 
 ## Install
 
-The repository is its own plugin marketplace. A session opened on this repo
-picks the plugin up from `.claude/settings.json` (once this branch is merged
-to the default branch). By hand:
+From a checkout (works on any branch, also as a cloud environment's setup
+script):
 
 ```
-/plugin marketplace add Rixmerz/tanka
-/plugin install tanka@tanka
+bash tanka/scripts/install.sh
 ```
+
+The mod finds the repository by itself: `TANKA_ROOT` if set, else the first
+folder, from the session's working directory up and then down three levels,
+that holds `docs/delegator.md` and `agents/`. Agents get `TANKA_ROOT` passed
+in.
+
+The repository is also its own plugin marketplace, and `.claude/settings.json`
+enables the plugin for sessions opened on it once this is on the default
+branch: `/plugin marketplace add Rixmerz/tanka`, `/plugin install tanka@tanka`.

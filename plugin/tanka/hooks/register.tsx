@@ -3,21 +3,48 @@ import type { Register } from 'claude-code'
 
 import type { Job } from '../types'
 
-// The repository root: the agents live in <ROOT>/agents.
-const ROOT = '/home/user/tanka'
-const AGENTS = `${ROOT}/agents`
-const TEMPLATE = `${ROOT}/templates/agent`
+// The repository root is found at session start (see findRoot): TANKA_ROOT if
+// set, else the first folder, from the session's own upwards and then its
+// children, that holds docs/delegator.md and agents/.
+let ROOT = ''
+let AGENTS = ''
+let TEMPLATE = ''
+let RULES = ''
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 const MODES = ['bypassPermissions', 'acceptEdits', 'dontAsk', 'default', 'plan']
-const RULES = `${ROOT}/docs/delegator.md`
 const NAME = /^[a-z][a-z0-9-]{1,31}$/
 
 type Agent = { name: string; description: string; category: string; model: string; effort: string; permissionMode?: string }
 
 const jobs = atom({ plugin: 'tanka', key: 'jobs' } as const, [], { shape: 'jobs-1' })
 
-const run = ($: any, argv: string[], cwd = ROOT) => $.process.run(argv, { cwd, timeoutMs: 60_000 })
+const run = ($: any, argv: string[], cwd?: string) => $.process.run(argv, { cwd: cwd ?? (ROOT || undefined), timeoutMs: 60_000 })
+
+async function isRoot($: any, dir: string): Promise<boolean> {
+  return (await run($, ['test', '-f', `${dir}/docs/delegator.md`, '-a', '-d', `${dir}/agents`], '/')).exitCode === 0
+}
+
+async function findRoot($: any, cwd: string): Promise<string> {
+  const env = (await run($, ['printenv', 'TANKA_ROOT'], '/')).stdout.trim()
+  if (env && (await isRoot($, env))) return env
+  for (let dir = cwd; dir && dir !== '/'; dir = dir.slice(0, dir.lastIndexOf('/')) || '/') {
+    if (await isRoot($, dir)) return dir
+  }
+  const kids = (await run($, ['find', cwd, '-mindepth', '1', '-maxdepth', '3', '-type', 'f', '-path', '*/docs/delegator.md'], '/')).stdout
+  for (const f of kids.split('\n').filter(Boolean)) {
+    const dir = f.slice(0, -'/docs/delegator.md'.length)
+    if (await isRoot($, dir)) return dir
+  }
+  return ''
+}
+
+function setRoot(dir: string) {
+  ROOT = dir
+  AGENTS = `${dir}/agents`
+  TEMPLATE = `${dir}/templates/agent`
+  RULES = `${dir}/docs/delegator.md`
+}
 
 async function agents($: any): Promise<Agent[]> {
   const out: Agent[] = []
@@ -108,8 +135,15 @@ export const register: Register = on => {
   // delegator's tools or rules, or they would delegate instead of working.
   let isAgent = false
   on('session.start', async ($, e, next) => {
-    isAgent = (await run($, ['printenv', 'TANKA_AGENT'])).stdout.trim() === '1'
-    if (!isAgent) await registerTools($)
+    isAgent = (await run($, ['printenv', 'TANKA_AGENT'], '/')).stdout.trim() === '1'
+    if (isAgent) return next(e)
+    const root = await findRoot($, (e as any).cwd ?? '/home/user')
+    if (!root) {
+      $.ui.log('tanka: no repository with docs/delegator.md and agents/ found; set TANKA_ROOT', { to: 'transcript' })
+      return next(e)
+    }
+    setRoot(root)
+    await registerTools($)
     return next(e)
   })
 
@@ -117,7 +151,7 @@ export const register: Register = on => {
   // every agent below would load too) and join the main session's system prompt.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    if (isAgent) return composed
+    if (isAgent || !RULES) return composed
     let text = ''
     try { text = await $.fs.read(RULES) } catch { return composed }
     return { sections: [...composed.sections, { id: 'tanka:delegator', text, scope: 'session' as const }] }
@@ -192,7 +226,7 @@ export const register: Register = on => {
           argv: ['claude', '-p', task, '--model', meta.model, '--effort', meta.effort,
             '--permission-mode', meta.permissionMode ?? 'bypassPermissions', '--output-format', 'text'],
           cwd,
-          env: { TANKA_AGENT: '1' },
+          env: { TANKA_AGENT: '1', TANKA_ROOT: ROOT },
         })
         for await (const piece of child) {
           if ((piece as any).stream === 'stdout') out += (piece as any).text
