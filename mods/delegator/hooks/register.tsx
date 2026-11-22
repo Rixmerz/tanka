@@ -78,13 +78,17 @@ export const register: Register = on => {
       try {
         await $.fs.write(`${cwd}/replies/${id}.md`, `# ${input.task}\n\n${reply}\n`)
       } catch {}
-      // A notice: shown to the person, never read by the model.
+      // The app shows neither placed rows nor notices, so the main agent is asked
+      // to send the reply file as-is. It gets the path only, never the text.
       try {
-        await $.session.append({
-          message: { type: 'system', content: [{ type: 'text', text: `[${input.specialist}] ${reply}` }] },
+        await $.prompt.submit({
+          text:
+            `[delegator] ${input.specialist} finished job ${id}. Call SendUserFile with ` +
+            `files ["${cwd}/replies/${id}.md"], status "proactive", display "render". ` +
+            'Do not read the file and reply with no other text.',
         } as any)
       } catch (x) {
-        $.ui.log(`delegator: notice failed: ${String(x)}`, { to: 'debug' })
+        $.ui.log(`delegator: submit failed: ${String(x)}`, { to: 'debug' })
       }
       $.ui.toast(`${input.specialist}: ${ok ? 'listo' : 'falló'}`)
     })()
