@@ -3,3 +3,5 @@ __pycache__/
 .tanka/state/
 .tanka/drafts/
 .claude/settings.local.json
+specialists/*/replies/*
+!specialists/*/replies/.gitkeep
