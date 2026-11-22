@@ -1,5 +1,0 @@
-{
-  "name": "jira",
-  "description": "List projects, and search, read, create, update, comment on, link and ask to delete Jira Cloud issues, only in the projects the user assigned to the workspace; where they say so, a change waits for their Approve click.",
-  "requires": []
-}

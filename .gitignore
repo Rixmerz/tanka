@@ -1,5 +1,2 @@
-__pycache__/
-*.pyc
-.tanka/state/
-.tanka/drafts/
-.claude/settings.local.json
+agents/*/reports/
+node_modules/

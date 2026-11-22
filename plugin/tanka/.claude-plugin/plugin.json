@@ -1,0 +1,1 @@
+{ "name": "tanka", "version": "2.0.0", "description": "Tanka delegator: route tasks to self-contained agents; replies reach the user without entering the delegator's context", "types": "./types/index.d.ts" }

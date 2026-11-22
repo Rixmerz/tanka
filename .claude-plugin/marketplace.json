@@ -1,0 +1,7 @@
+{
+  "name": "tanka",
+  "owner": { "name": "Rixmerz" },
+  "plugins": [
+    { "name": "tanka", "source": "./plugin/tanka", "description": "Tanka delegator: route tasks to self-contained agents without reading their replies" }
+  ]
+}
