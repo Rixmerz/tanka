@@ -14,7 +14,7 @@ run entirely in Claude Code cloud sessions.
 ## Layout
 
 ```
-CLAUDE.md                 the delegator's instructions
+docs/delegator.md         the delegator's rules (injected by the mod)
 agents/<name>/            one agent (created with create_agent, never by hand)
   agent.json              name, description, category, model, effort
   CLAUDE.md               role and rules; imports memory/notes.md

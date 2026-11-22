@@ -10,6 +10,7 @@ const TEMPLATE = `${ROOT}/templates/agent`
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 const MODES = ['bypassPermissions', 'acceptEdits', 'dontAsk', 'default', 'plan']
+const RULES = `${ROOT}/docs/delegator.md`
 const NAME = /^[a-z][a-z0-9-]{1,31}$/
 
 type Agent = { name: string; description: string; category: string; model: string; effort: string; permissionMode?: string }
@@ -55,7 +56,7 @@ async function registerTools($: any) {
     isDeferred: false,
     description:
       'Run a task on an agent, with its own model, effort, permissions, tools and memory. You get only a receipt; ' +
-      'answer only "✓". The report usually reaches the user on its own. Only if "📎 <agent> · <id>" arrives later, send the user the report file ' +
+      'answer only "✓". When "📎 <agent> · <id>" arrives later, send the user the report file ' +
       `${AGENTS}/<agent>/reports/<id>.md with SendUserFile (status "proactive", display "render") ` +
       'without reading it, then answer only "✓".\n\nAgents:\n' + registry(list),
     inputSchema: {
@@ -103,9 +104,23 @@ function fill(text: string, a: Agent & { instructions: string }) {
 }
 
 export const register: Register = on => {
+  // Agents run as child processes with TANKA_AGENT=1: they must not see the
+  // delegator's tools or rules, or they would delegate instead of working.
+  let isAgent = false
   on('session.start', async ($, e, next) => {
-    await registerTools($)
+    isAgent = (await run($, ['printenv', 'TANKA_AGENT'])).stdout.trim() === '1'
+    if (!isAgent) await registerTools($)
     return next(e)
+  })
+
+  // The delegator's rules live in docs/delegator.md (not a root CLAUDE.md, which
+  // every agent below would load too) and join the main session's system prompt.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (isAgent) return composed
+    let text = ''
+    try { text = await $.fs.read(RULES) } catch { return composed }
+    return { sections: [...composed.sections, { id: 'tanka:delegator', text, scope: 'session' as const }] }
   })
 
   on('tool.run', { tool: 'mcp__tanka__list_agents' }, async $ => ({ result: registry(await agents($)) }))
@@ -177,6 +192,7 @@ export const register: Register = on => {
           argv: ['claude', '-p', task, '--model', meta.model, '--effort', meta.effort,
             '--permission-mode', meta.permissionMode ?? 'bypassPermissions', '--output-format', 'text'],
           cwd,
+          env: { TANKA_AGENT: '1' },
         })
         for await (const piece of child) {
           if ((piece as any).stream === 'stdout') out += (piece as any).text
@@ -191,22 +207,7 @@ export const register: Register = on => {
       await $.fs.write(`${cwd}/reports/${id}.md`, `# ${agent}\n\n> ${task.replaceAll('\n', ' ').slice(0, 300)}\n\n${body}\n`)
       await update($, jobs, list => list.map(j => (j.id === id ? { ...j, status: ok ? 'done' as const : 'error' as const } : j)))
       try { await save($, `agents/${agent}/memory`, `${agent}: update memory`) } catch {}
-      // Deliver the report straight to the user, with no model turn. Only if the
-      // engine refuses does the delegator get a "📎" prompt to send it itself.
-      let sent = false
-      try {
-        const r: any = await $.tool.call({
-          tool: 'SendUserFile', files: [`${cwd}/reports/${id}.md`], status: 'proactive', display: 'render',
-        } as any)
-        sent = !r?.deny
-        if (!sent) $.ui.log(`tanka: SendUserFile denied: ${r.deny}`, { to: 'debug' })
-      } catch (x) {
-        $.ui.log(`tanka: SendUserFile failed: ${String(x)}`, { to: 'debug' })
-      }
-      if (sent) {
-        $.ui.toast(`${agent}: report sent`)
-        return
-      }
+      // The app shows only files the model sends, so the delegator is asked to send it (id only).
       try {
         await $.prompt.submit({ text: `📎 ${agent} · ${id}` } as any)
       } catch (x) {
