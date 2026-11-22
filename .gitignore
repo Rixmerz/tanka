@@ -1,8 +1,2 @@
-__pycache__/
-*.pyc
-.tanka/state/
-.tanka/drafts/
-.claude/settings.local.json
-specialists/*/replies/*
-!specialists/*/replies/.gitkeep
-.delegator-mod-disabled-local/
+agents/*/reports/
+node_modules/

@@ -1,8 +1,0 @@
-{
-  "extraKnownMarketplaces": {
-    "rixmerz": {"source": {"source": "github", "repo": "Rixmerz/claude-plugins"}}
-  },
-  "enabledPlugins": {
-    "rastro@rixmerz": true
-  }
-}

@@ -1,1 +1,0 @@
-{ "name": "delegator", "version": "0.1.0", "description": "Delegate a task to a specialist claude -p workspace; its reply goes straight to the chat, not to the main agent", "types": "./types/index.d.ts" }
