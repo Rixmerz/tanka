@@ -78,6 +78,14 @@ export const register: Register = on => {
       try {
         await $.fs.write(`${cwd}/replies/${id}.md`, `# ${input.task}\n\n${reply}\n`)
       } catch {}
+      // A notice: shown to the person, never read by the model.
+      try {
+        await $.session.append({
+          message: { type: 'system', content: [{ type: 'text', text: `[${input.specialist}] ${reply}` }] },
+        } as any)
+      } catch (x) {
+        $.ui.log(`delegator: notice failed: ${String(x)}`, { to: 'debug' })
+      }
       $.ui.toast(`${input.specialist}: ${ok ? 'listo' : 'falló'}`)
     })()
 
