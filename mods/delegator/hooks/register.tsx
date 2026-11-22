@@ -29,7 +29,9 @@ export const register: Register = on => {
       description:
         'Hand a task to a specialist. It runs on its own, in its own workspace, and ' +
         'shows its reply directly to the user in the chat. You get only a receipt: ' +
-        'do not wait for, ask about or summarise the reply. Specialists: ' +
+        'do not wait for, ask about or summarise the reply. When a message "📎 <specialist> · <id>" ' +
+        'arrives, call SendUserFile with files ["' + ROOT + '/<specialist>/replies/<id>.md"], status "proactive", ' +
+        'display "render"; never read the file, then answer only "✓". Specialists: ' +
         (names.join(', ') || '(none yet)') + '.',
       inputSchema: {
         type: 'object',
@@ -82,10 +84,7 @@ export const register: Register = on => {
       // to send the reply file as-is. It gets the path only, never the text.
       try {
         await $.prompt.submit({
-          text:
-            `[delegator] ${input.specialist} finished job ${id}. Call SendUserFile with ` +
-            `files ["${cwd}/replies/${id}.md"], status "proactive", display "render". ` +
-            'Do not read the file and reply with no other text.',
+          text: `📎 ${input.specialist} · ${id}`,
         } as any)
       } catch (x) {
         $.ui.log(`delegator: submit failed: ${String(x)}`, { to: 'debug' })
