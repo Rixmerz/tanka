@@ -19,13 +19,13 @@ schedules, without burning the delegator's tokens.
 
 | # | Scope | Status |
 |---|---|---|
-| 1 | Registry, agent template, `create_agent` / `edit_agent` / `list_agents` / `archive_agent`, `delegate` with model and effort, file-card delivery | in progress |
-| 2 | Memory: notes imported by each agent's CLAUDE.md and updated at the end of each task; the mod commits and pushes them | in progress |
+| 1 | Registry, agent template, `create_agent` / `edit_agent` / `list_agents` / `archive_agent`, `delegate` with model and effort, file-card delivery | done |
+| 2 | Memory: notes imported by each agent's CLAUDE.md and updated at the end of each task; the mod commits and pushes them | done |
 | 3 | `compact` for the delegator (ported from locks: a good-moment hint, `why` / `keep` / `then`, `/compact` in cloud sessions) | todo |
 | 4 | Per-agent MCP servers and credentials (`.mcp.json` + environment secrets; one environment per group where isolation matters) | todo |
 | 5 | Per-agent routines on Claude's scheduled tasks: `create_agent_routine`, list, pause, delete; each firing starts a cloud session that runs the agent and leaves a report | todo |
 | 6 | `agent_command`: `check` (validate config and MCP), `reset-memory`, `stop`; commands to running routine sessions (verify which `/` commands a cloud session runs) | todo |
-| 7 | Environment setup script so the mod loads in every new session | todo |
+| 7 | Environment setup script so the mod loads in every new session | in progress: repo marketplace + project settings; setup script pending |
 
 ## Open items to design
 

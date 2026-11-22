@@ -1,0 +1,6 @@
+{
+  "extraKnownMarketplaces": {
+    "tanka": { "source": { "source": "github", "repo": "Rixmerz/tanka" } }
+  },
+  "enabledPlugins": { "tanka@tanka": true }
+}

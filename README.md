@@ -38,3 +38,14 @@ docs/plan.md              the roadmap
 | `edit_agent(...)` | changes an agent's description, category, model, effort or instructions |
 | `list_agents()` | the registry |
 | `archive_agent(name)` | moves an agent to `agents/_archived/` |
+
+## Install
+
+The repository is its own plugin marketplace. A session opened on this repo
+picks the plugin up from `.claude/settings.json` (once this branch is merged
+to the default branch). By hand:
+
+```
+/plugin marketplace add Rixmerz/tanka
+/plugin install tanka@tanka
+```
