@@ -21,7 +21,7 @@ async function specialists($: any): Promise<string[]> {
 }
 
 const ICONS: Record<string, string> = { investigador: '🔎', codigo: '💻' }
-const MAX = 4000
+const MAX = 0 // always hand the reply over as a file: the model sees only the id
 
 // The text the user sees in the plugin's bubble. Long replies go as a file.
 function bubble(specialist: string, id: string, ok: boolean, reply: string): string {
@@ -30,7 +30,7 @@ function bubble(specialist: string, id: string, ok: boolean, reply: string): str
   const head = `${icon} ${name}${ok ? '' : ' · ⚠️ error'}`
   const line = '━━━━━━━━━━━━━━'
   if (reply.length > MAX) {
-    return `📎 ${specialist} · ${id}\n${head}: respuesta larga, va como archivo.`
+    return `📎 ${specialist} · ${id}`
   }
   return `${head}\n${line}\n\n${reply}\n\n${line}\n🆔 ${id}`
 }
