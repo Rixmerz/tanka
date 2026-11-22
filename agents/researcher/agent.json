@@ -1,0 +1,8 @@
+{
+  "name": "researcher",
+  "description": "Researches any topic on the web and returns a concise, sourced synthesis.",
+  "category": "research",
+  "model": "sonnet",
+  "effort": "medium",
+  "created": "2026-11-22T02:59:52.716Z"
+}
