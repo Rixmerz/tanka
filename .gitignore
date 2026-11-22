@@ -5,3 +5,4 @@ __pycache__/
 .claude/settings.local.json
 specialists/*/replies/*
 !specialists/*/replies/.gitkeep
+.delegator-mod-disabled-local/
