@@ -44,7 +44,7 @@ export const register: Register = on => {
   })
 
   on('tool.run', { tool: TOOL }, async ($, e) => {
-    const input = (e as any).input as { specialist: string; task: string }
+    const input = e as unknown as { specialist: string; task: string }
     const names = await specialists($)
     if (!names.includes(input.specialist)) {
       return { deny: `Unknown specialist "${input.specialist}". Known: ${names.join(', ')}` }
