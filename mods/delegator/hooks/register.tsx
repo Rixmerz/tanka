@@ -20,6 +20,21 @@ async function specialists($: any): Promise<string[]> {
   }
 }
 
+const ICONS: Record<string, string> = { investigador: '🔎', codigo: '💻' }
+const MAX = 4000
+
+// The text the user sees in the plugin's bubble. Long replies go as a file.
+function bubble(specialist: string, id: string, ok: boolean, reply: string): string {
+  const icon = ICONS[specialist] ?? '🤖'
+  const name = specialist.charAt(0).toUpperCase() + specialist.slice(1)
+  const head = `${icon} ${name}${ok ? '' : ' · ⚠️ error'}`
+  const line = '━━━━━━━━━━━━━━'
+  if (reply.length > MAX) {
+    return `📎 ${specialist} · ${id}\n${head}: respuesta larga, va como archivo.`
+  }
+  return `${head}\n${line}\n\n${reply}\n\n${line}\n🆔 ${id}`
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const names = await specialists($)
@@ -29,7 +44,9 @@ export const register: Register = on => {
       description:
         'Hand a task to a specialist. It runs on its own, in its own workspace, and ' +
         'shows its reply directly to the user in the chat. You get only a receipt: ' +
-        'do not wait for, ask about or summarise the reply. When a message "📎 <specialist> · <id>" ' +
+        'do not wait for, ask about or summarise the reply. A finished reply arrives as a plugin message; ' +
+        'if it is a full reply (ends with "🆔 <id>"), answer only "✓" and never comment on it. ' +
+        'If it starts "📎 <specialist> · <id>" (too long for text), ' +
         'arrives, call SendUserFile with files ["' + ROOT + '/<specialist>/replies/<id>.md"], status "proactive", ' +
         'display "render"; never read the file, then answer only "✓". Specialists: ' +
         (names.join(', ') || '(none yet)') + '.',
@@ -84,7 +101,7 @@ export const register: Register = on => {
       // to send the reply file as-is. It gets the path only, never the text.
       try {
         await $.prompt.submit({
-          text: `📎 ${input.specialist} · ${id}`,
+          text: bubble(input.specialist, id, ok, reply),
         } as any)
       } catch (x) {
         $.ui.log(`delegator: submit failed: ${String(x)}`, { to: 'debug' })
