@@ -9,9 +9,10 @@ const AGENTS = `${ROOT}/agents`
 const TEMPLATE = `${ROOT}/templates/agent`
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+const MODES = ['bypassPermissions', 'acceptEdits', 'dontAsk', 'default', 'plan']
 const NAME = /^[a-z][a-z0-9-]{1,31}$/
 
-type Agent = { name: string; description: string; category: string; model: string; effort: string }
+type Agent = { name: string; description: string; category: string; model: string; effort: string; permissionMode?: string }
 
 const jobs = atom({ plugin: 'tanka', key: 'jobs' } as const, [], { shape: 'jobs-1' })
 
@@ -30,7 +31,7 @@ async function agents($: any): Promise<Agent[]> {
 
 const registry = (list: Agent[]) =>
   list.length
-    ? list.map(a => `- ${a.name} [${a.category}] ${a.model}/${a.effort}: ${a.description}`).join('\n')
+    ? list.map(a => `- ${a.name} [${a.category}] ${a.model}/${a.effort}/${a.permissionMode ?? 'bypassPermissions'}: ${a.description}`).join('\n')
     : '(no agents yet: create one with create_agent)'
 
 // Commit (and push) changes under one agent's folder: memory and config live in git.
@@ -53,8 +54,8 @@ async function registerTools($: any) {
     name: 'delegate',
     isDeferred: false,
     description:
-      'Run a task on an agent, with its own model, effort, tools and memory. You get only a receipt; ' +
-      'answer only "✓". When "📎 <agent> · <id>" arrives later, send the user the report file ' +
+      'Run a task on an agent, with its own model, effort, permissions, tools and memory. You get only a receipt; ' +
+      'answer only "✓". The report usually reaches the user on its own. Only if "📎 <agent> · <id>" arrives later, send the user the report file ' +
       `${AGENTS}/<agent>/reports/<id>.md with SendUserFile (status "proactive", display "render") ` +
       'without reading it, then answer only "✓".\n\nAgents:\n' + registry(list),
     inputSchema: {
@@ -71,6 +72,7 @@ async function registerTools($: any) {
     category: { type: 'string', description: 'A group, e.g. research, code, comms, ops.' },
     model: { type: 'string', enum: MODELS },
     effort: { type: 'string', enum: EFFORTS },
+    permission_mode: { type: 'string', enum: MODES, description: 'How the agent runs its tools. bypassPermissions (default) never stops to ask; acceptEdits allows file edits only.' },
     instructions: { type: 'string', description: 'The agent\'s role and rules, in English, for its CLAUDE.md.' },
   }
   await $.tool.register({
@@ -117,11 +119,13 @@ export const register: Register = on => {
     const cp = await run($, ['cp', '-r', TEMPLATE, dir])
     if (cp.exitCode !== 0) return { deny: cp.stderr }
     await $.fs.write(`${dir}/CLAUDE.md`, fill(await $.fs.read(`${dir}/CLAUDE.md`), a))
-    const meta: Agent = { name: a.name, description: a.description, category: a.category, model: a.model, effort: a.effort }
+    const mode = (e as any).permission_mode ?? 'bypassPermissions'
+    if (!MODES.includes(mode)) return { deny: `permission_mode: ${MODES.join('|')}` }
+    const meta: Agent = { name: a.name, description: a.description, category: a.category, model: a.model, effort: a.effort, permissionMode: mode }
     await $.fs.write(`${dir}/agent.json`, JSON.stringify({ ...meta, created: new Date().toISOString() }, null, 2) + '\n')
     await save($, dir, `Create agent ${a.name}`)
     await registerTools($)
-    return { result: `Created ${a.name} (${a.category}, ${a.model}/${a.effort}).` }
+    return { result: `Created ${a.name} (${a.category}, ${a.model}/${a.effort}, ${mode}).` }
   })
 
   on('tool.run', { tool: 'mcp__tanka__edit_agent' }, async ($, e) => {
@@ -132,6 +136,9 @@ export const register: Register = on => {
     if (a.model && !MODELS.includes(a.model)) return { deny: `model: ${MODELS.join('|')}` }
     if (a.effort && !EFFORTS.includes(a.effort)) return { deny: `effort: ${EFFORTS.join('|')}` }
     for (const k of ['description', 'category', 'model', 'effort'] as const) if (a[k]) meta[k] = a[k]
+    const mode = (e as any).permission_mode
+    if (mode && !MODES.includes(mode)) return { deny: `permission_mode: ${MODES.join('|')}` }
+    if (mode) meta.permissionMode = mode
     await $.fs.write(`${dir}/agent.json`, JSON.stringify(meta, null, 2) + '\n')
     let md: string = await $.fs.read(`${dir}/CLAUDE.md`)
     if (a.description) md = md.replace(/^(# Agent: .*\n\n)(.*)\n/, `$1${a.description}\n`)
@@ -167,7 +174,8 @@ export const register: Register = on => {
       let code: number | null = null
       try {
         const child = $.process.spawn({
-          argv: ['claude', '-p', task, '--model', meta.model, '--effort', meta.effort, '--output-format', 'text'],
+          argv: ['claude', '-p', task, '--model', meta.model, '--effort', meta.effort,
+            '--permission-mode', meta.permissionMode ?? 'bypassPermissions', '--output-format', 'text'],
           cwd,
         })
         for await (const piece of child) {
@@ -183,6 +191,22 @@ export const register: Register = on => {
       await $.fs.write(`${cwd}/reports/${id}.md`, `# ${agent}\n\n> ${task.replaceAll('\n', ' ').slice(0, 300)}\n\n${body}\n`)
       await update($, jobs, list => list.map(j => (j.id === id ? { ...j, status: ok ? 'done' as const : 'error' as const } : j)))
       try { await save($, `agents/${agent}/memory`, `${agent}: update memory`) } catch {}
+      // Deliver the report straight to the user, with no model turn. Only if the
+      // engine refuses does the delegator get a "📎" prompt to send it itself.
+      let sent = false
+      try {
+        const r: any = await $.tool.call({
+          tool: 'SendUserFile', files: [`${cwd}/reports/${id}.md`], status: 'proactive', display: 'render',
+        } as any)
+        sent = !r?.deny
+        if (!sent) $.ui.log(`tanka: SendUserFile denied: ${r.deny}`, { to: 'debug' })
+      } catch (x) {
+        $.ui.log(`tanka: SendUserFile failed: ${String(x)}`, { to: 'debug' })
+      }
+      if (sent) {
+        $.ui.toast(`${agent}: report sent`)
+        return
+      }
       try {
         await $.prompt.submit({ text: `📎 ${agent} · ${id}` } as any)
       } catch (x) {
